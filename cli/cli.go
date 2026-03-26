@@ -23,37 +23,35 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/routeragent"
+	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vagents/vaga/config"
 )
 
 // App holds the CLI TUI application state.
 type App struct {
-	routeFn   routeragent.RouteFunc
-	routes    []routeragent.Route
-	coder     agent.StreamAgent
-	chat      agent.StreamAgent
-	cfg       *config.Config
-	sessionID string
-	history   []schema.Message
-	messages  []DisplayMessage
-	program   *tea.Program
+	routeFn       routeragent.RouteFunc
+	routes        []routeragent.Route
+	cfg           *config.Config
+	sessionID     string
+	history       []schema.Message
+	messages      []DisplayMessage
+	program       *tea.Program
+	persistentMem memory.Memory // for /memory commands
 }
 
 // New creates a new CLI App.
 func New(
 	routeFn routeragent.RouteFunc,
 	routes []routeragent.Route,
-	coder agent.StreamAgent,
-	chat agent.StreamAgent,
 	cfg *config.Config,
+	persistentMem memory.Memory,
 ) *App {
 	return &App{
-		routeFn: routeFn,
-		routes:  routes,
-		coder:   coder,
-		chat:    chat,
-		cfg:     cfg,
+		routeFn:       routeFn,
+		routes:        routes,
+		cfg:           cfg,
+		persistentMem: persistentMem,
 	}
 }
 
@@ -149,7 +147,9 @@ func newModel(app *App, ctx context.Context) *model {
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 
 	vp := viewport.New(80, 20)
-	vp.SetContent("Welcome to vaga CLI. Type a message to begin.\n")
+	welcome := fmt.Sprintf("Welcome to vaga CLI. (provider: %s, model: %s)\nType a message to begin.\n",
+		app.cfg.LLM.Provider, app.cfg.LLM.Model)
+	vp.SetContent(welcome)
 
 	m := &model{
 		app:             app,
@@ -333,6 +333,12 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	if isExitCommand(input) {
 		return m, tea.Quit
+	}
+
+	// Handle /memory commands before agent routing.
+	if m.handleCommand(input) {
+		m.textarea.Reset()
+		return m, nil
 	}
 
 	m.textarea.Reset()

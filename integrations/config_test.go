@@ -212,3 +212,77 @@ func TestIntegration_Config_UnknownProvider(t *testing.T) {
 		t.Errorf("error = %q, expected to contain 'unsupported LLM provider'", err.Error())
 	}
 }
+
+// --- Test 9: Memory configuration defaults are applied correctly ---
+// Verifies that MemoryConfig fields get proper defaults when not specified.
+func TestIntegration_Config_MemoryDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(path, true)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	if cfg.Memory.SessionWindow != 50 {
+		t.Errorf("default SessionWindow = %d, want 50", cfg.Memory.SessionWindow)
+	}
+
+	if cfg.Memory.MaxConcurrency != 2 {
+		t.Errorf("default MaxConcurrency = %d, want 2", cfg.Memory.MaxConcurrency)
+	}
+
+	if cfg.Memory.Dir == "" {
+		t.Error("default Memory.Dir should not be empty")
+	}
+
+	if !strings.HasSuffix(cfg.Memory.Dir, "memory") {
+		t.Errorf("default Memory.Dir = %q, expected to end with 'memory'", cfg.Memory.Dir)
+	}
+}
+
+// --- Test: Memory configuration from YAML ---
+// Verifies that explicit memory config values are loaded from YAML.
+func TestIntegration_Config_MemoryFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  provider: "openai"
+  model: "test-model"
+  api_key: "test-key"
+memory:
+  dir: "/tmp/test-memory"
+  session_window: 100
+  persistent_load: true
+  max_concurrency: 4
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(path, true)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	if cfg.Memory.Dir != "/tmp/test-memory" {
+		t.Errorf("Memory.Dir = %q, want %q", cfg.Memory.Dir, "/tmp/test-memory")
+	}
+
+	if cfg.Memory.SessionWindow != 100 {
+		t.Errorf("Memory.SessionWindow = %d, want 100", cfg.Memory.SessionWindow)
+	}
+
+	if cfg.Memory.MaxConcurrency != 4 {
+		t.Errorf("Memory.MaxConcurrency = %d, want 4", cfg.Memory.MaxConcurrency)
+	}
+
+	if !cfg.Memory.PersistentLoad {
+		t.Error("Memory.PersistentLoad = false, want true")
+	}
+}

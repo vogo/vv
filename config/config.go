@@ -12,6 +12,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// MemoryConfig holds memory configuration.
+type MemoryConfig struct {
+	Dir            string `yaml:"dir"`             // default ~/.vaga/memory/
+	SessionWindow  int    `yaml:"session_window"`  // sliding window size, default 50
+	PersistentLoad bool   `yaml:"persistent_load"` // load at startup, default true
+	MaxConcurrency int    `yaml:"max_concurrency"` // planner DAG concurrency, default 2
+}
+
 // DefaultDir returns the default vaga config directory (~/.vaga).
 func DefaultDir() string {
 	home, err := os.UserHomeDir()
@@ -35,6 +43,7 @@ type Config struct {
 	Agents AgentsConfig `yaml:"agents"`
 	Mode   string       `yaml:"mode"` // "cli" or "http"; default "cli"
 	CLI    CLIConfig    `yaml:"cli"`
+	Memory MemoryConfig `yaml:"memory"`
 }
 
 // CLIConfig holds CLI-specific configuration.
@@ -201,6 +210,17 @@ func applyDefaults(cfg *Config) {
 		if cfg.LLM.BaseURL == "" {
 			cfg.LLM.BaseURL = "https://api.openai.com/v1"
 		}
+	}
+
+	// Memory defaults.
+	if cfg.Memory.SessionWindow == 0 {
+		cfg.Memory.SessionWindow = 50
+	}
+	if cfg.Memory.Dir == "" {
+		cfg.Memory.Dir = filepath.Join(DefaultDir(), "memory")
+	}
+	if cfg.Memory.MaxConcurrency == 0 {
+		cfg.Memory.MaxConcurrency = 2
 	}
 }
 

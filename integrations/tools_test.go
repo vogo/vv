@@ -66,3 +66,65 @@ func TestIntegration_Tools_ZeroConfig(t *testing.T) {
 		t.Errorf("got %d tools with zero config, want 6", len(reg.List()))
 	}
 }
+
+// --- Test: RegisterReadOnly creates a registry with exactly 3 read-only tools ---
+func TestIntegration_Tools_RegisterReadOnly(t *testing.T) {
+	reg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	if err != nil {
+		t.Fatalf("tools.RegisterReadOnly: %v", err)
+	}
+
+	toolList := reg.List()
+	if len(toolList) != 3 {
+		t.Fatalf("read-only registry has %d tools, want 3", len(toolList))
+	}
+
+	names := make(map[string]bool)
+	for _, td := range toolList {
+		names[td.Name] = true
+	}
+
+	for _, want := range []string{"file_read", "glob", "grep"} {
+		if !names[want] {
+			t.Errorf("read-only registry missing tool %q", want)
+		}
+	}
+
+	// Verify dangerous tools are absent.
+	for _, absent := range []string{"bash", "file_write", "file_edit"} {
+		if names[absent] {
+			t.Errorf("read-only registry should not have tool %q", absent)
+		}
+	}
+}
+
+// --- Test: RegisterReviewTools creates a registry with exactly 4 tools (read + bash) ---
+func TestIntegration_Tools_RegisterReviewTools(t *testing.T) {
+	reg, err := tools.RegisterReviewTools(config.ToolsConfig{BashTimeout: 30})
+	if err != nil {
+		t.Fatalf("tools.RegisterReviewTools: %v", err)
+	}
+
+	toolList := reg.List()
+	if len(toolList) != 4 {
+		t.Fatalf("review registry has %d tools, want 4", len(toolList))
+	}
+
+	names := make(map[string]bool)
+	for _, td := range toolList {
+		names[td.Name] = true
+	}
+
+	for _, want := range []string{"bash", "file_read", "glob", "grep"} {
+		if !names[want] {
+			t.Errorf("review registry missing tool %q", want)
+		}
+	}
+
+	// Verify write/edit tools are absent.
+	for _, absent := range []string{"file_write", "file_edit"} {
+		if names[absent] {
+			t.Errorf("review registry should not have tool %q", absent)
+		}
+	}
+}

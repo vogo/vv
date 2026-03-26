@@ -258,7 +258,7 @@ func TestIntegration_CLI_AppConstruction(t *testing.T) {
 		CLI:  config.CLIConfig{ConfirmTools: []string{"bash"}},
 	}
 
-	app := vagacli.New(routeFn, routes, coder, chat, cfg)
+	app := vagacli.New(routeFn, routes, cfg, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -403,25 +403,27 @@ func TestIntegration_CLI_AgentsCreateWithWrappedRegistry(t *testing.T) {
 	// Wrap registry (as main.go does).
 	wrapped := vagacli.WrapRegistry(reg, cfg.CLI.ConfirmTools)
 
-	// Create agents with wrapped registry -- should work without error.
-	coder, chat := agents.Create(cfg, mock, wrapped)
+	cfg.Memory = config.MemoryConfig{MaxConcurrency: 2}
 
-	if coder.ID() != "coder" {
-		t.Errorf("coder ID = %q, want %q", coder.ID(), "coder")
+	// Create agents with wrapped registry -- should work without error.
+	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
+
+	if allAgents.Coder.ID() != "coder" {
+		t.Errorf("coder ID = %q, want %q", allAgents.Coder.ID(), "coder")
 	}
 
-	if chat.ID() != "chat" {
-		t.Errorf("chat ID = %q, want %q", chat.ID(), "chat")
+	if allAgents.Chat.ID() != "chat" {
+		t.Errorf("chat ID = %q, want %q", allAgents.Chat.ID(), "chat")
 	}
 
 	// Coder should still have tools.
-	if len(coder.Tools()) != 6 {
-		t.Errorf("coder tool count = %d, want 6", len(coder.Tools()))
+	if len(allAgents.Coder.Tools()) != 6 {
+		t.Errorf("coder tool count = %d, want 6", len(allAgents.Coder.Tools()))
 	}
 
 	// Chat should have no tools.
-	if len(chat.Tools()) != 0 {
-		t.Errorf("chat tool count = %d, want 0", len(chat.Tools()))
+	if len(allAgents.Chat.Tools()) != 0 {
+		t.Errorf("chat tool count = %d, want 0", len(allAgents.Chat.Tools()))
 	}
 }
 
@@ -475,19 +477,19 @@ tools:
 	// Wrap registry as main.go does.
 	wrapped := vagacli.WrapRegistry(toolRegistry, cfg.CLI.ConfirmTools)
 
-	coder, chat := agents.Create(cfg, mock, wrapped)
-	router := agents.CreateRouter(cfg, mock, coder, chat)
+	cfg.Memory = config.MemoryConfig{MaxConcurrency: 2}
+	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
 
-	if router.ID() != "router" {
-		t.Errorf("router ID = %q, want %q", router.ID(), "router")
+	if allAgents.Router.ID() != "router" {
+		t.Errorf("router ID = %q, want %q", allAgents.Router.ID(), "router")
 	}
 
-	if coder.ID() != "coder" {
-		t.Errorf("coder ID = %q, want %q", coder.ID(), "coder")
+	if allAgents.Coder.ID() != "coder" {
+		t.Errorf("coder ID = %q, want %q", allAgents.Coder.ID(), "coder")
 	}
 
-	if chat.ID() != "chat" {
-		t.Errorf("chat ID = %q, want %q", chat.ID(), "chat")
+	if allAgents.Chat.ID() != "chat" {
+		t.Errorf("chat ID = %q, want %q", allAgents.Chat.ID(), "chat")
 	}
 
 	// Verify wrapped registry preserves tool list.
@@ -540,16 +542,18 @@ agents:
 		},
 	}
 
-	coder, chat := agents.Create(cfg, mock, toolRegistry)
-	router := agents.CreateRouter(cfg, mock, coder, chat)
+	cfg.Memory = config.MemoryConfig{MaxConcurrency: 2}
+	allAgents := agents.Create(cfg, mock, toolRegistry, toolRegistry, toolRegistry, nil, nil)
 
 	svc := service.New(
 		service.Config{Addr: ":0"},
 		service.WithToolRegistry(toolRegistry),
 	)
-	svc.RegisterAgent(router)
-	svc.RegisterAgent(coder)
-	svc.RegisterAgent(chat)
+	svc.RegisterAgent(allAgents.Router)
+	svc.RegisterAgent(allAgents.Coder)
+	svc.RegisterAgent(allAgents.Chat)
+	svc.RegisterAgent(allAgents.Researcher)
+	svc.RegisterAgent(allAgents.Reviewer)
 
 	ts := httptest.NewServer(svc.Handler())
 	defer ts.Close()
@@ -565,7 +569,7 @@ agents:
 		t.Errorf("health status = %d, want %d", healthResp.StatusCode, http.StatusOK)
 	}
 
-	// Verify agent listing still returns 3 agents.
+	// Verify agent listing returns 5 agents (router, coder, chat, researcher, reviewer).
 	agentsResp, err := ts.Client().Get(ts.URL + "/v1/agents")
 	if err != nil {
 		t.Fatalf("GET /v1/agents: %v", err)
@@ -574,8 +578,8 @@ agents:
 
 	var agentList []struct{ ID string }
 	_ = json.NewDecoder(agentsResp.Body).Decode(&agentList)
-	if len(agentList) != 3 {
-		t.Errorf("agent count = %d, want 3", len(agentList))
+	if len(agentList) != 5 {
+		t.Errorf("agent count = %d, want 5", len(agentList))
 	}
 
 	// Verify sync run still works.
@@ -622,7 +626,7 @@ func TestIntegration_CLI_AgentRoutingCoder(t *testing.T) {
 	// Use a routeFn that uses the mock LLM to route.
 	routeFn := routeragent.LLMFunc(mock, cfg.LLM.Model, 1)
 
-	app := vagacli.New(routeFn, routes, coder, chat, cfg)
+	app := vagacli.New(routeFn, routes, cfg, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -658,7 +662,7 @@ func TestIntegration_CLI_AgentRoutingChat(t *testing.T) {
 
 	routeFn := routeragent.LLMFunc(mock, cfg.LLM.Model, 1)
 
-	app := vagacli.New(routeFn, routes, coder, chat, cfg)
+	app := vagacli.New(routeFn, routes, cfg, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -738,7 +742,7 @@ func TestIntegration_CLI_MultiTurnHistory(t *testing.T) {
 	}
 
 	cfg := &config.Config{Mode: "cli"}
-	app := vagacli.New(routeFn, routes, coder, chat, cfg)
+	app := vagacli.New(routeFn, routes, cfg, nil)
 
 	// Simulate 3 turns of conversation by verifying message structure.
 	// Turn 1: user message.

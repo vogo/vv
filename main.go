@@ -2,18 +2,23 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/vogo/vage/agent/routeragent"
+	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vagents/vaga/agents"
 	vagacli "github.com/vogo/vagents/vaga/cli"
 	"github.com/vogo/vagents/vaga/config"
+	vagamemory "github.com/vogo/vagents/vaga/memory"
 	"github.com/vogo/vagents/vaga/tools"
 )
 
@@ -81,11 +86,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("vaga: LLM client created",
-		"provider", cfg.LLM.Provider,
-		"model", cfg.LLM.Model,
-	)
-
 	// Register tools.
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
@@ -94,16 +94,43 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("vaga: tools registered", "count", len(toolRegistry.List()))
+	// Register read-only and review tool registries.
+	readOnlyReg, err := tools.RegisterReadOnly(cfg.Tools)
+	if err != nil {
+		slog.Error("vaga: register read-only tools", "error", err)
+		os.Exit(1)
+	}
 
-	// Create agents.
-	reg := vagacli.WrapRegistry(toolRegistry, cfg.CLI.ConfirmTools)
-	coderAgent, chatAgent := agents.Create(cfg, llmClient, reg)
-	router := agents.CreateRouter(cfg, llmClient, coderAgent, chatAgent)
+	reviewReg, err := tools.RegisterReviewTools(cfg.Tools)
+	if err != nil {
+		slog.Error("vaga: register review tools", "error", err)
+		os.Exit(1)
+	}
 
-	slog.Info("vaga: agents created",
-		"agents", []string{router.ID(), coderAgent.ID(), chatAgent.ID()},
+	// Create persistent memory with FileStore backend.
+	fileStore, err := vagamemory.NewFileStore(cfg.Memory.Dir)
+	if err != nil {
+		slog.Error("vaga: create file store", "error", err)
+		os.Exit(1)
+	}
+
+	persistentMem := memory.NewPersistentMemoryWithStore(fileStore)
+
+	// Create memory manager.
+	memMgr := memory.NewManager(
+		memory.WithStore(persistentMem),
+		memory.WithPromoter(memory.PromoteAll()),
+		memory.WithCompressor(memory.NewSlidingWindowCompressor(cfg.Memory.SessionWindow)),
 	)
+
+	// Create persistent memory prompt for coder.
+	persistentPrompt := agents.NewPersistentMemoryPrompt(agents.CoderSystemPrompt, persistentMem)
+
+	// Wrap coder registry with confirmation.
+	coderReg := vagacli.WrapRegistry(toolRegistry, cfg.CLI.ConfirmTools)
+
+	// Create all agents.
+	allAgents := agents.Create(cfg, llmClient, coderReg, readOnlyReg, reviewReg, memMgr, persistentPrompt)
 
 	// Graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -116,13 +143,41 @@ func main() {
 			service.Config{Addr: cfg.Server.Addr},
 			service.WithToolRegistry(toolRegistry),
 		)
-		svc.RegisterAgent(router)
-		svc.RegisterAgent(coderAgent)
-		svc.RegisterAgent(chatAgent)
+		svc.RegisterAgent(allAgents.Router)
+		svc.RegisterAgent(allAgents.Coder)
+		svc.RegisterAgent(allAgents.Chat)
+		svc.RegisterAgent(allAgents.Researcher)
+		svc.RegisterAgent(allAgents.Reviewer)
+
+		// Build a custom mux that wraps the service handler with memory endpoints.
+		// We cannot use svc.Start(ctx) because it builds its own internal mux,
+		// ignoring any custom routes. Instead, we start an http.Server manually
+		// using svc.Handler() as the base, extended with memory endpoints.
+		svcHandler := svc.Handler()
+		mux := http.NewServeMux()
+		mux.Handle("/", svcHandler)
+		mux.HandleFunc("GET /v1/memory", handleListMemory(persistentMem))
+		mux.HandleFunc("GET /v1/memory/{namespace}/{key}", handleGetMemory(persistentMem))
+		mux.HandleFunc("PUT /v1/memory/{namespace}/{key}", handleSetMemory(persistentMem))
+		mux.HandleFunc("DELETE /v1/memory/{namespace}/{key}", handleDeleteMemory(persistentMem))
 
 		slog.Info("vaga: starting HTTP server", "addr", cfg.Server.Addr)
 
-		if err := svc.Start(ctx); err != nil {
+		ln, err := net.Listen("tcp", cfg.Server.Addr)
+		if err != nil {
+			slog.Error("vaga: listen", "error", err)
+			os.Exit(1)
+		}
+
+		server := &http.Server{Handler: mux}
+
+		// Shut down when context is canceled.
+		go func() {
+			<-ctx.Done()
+			_ = server.Shutdown(context.Background())
+		}()
+
+		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("vaga: server error", "error", err)
 			os.Exit(1)
 		}
@@ -130,16 +185,153 @@ func main() {
 		slog.Info("vaga: shutdown complete")
 
 	default: // "cli" or any other value defaults to CLI mode.
-		routeFn := routeragent.LLMFunc(llmClient, cfg.LLM.Model, 1)
+		routeFn := routeragent.LLMFunc(llmClient, cfg.LLM.Model, 4) // fallback=4 (chat)
 		routes := []routeragent.Route{
-			{Agent: coderAgent, Description: "Handles code-related tasks: reading files, writing code, editing files, running commands, searching codebases, debugging, and software engineering tasks"},
-			{Agent: chatAgent, Description: "Handles general conversation, questions, explanations, brainstorming, and non-coding tasks"},
+			{Agent: allAgents.Coder, Description: "Handles code-related tasks: reading, writing, editing files, running commands, debugging"},
+			{Agent: allAgents.Planner, Description: "Handles complex multi-step tasks: project setup, large refactors, multi-file coordinated changes"},
+			{Agent: allAgents.Researcher, Description: "Handles research tasks: codebase exploration, documentation lookup, information gathering"},
+			{Agent: allAgents.Reviewer, Description: "Handles review tasks: code review, design review, quality assessment"},
+			{Agent: allAgents.Chat, Description: "Handles general conversation, questions, explanations, brainstorming"},
 		}
 
-		app := vagacli.New(routeFn, routes, coderAgent, chatAgent, cfg)
+		app := vagacli.New(routeFn, routes, cfg, persistentMem)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vaga: CLI error", "error", err)
 			os.Exit(1)
 		}
 	}
+}
+
+// HTTP Memory Endpoints
+
+type memorySetRequest struct {
+	Content string `json:"content"`
+}
+
+type memoryListResponse struct {
+	Entries []memoryEntryResponse `json:"entries"`
+}
+
+type memoryEntryResponse struct {
+	Namespace string `json:"namespace"`
+	Key       string `json:"key"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+func handleListMemory(mem memory.Memory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ns := r.URL.Query().Get("namespace")
+		prefix := ns
+		entries, err := mem.List(r.Context(), prefix)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
+			return
+		}
+
+		resp := memoryListResponse{Entries: make([]memoryEntryResponse, len(entries))}
+		for i, e := range entries {
+			eNs, eKey := splitKey(e.Key)
+			resp.Entries[i] = memoryEntryResponse{
+				Namespace: eNs,
+				Key:       eKey,
+				Content:   fmt.Sprintf("%v", e.Value),
+				CreatedAt: e.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			}
+		}
+
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+func handleGetMemory(mem memory.Memory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ns := r.PathValue("namespace")
+		key := r.PathValue("key")
+		fullKey := ns + ":" + key
+
+		val, err := mem.Get(r.Context(), fullKey)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
+			return
+		}
+
+		if val == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"code": "not_found", "message": "memory entry not found"})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, memoryEntryResponse{
+			Namespace: ns,
+			Key:       key,
+			Content:   fmt.Sprintf("%v", val),
+		})
+	}
+}
+
+func handleSetMemory(mem memory.Memory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ns := r.PathValue("namespace")
+		key := r.PathValue("key")
+		fullKey := ns + ":" + key
+
+		var req memorySetRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"code": "bad_request", "message": "invalid request body"})
+			return
+		}
+
+		if err := mem.Set(r.Context(), fullKey, req.Content, 0); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, memoryEntryResponse{
+			Namespace: ns,
+			Key:       key,
+			Content:   req.Content,
+		})
+	}
+}
+
+func handleDeleteMemory(mem memory.Memory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ns := r.PathValue("namespace")
+		key := r.PathValue("key")
+		fullKey := ns + ":" + key
+
+		// Check existence first.
+		val, err := mem.Get(r.Context(), fullKey)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
+			return
+		}
+		if val == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"code": "not_found", "message": "memory entry not found"})
+			return
+		}
+
+		if err := mem.Delete(r.Context(), fullKey); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func splitKey(key string) (string, string) {
+	for i, c := range key {
+		if c == ':' {
+			return key[:i], key[i+1:]
+		}
+	}
+	return "default", key
 }

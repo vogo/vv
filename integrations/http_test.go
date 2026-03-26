@@ -14,9 +14,11 @@ import (
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vagents/vaga/config"
+	vagamemory "github.com/vogo/vagents/vaga/memory"
 	"github.com/vogo/vagents/vaga/tools"
 )
 
@@ -497,4 +499,348 @@ func TestIntegration_HTTP_InvalidRequestBody(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
+}
+
+// --- Test 11: HTTP Memory API ---
+// setupMemoryTestServer creates an httptest.Server with memory endpoints registered.
+// It returns the server and a cleanup function.
+func setupMemoryTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	dir := t.TempDir()
+	fileStore, err := vagamemory.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	persistentMem := memory.NewPersistentMemoryWithStore(fileStore)
+
+	// Create a mux with memory endpoints matching main.go pattern.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/memory", memoryListHandler(persistentMem))
+	mux.HandleFunc("GET /v1/memory/{namespace}/{key}", memoryGetHandler(persistentMem))
+	mux.HandleFunc("PUT /v1/memory/{namespace}/{key}", memorySetHandler(persistentMem))
+	mux.HandleFunc("DELETE /v1/memory/{namespace}/{key}", memoryDeleteHandler(persistentMem))
+
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// --- Test 11a: PUT memory entry creates it, GET retrieves it ---
+func TestIntegration_HTTP_MemorySetAndGet(t *testing.T) {
+	ts := setupMemoryTestServer(t)
+	client := ts.Client()
+
+	// PUT /v1/memory/project/conventions
+	body := `{"content":"Use gofumpt for formatting"}`
+	req, _ := http.NewRequest("PUT", ts.URL+"/v1/memory/project/conventions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("PUT status = %d, want %d, body: %s", resp.StatusCode, http.StatusOK, string(b))
+	}
+
+	var putResp map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&putResp)
+	if putResp["content"] != "Use gofumpt for formatting" {
+		t.Errorf("PUT response content = %v, want %q", putResp["content"], "Use gofumpt for formatting")
+	}
+
+	// GET /v1/memory/project/conventions
+	getResp, err := client.Get(ts.URL + "/v1/memory/project/conventions")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+
+	if getResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(getResp.Body)
+		t.Fatalf("GET status = %d, want %d, body: %s", getResp.StatusCode, http.StatusOK, string(b))
+	}
+
+	var entry map[string]any
+	_ = json.NewDecoder(getResp.Body).Decode(&entry)
+	if entry["content"] != "Use gofumpt for formatting" {
+		t.Errorf("GET content = %v, want %q", entry["content"], "Use gofumpt for formatting")
+	}
+	if entry["namespace"] != "project" {
+		t.Errorf("GET namespace = %v, want %q", entry["namespace"], "project")
+	}
+	if entry["key"] != "conventions" {
+		t.Errorf("GET key = %v, want %q", entry["key"], "conventions")
+	}
+}
+
+// --- Test 11b: GET /v1/memory lists all entries ---
+func TestIntegration_HTTP_MemoryList(t *testing.T) {
+	ts := setupMemoryTestServer(t)
+	client := ts.Client()
+
+	// PUT two entries.
+	for _, entry := range []struct{ ns, key, content string }{
+		{"project", "conventions", "Use gofumpt"},
+		{"user", "preferences", "Dark theme"},
+	} {
+		body := `{"content":"` + entry.content + `"}`
+		req, _ := http.NewRequest("PUT", ts.URL+"/v1/memory/"+entry.ns+"/"+entry.key, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("PUT %s/%s: %v", entry.ns, entry.key, err)
+		}
+		_ = resp.Body.Close()
+	}
+
+	// GET /v1/memory
+	listResp, err := client.Get(ts.URL + "/v1/memory")
+	if err != nil {
+		t.Fatalf("GET /v1/memory: %v", err)
+	}
+	defer func() { _ = listResp.Body.Close() }()
+
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", listResp.StatusCode, http.StatusOK)
+	}
+
+	var listBody struct {
+		Entries []map[string]any `json:"entries"`
+	}
+	_ = json.NewDecoder(listResp.Body).Decode(&listBody)
+
+	if len(listBody.Entries) != 2 {
+		t.Fatalf("list entries = %d, want 2", len(listBody.Entries))
+	}
+}
+
+// --- Test 11c: DELETE removes entry, subsequent GET returns 404 ---
+func TestIntegration_HTTP_MemoryDelete(t *testing.T) {
+	ts := setupMemoryTestServer(t)
+	client := ts.Client()
+
+	// PUT an entry.
+	body := `{"content":"temporary"}`
+	req, _ := http.NewRequest("PUT", ts.URL+"/v1/memory/project/temp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	// DELETE /v1/memory/project/temp
+	delReq, _ := http.NewRequest("DELETE", ts.URL+"/v1/memory/project/temp", nil)
+	delResp, err := client.Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	defer func() { _ = delResp.Body.Close() }()
+
+	if delResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(delResp.Body)
+		t.Fatalf("DELETE status = %d, want %d, body: %s", delResp.StatusCode, http.StatusOK, string(b))
+	}
+
+	// GET should now return 404.
+	getResp, err := client.Get(ts.URL + "/v1/memory/project/temp")
+	if err != nil {
+		t.Fatalf("GET after delete: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+
+	if getResp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET after delete status = %d, want %d", getResp.StatusCode, http.StatusNotFound)
+	}
+}
+
+// --- Test 11d: GET non-existent entry returns 404 ---
+func TestIntegration_HTTP_MemoryGetNotFound(t *testing.T) {
+	ts := setupMemoryTestServer(t)
+
+	resp, err := ts.Client().Get(ts.URL + "/v1/memory/nonexistent/key")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+
+	var errBody map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	if errBody["code"] != "not_found" {
+		t.Errorf("error code = %q, want %q", errBody["code"], "not_found")
+	}
+}
+
+// --- Test 11e: DELETE non-existent entry returns 404 ---
+func TestIntegration_HTTP_MemoryDeleteNotFound(t *testing.T) {
+	ts := setupMemoryTestServer(t)
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/v1/memory/nonexistent/key", nil)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+// --- Test 11f: GET /v1/memory with namespace filter ---
+func TestIntegration_HTTP_MemoryListNamespaceFilter(t *testing.T) {
+	ts := setupMemoryTestServer(t)
+	client := ts.Client()
+
+	// PUT entries in different namespaces.
+	for _, entry := range []struct{ ns, key, content string }{
+		{"project", "conventions", "fmt"},
+		{"project", "architecture", "clean arch"},
+		{"user", "preferences", "vim"},
+	} {
+		body := `{"content":"` + entry.content + `"}`
+		req, _ := http.NewRequest("PUT", ts.URL+"/v1/memory/"+entry.ns+"/"+entry.key, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, _ := client.Do(req)
+		_ = resp.Body.Close()
+	}
+
+	// GET /v1/memory?namespace=project
+	listResp, err := client.Get(ts.URL + "/v1/memory?namespace=project")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = listResp.Body.Close() }()
+
+	var listBody struct {
+		Entries []map[string]any `json:"entries"`
+	}
+	_ = json.NewDecoder(listResp.Body).Decode(&listBody)
+
+	if len(listBody.Entries) != 2 {
+		t.Errorf("filtered list = %d entries, want 2", len(listBody.Entries))
+	}
+}
+
+// --- HTTP Memory Handler functions (replicating main.go pattern for test isolation) ---
+
+func memoryListHandler(mem memory.Memory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ns := r.URL.Query().Get("namespace")
+		entries, err := mem.List(r.Context(), ns)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": "error", "message": err.Error()})
+			return
+		}
+		type entryResp struct {
+			Namespace string `json:"namespace"`
+			Key       string `json:"key"`
+			Content   string `json:"content"`
+		}
+		resp := struct {
+			Entries []entryResp `json:"entries"`
+		}{Entries: make([]entryResp, len(entries))}
+		for i, e := range entries {
+			eNs, eKey := splitTestKey(e.Key)
+			content := ""
+			if s, ok := e.Value.(string); ok {
+				content = s
+			}
+			resp.Entries[i] = entryResp{Namespace: eNs, Key: eKey, Content: content}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func memoryGetHandler(mem memory.Memory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ns := r.PathValue("namespace")
+		key := r.PathValue("key")
+		fullKey := ns + ":" + key
+		val, err := mem.Get(r.Context(), fullKey)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": "error", "message": err.Error()})
+			return
+		}
+		if val == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": "not_found", "message": "memory entry not found"})
+			return
+		}
+		content := ""
+		if s, ok := val.(string); ok {
+			content = s
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"namespace": ns, "key": key, "content": content})
+	}
+}
+
+func memorySetHandler(mem memory.Memory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ns := r.PathValue("namespace")
+		key := r.PathValue("key")
+		fullKey := ns + ":" + key
+		var req struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": "bad_request", "message": "invalid request body"})
+			return
+		}
+		if err := mem.Set(r.Context(), fullKey, req.Content, 0); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"namespace": ns, "key": key, "content": req.Content})
+	}
+}
+
+func memoryDeleteHandler(mem memory.Memory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ns := r.PathValue("namespace")
+		key := r.PathValue("key")
+		fullKey := ns + ":" + key
+		val, err := mem.Get(r.Context(), fullKey)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if val == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": "not_found", "message": "memory entry not found"})
+			return
+		}
+		if err := mem.Delete(r.Context(), fullKey); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	}
+}
+
+func splitTestKey(key string) (string, string) {
+	for i, c := range key {
+		if c == ':' {
+			return key[:i], key[i+1:]
+		}
+	}
+	return "default", key
 }

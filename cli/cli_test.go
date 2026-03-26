@@ -64,7 +64,7 @@ func TestSelectAgent(t *testing.T) {
 		return &routeragent.RouteResult{Agent: routes[0].Agent}, nil
 	}
 
-	app := New(routeFn, routes, coder, chat, &config.Config{})
+	app := New(routeFn, routes, &config.Config{}, nil)
 
 	req := &schema.RunRequest{
 		Messages: []schema.Message{schema.NewUserMessage("write code")},
@@ -94,7 +94,7 @@ func TestSelectAgent_Chat(t *testing.T) {
 		return &routeragent.RouteResult{Agent: routes[1].Agent}, nil
 	}
 
-	app := New(routeFn, routes, coder, chat, &config.Config{})
+	app := New(routeFn, routes, &config.Config{}, nil)
 
 	req := &schema.RunRequest{
 		Messages: []schema.Message{schema.NewUserMessage("tell me a joke")},
@@ -123,7 +123,7 @@ func TestMultiTurnHistory(t *testing.T) {
 		return &routeragent.RouteResult{Agent: routes[0].Agent}, nil
 	}
 
-	app := New(routeFn, routes, coder, chat, &config.Config{})
+	app := New(routeFn, routes, &config.Config{}, nil)
 
 	// Simulate adding messages to history.
 	app.history = append(app.history, schema.NewUserMessage("first message"))
@@ -194,18 +194,10 @@ func TestNewApp(t *testing.T) {
 
 	cfg := &config.Config{Mode: "cli"}
 
-	app := New(routeFn, routes, coder, chat, cfg)
+	app := New(routeFn, routes, cfg, nil)
 
 	if app == nil {
 		t.Fatal("New returned nil")
-	}
-
-	if app.coder.ID() != "coder" {
-		t.Errorf("coder ID = %q, want %q", app.coder.ID(), "coder")
-	}
-
-	if app.chat.ID() != "chat" {
-		t.Errorf("chat ID = %q, want %q", app.chat.ID(), "chat")
 	}
 
 	if app.cfg != cfg {

@@ -61,16 +61,17 @@ agents:
 		},
 	}
 
-	coderAgent, chatAgent := agents.Create(cfg, mock, toolRegistry)
-	router := agents.CreateRouter(cfg, mock, coderAgent, chatAgent)
+	allAgents := agents.Create(cfg, mock, toolRegistry, toolRegistry, toolRegistry, nil, nil)
 
 	svc := service.New(
 		service.Config{Addr: ":0"},
 		service.WithToolRegistry(toolRegistry),
 	)
-	svc.RegisterAgent(router)
-	svc.RegisterAgent(coderAgent)
-	svc.RegisterAgent(chatAgent)
+	svc.RegisterAgent(allAgents.Router)
+	svc.RegisterAgent(allAgents.Coder)
+	svc.RegisterAgent(allAgents.Chat)
+	svc.RegisterAgent(allAgents.Researcher)
+	svc.RegisterAgent(allAgents.Reviewer)
 
 	ts := httptest.NewServer(svc.Handler())
 	defer ts.Close()
@@ -86,7 +87,7 @@ agents:
 		t.Errorf("health status = %d", healthResp.StatusCode)
 	}
 
-	// Agents listing
+	// Agents listing -- now 5 agents (router, coder, chat, researcher, reviewer).
 	agentsResp, err := client.Get(ts.URL + "/v1/agents")
 	if err != nil {
 		t.Fatalf("agents: %v", err)
@@ -94,8 +95,8 @@ agents:
 	var agentList []struct{ ID string }
 	_ = json.NewDecoder(agentsResp.Body).Decode(&agentList)
 	_ = agentsResp.Body.Close()
-	if len(agentList) != 3 {
-		t.Errorf("agent count = %d, want 3", len(agentList))
+	if len(agentList) != 5 {
+		t.Errorf("agent count = %d, want 5", len(agentList))
 	}
 
 	// Tools listing
