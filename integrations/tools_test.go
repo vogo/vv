@@ -1,0 +1,68 @@
+package integrations
+
+import (
+	"testing"
+
+	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vagents/vaga/tools"
+)
+
+func TestIntegration_Tools_AllRegistered(t *testing.T) {
+	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	if err != nil {
+		t.Fatalf("tools.Register: %v", err)
+	}
+
+	toolList := reg.List()
+	if len(toolList) != 6 {
+		t.Fatalf("registered %d tools, want 6", len(toolList))
+	}
+
+	expectedNames := map[string]bool{
+		"bash":       false,
+		"file_read":  false,
+		"file_write": false,
+		"file_edit":  false,
+		"glob":       false,
+		"grep":       false,
+	}
+
+	for _, td := range toolList {
+		if _, ok := expectedNames[td.Name]; !ok {
+			t.Errorf("unexpected tool registered: %q", td.Name)
+		} else {
+			expectedNames[td.Name] = true
+		}
+	}
+
+	for name, found := range expectedNames {
+		if !found {
+			t.Errorf("expected tool %q was not registered", name)
+		}
+	}
+}
+
+func TestIntegration_Tools_BashOptions(t *testing.T) {
+	reg, err := tools.Register(config.ToolsConfig{
+		BashTimeout:    120,
+		BashWorkingDir: "/tmp",
+	})
+	if err != nil {
+		t.Fatalf("tools.Register with custom options: %v", err)
+	}
+
+	if _, ok := reg.Get("bash"); !ok {
+		t.Error("bash tool not found after registration with custom options")
+	}
+}
+
+func TestIntegration_Tools_ZeroConfig(t *testing.T) {
+	reg, err := tools.Register(config.ToolsConfig{})
+	if err != nil {
+		t.Fatalf("tools.Register with zero config: %v", err)
+	}
+
+	if len(reg.List()) != 6 {
+		t.Errorf("got %d tools with zero config, want 6", len(reg.List()))
+	}
+}

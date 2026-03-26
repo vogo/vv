@@ -1,0 +1,445 @@
+package config
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestDefaultPath_ContainsVaga(t *testing.T) {
+	p := DefaultPath()
+	if !strings.Contains(p, ".vaga") {
+		t.Errorf("DefaultPath() = %q, want it to contain '.vaga'", p)
+	}
+
+	if !strings.HasSuffix(p, "vaga.yaml") {
+		t.Errorf("DefaultPath() = %q, want it to end with 'vaga.yaml'", p)
+	}
+}
+
+func TestLoad_ValidYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4"
+  api_key: "sk-test-123"
+  base_url: "https://custom.api.com"
+server:
+  addr: ":9090"
+tools:
+  bash_timeout: 60
+  bash_working_dir: "/tmp"
+agents:
+  max_iterations: 20
+  run_token_budget: 5000
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != "anthropic" {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "anthropic")
+	}
+
+	if cfg.LLM.Model != "claude-sonnet-4" {
+		t.Errorf("model = %q, want %q", cfg.LLM.Model, "claude-sonnet-4")
+	}
+
+	if cfg.LLM.APIKey != "sk-test-123" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-test-123")
+	}
+
+	if cfg.LLM.BaseURL != "https://custom.api.com" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://custom.api.com")
+	}
+
+	if cfg.Server.Addr != ":9090" {
+		t.Errorf("addr = %q, want %q", cfg.Server.Addr, ":9090")
+	}
+
+	if cfg.Tools.BashTimeout != 60 {
+		t.Errorf("bash_timeout = %d, want 60", cfg.Tools.BashTimeout)
+	}
+
+	if cfg.Tools.BashWorkingDir != "/tmp" {
+		t.Errorf("bash_working_dir = %q, want %q", cfg.Tools.BashWorkingDir, "/tmp")
+	}
+
+	if cfg.Agents.MaxIterations != 20 {
+		t.Errorf("max_iterations = %d, want 20", cfg.Agents.MaxIterations)
+	}
+
+	if cfg.Agents.RunTokenBudget != 5000 {
+		t.Errorf("run_token_budget = %d, want 5000", cfg.Agents.RunTokenBudget)
+	}
+}
+
+func TestLoad_EnvVarOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  api_key: "yaml-key"
+  model: "yaml-model"
+  provider: "openai"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VAGA_LLM_API_KEY", "env-key")
+	t.Setenv("VAGA_LLM_MODEL", "env-model")
+	t.Setenv("VAGA_LLM_PROVIDER", "anthropic")
+	t.Setenv("VAGA_LLM_BASE_URL", "https://env.api.com")
+	t.Setenv("VAGA_SERVER_ADDR", ":7070")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.APIKey != "env-key" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "env-key")
+	}
+
+	if cfg.LLM.Model != "env-model" {
+		t.Errorf("model = %q, want %q", cfg.LLM.Model, "env-model")
+	}
+
+	if cfg.LLM.Provider != "anthropic" {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "anthropic")
+	}
+
+	if cfg.LLM.BaseURL != "https://env.api.com" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://env.api.com")
+	}
+
+	if cfg.Server.Addr != ":7070" {
+		t.Errorf("addr = %q, want %q", cfg.Server.Addr, ":7070")
+	}
+}
+
+func TestLoad_Defaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Server.Addr != ":8080" {
+		t.Errorf("addr = %q, want %q", cfg.Server.Addr, ":8080")
+	}
+
+	if cfg.Agents.MaxIterations != 10 {
+		t.Errorf("max_iterations = %d, want 10", cfg.Agents.MaxIterations)
+	}
+
+	if cfg.Tools.BashTimeout != 30 {
+		t.Errorf("bash_timeout = %d, want 30", cfg.Tools.BashTimeout)
+	}
+}
+
+func TestLoad_MissingFileDefaultPath(t *testing.T) {
+	cfg, err := Load("/nonexistent/path/vaga.yaml", false)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Server.Addr != ":8080" {
+		t.Errorf("addr = %q, want %q", cfg.Server.Addr, ":8080")
+	}
+
+	if cfg.Agents.MaxIterations != 10 {
+		t.Errorf("max_iterations = %d, want 10", cfg.Agents.MaxIterations)
+	}
+}
+
+func TestLoad_MissingFileExplicitPath(t *testing.T) {
+	_, err := Load("/nonexistent/path/config.yaml", true)
+	if err == nil {
+		t.Fatal("expected error for missing explicit config file")
+	}
+}
+
+func TestLoad_ProviderDefaultBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
+	}
+}
+
+func TestLoad_EmptyProviderDefaultBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  model: "gpt-4o"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
+	}
+}
+
+func TestLoad_AnthropicProviderNoDefaultBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.BaseURL != "" {
+		t.Errorf("base_url = %q, want empty for anthropic", cfg.LLM.BaseURL)
+	}
+}
+
+func TestNeedsSetup_MissingAPIKey(t *testing.T) {
+	cfg := &Config{}
+	if !NeedsSetup(cfg) {
+		t.Error("NeedsSetup should return true when API key is missing")
+	}
+}
+
+func TestNeedsSetup_WithAPIKey(t *testing.T) {
+	cfg := &Config{LLM: LLMConfig{APIKey: "sk-test"}}
+	if NeedsSetup(cfg) {
+		t.Error("NeedsSetup should return false when API key is set")
+	}
+}
+
+func TestPrompt_AllDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vaga.yaml")
+
+	// Simulate user pressing Enter for all prompts except API key.
+	input := "\n\nsk-my-key\n\n\n"
+	var out bytes.Buffer
+
+	cfg := &Config{}
+	if err := Prompt(cfg, path, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+
+	if cfg.LLM.Provider != "openai" {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "openai")
+	}
+
+	if cfg.LLM.Model != "gpt-4o" {
+		t.Errorf("model = %q, want %q", cfg.LLM.Model, "gpt-4o")
+	}
+
+	if cfg.LLM.APIKey != "sk-my-key" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-my-key")
+	}
+
+	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
+	}
+
+	if cfg.Server.Addr != ":8080" {
+		t.Errorf("addr = %q, want %q", cfg.Server.Addr, ":8080")
+	}
+
+	// Verify file was saved.
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("config file not saved: %v", err)
+	}
+}
+
+func TestPrompt_AnthropicProvider(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vaga.yaml")
+
+	// User types "anthropic", accepts default model, enters API key, accepts addr.
+	input := "anthropic\n\nsk-ant-key\n\n"
+	var out bytes.Buffer
+
+	cfg := &Config{}
+	if err := Prompt(cfg, path, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+
+	if cfg.LLM.Provider != "anthropic" {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "anthropic")
+	}
+
+	if cfg.LLM.Model != "claude-sonnet-4" {
+		t.Errorf("model = %q, want %q", cfg.LLM.Model, "claude-sonnet-4")
+	}
+
+	if cfg.LLM.APIKey != "sk-ant-key" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-ant-key")
+	}
+
+	// Anthropic provider should not prompt for base URL, so no base_url set.
+	if cfg.LLM.BaseURL != "" {
+		t.Errorf("base_url = %q, want empty for anthropic", cfg.LLM.BaseURL)
+	}
+}
+
+func TestPrompt_CustomValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vaga.yaml")
+
+	input := "openai\ngpt-4o-mini\nsk-custom\nhttps://custom.api.com/v1\n:9090\n"
+	var out bytes.Buffer
+
+	cfg := &Config{}
+	if err := Prompt(cfg, path, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+
+	if cfg.LLM.Provider != "openai" {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "openai")
+	}
+
+	if cfg.LLM.Model != "gpt-4o-mini" {
+		t.Errorf("model = %q, want %q", cfg.LLM.Model, "gpt-4o-mini")
+	}
+
+	if cfg.LLM.APIKey != "sk-custom" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-custom")
+	}
+
+	if cfg.LLM.BaseURL != "https://custom.api.com/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://custom.api.com/v1")
+	}
+
+	if cfg.Server.Addr != ":9090" {
+		t.Errorf("addr = %q, want %q", cfg.Server.Addr, ":9090")
+	}
+}
+
+func TestSave_CreatesDirectoryAndFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sub", "dir", "vaga.yaml")
+
+	cfg := &Config{
+		LLM: LLMConfig{Provider: "openai", Model: "gpt-4o", APIKey: "sk-test"},
+	}
+
+	if err := Save(cfg, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Verify file exists and is readable.
+	loaded, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load saved config: %v", err)
+	}
+
+	if loaded.LLM.APIKey != "sk-test" {
+		t.Errorf("api_key = %q, want %q", loaded.LLM.APIKey, "sk-test")
+	}
+}
+
+func TestNewLLMClient_UnsupportedProvider(t *testing.T) {
+	_, err := NewLLMClient(LLMConfig{
+		Provider: "unsupported",
+		Model:    "test-model",
+		APIKey:   "test-key",
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported provider")
+	}
+}
+
+func TestNewLLMClient_OpenAIWithAPIKey(t *testing.T) {
+	client, err := NewLLMClient(LLMConfig{
+		Provider: "openai",
+		Model:    "gpt-4o",
+		APIKey:   "sk-test-key",
+		BaseURL:  "https://api.openai.com/v1",
+	})
+	if err != nil {
+		t.Fatalf("NewLLMClient: %v", err)
+	}
+
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestNewLLMClient_AnthropicWithAPIKey(t *testing.T) {
+	client, err := NewLLMClient(LLMConfig{
+		Provider: "anthropic",
+		Model:    "claude-sonnet-4",
+		APIKey:   "sk-test-key",
+	})
+	if err != nil {
+		t.Fatalf("NewLLMClient: %v", err)
+	}
+
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestNewLLMClient_EmptyProviderDefaultsToOpenAI(t *testing.T) {
+	client, err := NewLLMClient(LLMConfig{
+		Provider: "",
+		Model:    "gpt-4o",
+		APIKey:   "sk-test-key",
+		BaseURL:  "https://api.openai.com/v1",
+	})
+	if err != nil {
+		t.Fatalf("NewLLMClient: %v", err)
+	}
+
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
