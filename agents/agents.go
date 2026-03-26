@@ -11,7 +11,7 @@ import (
 )
 
 // Create creates the coder and chat task agents.
-func Create(cfg *config.Config, llm aimodel.ChatCompleter, reg *tool.Registry) (*taskagent.Agent, *taskagent.Agent) {
+func Create(cfg *config.Config, llm aimodel.ChatCompleter, reg tool.ToolRegistry) (*taskagent.Agent, *taskagent.Agent) {
 	coderAgent := taskagent.New(
 		agent.Config{
 			ID:          "coder",

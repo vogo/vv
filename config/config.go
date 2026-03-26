@@ -33,6 +33,13 @@ type Config struct {
 	Server ServerConfig `yaml:"server"`
 	Tools  ToolsConfig  `yaml:"tools"`
 	Agents AgentsConfig `yaml:"agents"`
+	Mode   string       `yaml:"mode"` // "cli" or "http"; default "cli"
+	CLI    CLIConfig    `yaml:"cli"`
+}
+
+// CLIConfig holds CLI-specific configuration.
+type CLIConfig struct {
+	ConfirmTools []string `yaml:"confirm_tools"` // tool names requiring confirmation
 }
 
 // LLMConfig holds LLM provider configuration.
@@ -98,6 +105,10 @@ func Load(path string, explicit bool) (*Config, error) {
 
 	if v := os.Getenv("VAGA_SERVER_ADDR"); v != "" {
 		cfg.Server.Addr = v
+	}
+
+	if v := os.Getenv("VAGA_MODE"); v != "" {
+		cfg.Mode = v
 	}
 
 	applyDefaults(cfg)
@@ -169,6 +180,10 @@ func Save(cfg *Config, path string) error {
 }
 
 func applyDefaults(cfg *Config) {
+	if cfg.Mode == "" {
+		cfg.Mode = "cli"
+	}
+
 	if cfg.Server.Addr == "" {
 		cfg.Server.Addr = ":8080"
 	}

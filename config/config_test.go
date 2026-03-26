@@ -386,6 +386,118 @@ func TestSave_CreatesDirectoryAndFile(t *testing.T) {
 	}
 }
 
+func TestLoad_ModeDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Mode != "cli" {
+		t.Errorf("mode = %q, want %q", cfg.Mode, "cli")
+	}
+}
+
+func TestLoad_ModeFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+mode: "http"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Mode != "http" {
+		t.Errorf("mode = %q, want %q", cfg.Mode, "http")
+	}
+}
+
+func TestLoad_ModeEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+mode: "cli"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VAGA_MODE", "http")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Mode != "http" {
+		t.Errorf("mode = %q, want %q", cfg.Mode, "http")
+	}
+}
+
+func TestLoad_CLIConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+cli:
+  confirm_tools:
+    - bash
+    - write
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.CLI.ConfirmTools) != 2 {
+		t.Fatalf("confirm_tools len = %d, want 2", len(cfg.CLI.ConfirmTools))
+	}
+
+	if cfg.CLI.ConfirmTools[0] != "bash" {
+		t.Errorf("confirm_tools[0] = %q, want %q", cfg.CLI.ConfirmTools[0], "bash")
+	}
+
+	if cfg.CLI.ConfirmTools[1] != "write" {
+		t.Errorf("confirm_tools[1] = %q, want %q", cfg.CLI.ConfirmTools[1], "write")
+	}
+}
+
+func TestLoad_CLIConfigEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.CLI.ConfirmTools) != 0 {
+		t.Errorf("confirm_tools len = %d, want 0", len(cfg.CLI.ConfirmTools))
+	}
+}
+
 func TestNewLLMClient_UnsupportedProvider(t *testing.T) {
 	_, err := NewLLMClient(LLMConfig{
 		Provider: "unsupported",
