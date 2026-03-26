@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -80,7 +81,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	m := newModel(a, ctx)
 
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	a.program = p
 
 	_, err = p.Run()
@@ -121,8 +122,9 @@ type model struct {
 	height   int
 
 	// State
-	status sessionStatus
-	output strings.Builder
+	status          sessionStatus
+	output          strings.Builder
+	currentAgentIdx int // index of the current round's agent message in app.messages, -1 if none
 
 	// Confirmation
 	confirmCh   chan bool
@@ -150,16 +152,26 @@ func newModel(app *App, ctx context.Context) *model {
 	vp.SetContent("Welcome to vaga CLI. Type a message to begin.\n")
 
 	m := &model{
-		app:       app,
-		ctx:       ctx,
-		textarea:  ta,
-		viewport:  vp,
-		spinner:   sp,
-		status:    statusIdle,
-		confirmCh: make(chan bool, 1),
+		app:             app,
+		ctx:             ctx,
+		textarea:        ta,
+		viewport:        vp,
+		spinner:         sp,
+		status:          statusIdle,
+		currentAgentIdx: -1,
+		confirmCh:       make(chan bool, 1),
 	}
 
 	return m
+}
+
+// escapeSeqRe matches ANSI escape sequences and OSC responses that terminals
+// may inject as input (e.g. ]11;rgb:1818/1818/1818\, CSI mouse sequences).
+var escapeSeqRe = regexp.MustCompile(`\x1b[^a-zA-Z]*[a-zA-Z]|\x1b\][^\x07\x1b\\]*(?:\x07|\x1b\\)|\][0-9]+;[^\x07\\\n]*\\?|<[0-9;]+[mMhHlL]`)
+
+// sanitizeInput strips terminal escape sequences from text.
+func sanitizeInput(s string) string {
+	return escapeSeqRe.ReplaceAllString(s, "")
 }
 
 // isExitCommand checks if the input is an exit command.
@@ -229,11 +241,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	}
 
-	// Update textarea only when idle.
-	if m.status == statusIdle {
+	// Always let the textarea process messages so it can absorb escape
+	// sequences rather than leaving them in the input buffer.
+	{
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
 		cmds = append(cmds, cmd)
+	}
+	// Strip terminal escape sequences that leak into the textarea
+	// (e.g. OSC 11 background color responses from lipgloss/glamour).
+	if v := m.textarea.Value(); v != "" {
+		if cleaned := sanitizeInput(v); cleaned != v {
+			m.textarea.SetValue(cleaned)
+		}
 	}
 
 	// Update viewport for scroll.
@@ -330,8 +350,9 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	userMsg := schema.NewUserMessage(input)
 	m.app.history = append(m.app.history, userMsg)
 
-	// Reset output builder.
+	// Reset output builder and agent message index for this round.
 	m.output.Reset()
+	m.currentAgentIdx = -1
 
 	// Create a cancellable context for this run.
 	runCtx, cancel := context.WithCancel(m.ctx)
@@ -391,13 +412,8 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	event := msg.event
 
 	switch event.Type {
-	case schema.EventAgentStart:
-		m.appendSystemMessage("Agent started...")
-
-	case schema.EventIterationStart:
-		if data, ok := event.Data.(schema.IterationStartData); ok {
-			m.appendSystemMessage(fmt.Sprintf("Iteration %d...", data.Iteration+1))
-		}
+	case schema.EventAgentStart, schema.EventIterationStart:
+		// Suppressed for cleaner UX.
 
 	case schema.EventTextDelta:
 		if data, ok := event.Data.(schema.TextDeltaData); ok {
@@ -469,6 +485,7 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.status = statusIdle
+	m.textarea.SetValue("") // Clear any escape sequences accumulated while blurred.
 	m.textarea.Focus()
 	m.runCancel = nil
 
@@ -535,18 +552,10 @@ func (m *model) appendErrorMessage(text string) {
 // updateOutputInViewport tracks the current streaming output in the message
 // list and refreshes the viewport.
 func (m *model) updateOutputInViewport() {
-	// Update or add a temporary agent message with the current streaming text.
-	found := false
-	for i := len(m.app.messages) - 1; i >= 0; i-- {
-		if m.app.messages[i].Role == "agent" {
-			m.app.messages[i].Content = m.output.String()
-			found = true
-
-			break
-		}
-	}
-
-	if !found {
+	if m.currentAgentIdx >= 0 && m.currentAgentIdx < len(m.app.messages) {
+		m.app.messages[m.currentAgentIdx].Content = m.output.String()
+	} else {
+		m.currentAgentIdx = len(m.app.messages)
 		m.app.messages = append(m.app.messages, DisplayMessage{
 			Role:      "agent",
 			Content:   m.output.String(),
@@ -559,17 +568,15 @@ func (m *model) updateOutputInViewport() {
 
 // replaceLastAgentOutput replaces the raw streaming output with rendered markdown.
 func (m *model) replaceLastAgentOutput(rendered string) {
-	// Find and replace the last "agent" message if it exists.
-	for i := len(m.app.messages) - 1; i >= 0; i-- {
-		if m.app.messages[i].Role == "agent" {
-			m.app.messages[i].Content = rendered
-			m.refreshViewport()
+	if m.currentAgentIdx >= 0 && m.currentAgentIdx < len(m.app.messages) {
+		m.app.messages[m.currentAgentIdx].Content = rendered
+		m.refreshViewport()
 
-			return
-		}
+		return
 	}
 
 	// No agent message found, add one.
+	m.currentAgentIdx = len(m.app.messages)
 	m.appendMessage(DisplayMessage{
 		Role:      "agent",
 		Content:   rendered,
