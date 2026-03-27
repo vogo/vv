@@ -17,7 +17,9 @@ type MemoryConfig struct {
 	Dir            string `yaml:"dir"`             // default ~/.vaga/memory/
 	SessionWindow  int    `yaml:"session_window"`  // sliding window size, default 50
 	PersistentLoad bool   `yaml:"persistent_load"` // load at startup, default true
-	MaxConcurrency int    `yaml:"max_concurrency"` // planner DAG concurrency, default 2
+	MaxConcurrency int    `yaml:"max_concurrency"` // orchestrator DAG concurrency, default 2
+	// TODO: MaxConcurrency is orchestration config, not memory config.
+	// Move to a dedicated OrchestratorConfig in a future cleanup.
 }
 
 // DefaultDir returns the default vaga config directory (~/.vaga).

@@ -12,7 +12,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/vogo/vage/agent/routeragent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vagents/vaga/agents"
@@ -76,6 +75,15 @@ func main() {
 
 	if *listenAddr != "" {
 		cfg.Server.Addr = *listenAddr
+	}
+
+	// Capture working directory at startup.
+	if cfg.Tools.BashWorkingDir == "" {
+		workingDir, wdErr := os.Getwd()
+		if wdErr != nil {
+			workingDir = "."
+		}
+		cfg.Tools.BashWorkingDir = workingDir
 	}
 
 	// Create LLM client.
@@ -143,7 +151,7 @@ func main() {
 			service.Config{Addr: cfg.Server.Addr},
 			service.WithToolRegistry(toolRegistry),
 		)
-		svc.RegisterAgent(allAgents.Router)
+		svc.RegisterAgent(allAgents.Orchestrator)
 		svc.RegisterAgent(allAgents.Coder)
 		svc.RegisterAgent(allAgents.Chat)
 		svc.RegisterAgent(allAgents.Researcher)
@@ -185,16 +193,7 @@ func main() {
 		slog.Info("vaga: shutdown complete")
 
 	default: // "cli" or any other value defaults to CLI mode.
-		routeFn := routeragent.LLMFunc(llmClient, cfg.LLM.Model, 4) // fallback=4 (chat)
-		routes := []routeragent.Route{
-			{Agent: allAgents.Coder, Description: "Handles code-related tasks: reading, writing, editing files, running commands, debugging"},
-			{Agent: allAgents.Planner, Description: "Handles complex multi-step tasks: project setup, large refactors, multi-file coordinated changes"},
-			{Agent: allAgents.Researcher, Description: "Handles research tasks: codebase exploration, documentation lookup, information gathering"},
-			{Agent: allAgents.Reviewer, Description: "Handles review tasks: code review, design review, quality assessment"},
-			{Agent: allAgents.Chat, Description: "Handles general conversation, questions, explanations, brainstorming"},
-		}
-
-		app := vagacli.New(routeFn, routes, cfg, persistentMem)
+		app := vagacli.New(allAgents.Orchestrator, cfg, persistentMem)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vaga: CLI error", "error", err)
 			os.Exit(1)

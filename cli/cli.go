@@ -22,7 +22,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/agent/routeragent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vagents/vaga/config"
@@ -30,8 +29,7 @@ import (
 
 // App holds the CLI TUI application state.
 type App struct {
-	routeFn       routeragent.RouteFunc
-	routes        []routeragent.Route
+	orchestrator  agent.StreamAgent // replaces routeFn + routes
 	cfg           *config.Config
 	sessionID     string
 	history       []schema.Message
@@ -42,14 +40,12 @@ type App struct {
 
 // New creates a new CLI App.
 func New(
-	routeFn routeragent.RouteFunc,
-	routes []routeragent.Route,
+	orchestrator agent.StreamAgent,
 	cfg *config.Config,
 	persistentMem memory.Memory,
 ) *App {
 	return &App{
-		routeFn:       routeFn,
-		routes:        routes,
+		orchestrator:  orchestrator,
 		cfg:           cfg,
 		persistentMem: persistentMem,
 	}
@@ -93,21 +89,6 @@ func (a *App) Run(ctx context.Context) error {
 // the program reference once it is available.
 func (a *App) wireConfirmFn() {}
 
-// selectAgent routes the request to the appropriate agent.
-func (a *App) selectAgent(ctx context.Context, req *schema.RunRequest) (agent.StreamAgent, error) {
-	result, err := a.routeFn(ctx, req, a.routes)
-	if err != nil {
-		return nil, fmt.Errorf("route select: %w", err)
-	}
-
-	sa, ok := result.Agent.(agent.StreamAgent)
-	if !ok {
-		return nil, fmt.Errorf("selected agent %q does not support streaming", result.Agent.ID())
-	}
-
-	return sa, nil
-}
-
 // model is the bubbletea model for the CLI TUI.
 type model struct {
 	app *App
@@ -147,8 +128,8 @@ func newModel(app *App, ctx context.Context) *model {
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 
 	vp := viewport.New(80, 20)
-	welcome := fmt.Sprintf("Welcome to vaga CLI. (provider: %s, model: %s)\nType a message to begin.\n",
-		app.cfg.LLM.Provider, app.cfg.LLM.Model)
+	welcome := fmt.Sprintf("Welcome to vaga CLI. (provider: %s, model: %s)\nWorking directory: %s\nType a message to begin.\n",
+		app.cfg.LLM.Provider, app.cfg.LLM.Model, app.cfg.Tools.BashWorkingDir)
 	vp.SetContent(welcome)
 
 	m := &model{
@@ -202,7 +183,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.viewport.Width = msg.Width
-		m.viewport.Height = msg.Height - 6 // leave space for textarea, status bar
+		m.viewport.Height = msg.Height - 6 - headerHeight // leave space for header, textarea, status bar
 		m.textarea.SetWidth(msg.Width)
 		return m, nil
 
@@ -264,8 +245,30 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// headerHeight is the number of lines the persistent header occupies.
+const headerHeight = 2
+
+func (m *model) headerView() string {
+	dir := m.app.cfg.Tools.BashWorkingDir
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(dir, home) {
+		dir = "~" + dir[len(home):]
+	}
+
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // dim gray
+	providerModel := fmt.Sprintf("vaga · %s · %s", m.app.cfg.LLM.Provider, m.app.cfg.LLM.Model)
+	line1 := headerStyle.Render(providerModel)
+	dirStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
+	line2 := "  " + dirStyle.Render(dir)
+
+	return line1 + "\n" + line2
+}
+
 func (m *model) View() string {
 	var sb strings.Builder
+
+	// Persistent header showing project directory.
+	sb.WriteString(m.headerView())
+	sb.WriteString("\n")
 
 	// Viewport (output area).
 	sb.WriteString(m.viewport.View())
@@ -377,14 +380,8 @@ func (m *model) invokeAgent(ctx context.Context, _ string) tea.Cmd {
 			SessionID: m.app.sessionID,
 		}
 
-		// Select agent.
-		sa, err := m.app.selectAgent(ctx, req)
-		if err != nil {
-			return streamDoneMsg{err: err}
-		}
-
-		// Run stream.
-		stream, err := sa.RunStream(ctx, req)
+		// Run stream via orchestrator.
+		stream, err := m.app.orchestrator.RunStream(ctx, req)
 		if err != nil {
 			return streamDoneMsg{err: err}
 		}

@@ -15,6 +15,14 @@ import (
 	"github.com/vogo/vagents/vaga/tools"
 )
 
+// --- Test: Full Wiring with HTTP Service (Design Test 6) ---
+// Verifies that the HTTP service registers the Orchestrator correctly.
+// Test cases:
+//   - Health endpoint returns 200 OK
+//   - Agent listing returns 5 agents (orchestrator, coder, chat, researcher, reviewer)
+//   - Agent listing does NOT include "router" (replaced by "orchestrator")
+//   - Tools listing returns 6 tools
+//   - Agent detail for "orchestrator" returns correct ID
 func TestIntegration_FullWiring(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "test-config.yaml")
@@ -67,7 +75,7 @@ agents:
 		service.Config{Addr: ":0"},
 		service.WithToolRegistry(toolRegistry),
 	)
-	svc.RegisterAgent(allAgents.Router)
+	svc.RegisterAgent(allAgents.Orchestrator)
 	svc.RegisterAgent(allAgents.Coder)
 	svc.RegisterAgent(allAgents.Chat)
 	svc.RegisterAgent(allAgents.Researcher)
@@ -87,7 +95,7 @@ agents:
 		t.Errorf("health status = %d", healthResp.StatusCode)
 	}
 
-	// Agents listing -- now 5 agents (router, coder, chat, researcher, reviewer).
+	// Agents listing -- now 5 agents (orchestrator, coder, chat, researcher, reviewer).
 	agentsResp, err := client.Get(ts.URL + "/v1/agents")
 	if err != nil {
 		t.Fatalf("agents: %v", err)
@@ -112,7 +120,7 @@ agents:
 	}
 
 	// Agent details
-	detailResp, err := client.Get(ts.URL + "/v1/agents/router")
+	detailResp, err := client.Get(ts.URL + "/v1/agents/orchestrator")
 	if err != nil {
 		t.Fatalf("agent detail: %v", err)
 	}
@@ -122,7 +130,7 @@ agents:
 	}
 	_ = json.NewDecoder(detailResp.Body).Decode(&detail)
 	_ = detailResp.Body.Close()
-	if detail.ID != "router" {
-		t.Errorf("router ID = %q", detail.ID)
+	if detail.ID != "orchestrator" {
+		t.Errorf("orchestrator ID = %q", detail.ID)
 	}
 }

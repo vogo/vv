@@ -48,12 +48,22 @@ func Register(cfg config.ToolsConfig) (*tool.Registry, error) {
 	}
 
 	// glob
-	if err := globtool.Register(reg); err != nil {
+	var globOpts []globtool.Option
+	if cfg.BashWorkingDir != "" {
+		globOpts = append(globOpts, globtool.WithWorkingDir(cfg.BashWorkingDir))
+	}
+
+	if err := globtool.Register(reg, globOpts...); err != nil {
 		return nil, fmt.Errorf("register glob tool: %w", err)
 	}
 
 	// grep
-	if err := greptool.Register(reg); err != nil {
+	var grepOpts []greptool.Option
+	if cfg.BashWorkingDir != "" {
+		grepOpts = append(grepOpts, greptool.WithWorkingDir(cfg.BashWorkingDir))
+	}
+
+	if err := greptool.Register(reg, grepOpts...); err != nil {
 		return nil, fmt.Errorf("register grep tool: %w", err)
 	}
 
@@ -70,12 +80,22 @@ func RegisterReadOnly(cfg config.ToolsConfig) (*tool.Registry, error) {
 	}
 
 	// glob
-	if err := globtool.Register(reg); err != nil {
+	var globOpts []globtool.Option
+	if cfg.BashWorkingDir != "" {
+		globOpts = append(globOpts, globtool.WithWorkingDir(cfg.BashWorkingDir))
+	}
+
+	if err := globtool.Register(reg, globOpts...); err != nil {
 		return nil, fmt.Errorf("register glob tool: %w", err)
 	}
 
 	// grep
-	if err := greptool.Register(reg); err != nil {
+	var grepOpts []greptool.Option
+	if cfg.BashWorkingDir != "" {
+		grepOpts = append(grepOpts, greptool.WithWorkingDir(cfg.BashWorkingDir))
+	}
+
+	if err := greptool.Register(reg, grepOpts...); err != nil {
 		return nil, fmt.Errorf("register grep tool: %w", err)
 	}
 
@@ -106,12 +126,22 @@ func RegisterReviewTools(cfg config.ToolsConfig) (*tool.Registry, error) {
 	}
 
 	// glob
-	if err := globtool.Register(reg); err != nil {
+	var globOpts []globtool.Option
+	if cfg.BashWorkingDir != "" {
+		globOpts = append(globOpts, globtool.WithWorkingDir(cfg.BashWorkingDir))
+	}
+
+	if err := globtool.Register(reg, globOpts...); err != nil {
 		return nil, fmt.Errorf("register glob tool: %w", err)
 	}
 
 	// grep
-	if err := greptool.Register(reg); err != nil {
+	var grepOpts []greptool.Option
+	if cfg.BashWorkingDir != "" {
+		grepOpts = append(grepOpts, greptool.WithWorkingDir(cfg.BashWorkingDir))
+	}
+
+	if err := greptool.Register(reg, grepOpts...); err != nil {
 		return nil, fmt.Errorf("register grep tool: %w", err)
 	}
 

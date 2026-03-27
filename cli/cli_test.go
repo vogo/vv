@@ -6,7 +6,6 @@ import (
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/agent/routeragent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vagents/vaga/config"
 )
@@ -50,80 +49,10 @@ func (s *stubStreamAgent) RunStream(ctx context.Context, req *schema.RunRequest)
 	}), nil
 }
 
-func TestSelectAgent(t *testing.T) {
-	coder := &stubStreamAgent{id: "coder", response: "code response"}
-	chat := &stubStreamAgent{id: "chat", response: "chat response"}
-
-	routes := []routeragent.Route{
-		{Agent: coder, Description: "Handles code tasks"},
-		{Agent: chat, Description: "Handles general conversation"},
-	}
-
-	// routeFn that always selects index 0 (coder).
-	routeFn := func(_ context.Context, _ *schema.RunRequest, routes []routeragent.Route) (*routeragent.RouteResult, error) {
-		return &routeragent.RouteResult{Agent: routes[0].Agent}, nil
-	}
-
-	app := New(routeFn, routes, &config.Config{}, nil)
-
-	req := &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("write code")},
-	}
-
-	sa, err := app.selectAgent(context.Background(), req)
-	if err != nil {
-		t.Fatalf("selectAgent: %v", err)
-	}
-
-	if sa.ID() != "coder" {
-		t.Errorf("selected agent ID = %q, want %q", sa.ID(), "coder")
-	}
-}
-
-func TestSelectAgent_Chat(t *testing.T) {
-	coder := &stubStreamAgent{id: "coder", response: "code response"}
-	chat := &stubStreamAgent{id: "chat", response: "chat response"}
-
-	routes := []routeragent.Route{
-		{Agent: coder, Description: "Handles code tasks"},
-		{Agent: chat, Description: "Handles general conversation"},
-	}
-
-	// routeFn that always selects index 1 (chat).
-	routeFn := func(_ context.Context, _ *schema.RunRequest, routes []routeragent.Route) (*routeragent.RouteResult, error) {
-		return &routeragent.RouteResult{Agent: routes[1].Agent}, nil
-	}
-
-	app := New(routeFn, routes, &config.Config{}, nil)
-
-	req := &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("tell me a joke")},
-	}
-
-	sa, err := app.selectAgent(context.Background(), req)
-	if err != nil {
-		t.Fatalf("selectAgent: %v", err)
-	}
-
-	if sa.ID() != "chat" {
-		t.Errorf("selected agent ID = %q, want %q", sa.ID(), "chat")
-	}
-}
-
 func TestMultiTurnHistory(t *testing.T) {
-	coder := &stubStreamAgent{id: "coder", response: "response"}
-	chat := &stubStreamAgent{id: "chat", response: "response"}
+	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
-	routes := []routeragent.Route{
-		{Agent: coder, Description: "code"},
-		{Agent: chat, Description: "chat"},
-	}
-
-	routeFn := func(_ context.Context, _ *schema.RunRequest, routes []routeragent.Route) (*routeragent.RouteResult, error) {
-		return &routeragent.RouteResult{Agent: routes[0].Agent}, nil
-	}
-
-	app := New(routeFn, routes, &config.Config{}, nil)
+	app := New(orchestrator, &config.Config{}, nil)
 
 	// Simulate adding messages to history.
 	app.history = append(app.history, schema.NewUserMessage("first message"))
@@ -180,21 +109,11 @@ func TestDisplayMessageRendering(t *testing.T) {
 }
 
 func TestNewApp(t *testing.T) {
-	coder := &stubStreamAgent{id: "coder", response: "code"}
-	chat := &stubStreamAgent{id: "chat", response: "chat"}
-
-	routes := []routeragent.Route{
-		{Agent: coder, Description: "code"},
-		{Agent: chat, Description: "chat"},
-	}
-
-	routeFn := func(_ context.Context, _ *schema.RunRequest, _ []routeragent.Route) (*routeragent.RouteResult, error) {
-		return nil, nil
-	}
+	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
 	cfg := &config.Config{Mode: "cli"}
 
-	app := New(routeFn, routes, cfg, nil)
+	app := New(orchestrator, cfg, nil)
 
 	if app == nil {
 		t.Fatal("New returned nil")
@@ -202,10 +121,6 @@ func TestNewApp(t *testing.T) {
 
 	if app.cfg != cfg {
 		t.Error("cfg not stored correctly")
-	}
-
-	if len(app.routes) != 2 {
-		t.Errorf("routes len = %d, want 2", len(app.routes))
 	}
 }
 

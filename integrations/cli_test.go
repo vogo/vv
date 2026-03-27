@@ -14,7 +14,6 @@ import (
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/agent/routeragent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vagents/vaga/agents"
@@ -240,17 +239,7 @@ llm:
 // --- Test: CLI App construction with valid config ---
 // Verifies that cli.New() creates a properly initialized App with all fields set.
 func TestIntegration_CLI_AppConstruction(t *testing.T) {
-	coder := &stubStreamAgent{id: "coder", response: "code response"}
-	chat := &stubStreamAgent{id: "chat", response: "chat response"}
-
-	routes := []routeragent.Route{
-		{Agent: coder, Description: "code tasks"},
-		{Agent: chat, Description: "general conversation"},
-	}
-
-	routeFn := func(_ context.Context, _ *schema.RunRequest, routes []routeragent.Route) (*routeragent.RouteResult, error) {
-		return &routeragent.RouteResult{Agent: routes[0].Agent}, nil
-	}
+	orchestrator := &stubStreamAgent{id: "orchestrator", response: "orchestrated response"}
 
 	cfg := &config.Config{
 		Mode: "cli",
@@ -258,7 +247,7 @@ func TestIntegration_CLI_AppConstruction(t *testing.T) {
 		CLI:  config.CLIConfig{ConfirmTools: []string{"bash"}},
 	}
 
-	app := vagacli.New(routeFn, routes, cfg, nil)
+	app := vagacli.New(orchestrator, cfg, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -480,8 +469,8 @@ tools:
 	cfg.Memory = config.MemoryConfig{MaxConcurrency: 2}
 	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
 
-	if allAgents.Router.ID() != "router" {
-		t.Errorf("router ID = %q, want %q", allAgents.Router.ID(), "router")
+	if allAgents.Orchestrator.ID() != "orchestrator" {
+		t.Errorf("orchestrator ID = %q, want %q", allAgents.Orchestrator.ID(), "orchestrator")
 	}
 
 	if allAgents.Coder.ID() != "coder" {
@@ -549,7 +538,7 @@ agents:
 		service.Config{Addr: ":0"},
 		service.WithToolRegistry(toolRegistry),
 	)
-	svc.RegisterAgent(allAgents.Router)
+	svc.RegisterAgent(allAgents.Orchestrator)
 	svc.RegisterAgent(allAgents.Coder)
 	svc.RegisterAgent(allAgents.Chat)
 	svc.RegisterAgent(allAgents.Researcher)
@@ -569,7 +558,7 @@ agents:
 		t.Errorf("health status = %d, want %d", healthResp.StatusCode, http.StatusOK)
 	}
 
-	// Verify agent listing returns 5 agents (router, coder, chat, researcher, reviewer).
+	// Verify agent listing returns 5 agents (orchestrator, coder, chat, researcher, reviewer).
 	agentsResp, err := ts.Client().Get(ts.URL + "/v1/agents")
 	if err != nil {
 		t.Fatalf("GET /v1/agents: %v", err)
@@ -598,71 +587,17 @@ agents:
 	}
 }
 
-// --- Test: CLI routing selects correct agent ---
-// Verifies that the CLI routing mechanism correctly selects the coder or chat agent
-// based on the routeFn result.
-func TestIntegration_CLI_AgentRoutingCoder(t *testing.T) {
-	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("0")}},
-			},
-		},
-	}
+// --- Test: CLI uses orchestrator directly ---
+// Verifies that the CLI is constructed with an orchestrator agent.
+func TestIntegration_CLI_OrchestratorWiring(t *testing.T) {
+	orchestrator := &stubStreamAgent{id: "orchestrator", response: "orchestrated response"}
 
 	cfg := &config.Config{
 		LLM:    config.LLMConfig{Model: "test-model"},
 		Agents: config.AgentsConfig{MaxIterations: 5},
 	}
 
-	coder := &stubStreamAgent{id: "coder", response: "code response"}
-	chat := &stubStreamAgent{id: "chat", response: "chat response"}
-
-	routes := []routeragent.Route{
-		{Agent: coder, Description: "code tasks"},
-		{Agent: chat, Description: "general conversation"},
-	}
-
-	// Use a routeFn that uses the mock LLM to route.
-	routeFn := routeragent.LLMFunc(mock, cfg.LLM.Model, 1)
-
-	app := vagacli.New(routeFn, routes, cfg, nil)
-	if app == nil {
-		t.Fatal("cli.New returned nil")
-	}
-
-	// The app was created successfully with routing wired up.
-	// We cannot test selectAgent directly from integration tests (it's unexported),
-	// but we verify the construction completes without error.
-}
-
-// --- Test: CLI routing selects chat agent ---
-// Verifies routing selects the chat agent when the LLM returns index 1.
-func TestIntegration_CLI_AgentRoutingChat(t *testing.T) {
-	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("1")}},
-			},
-		},
-	}
-
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 5},
-	}
-
-	coder := &stubStreamAgent{id: "coder", response: "code response"}
-	chat := &stubStreamAgent{id: "chat", response: "chat response"}
-
-	routes := []routeragent.Route{
-		{Agent: coder, Description: "code tasks"},
-		{Agent: chat, Description: "general conversation"},
-	}
-
-	routeFn := routeragent.LLMFunc(mock, cfg.LLM.Model, 1)
-
-	app := vagacli.New(routeFn, routes, cfg, nil)
+	app := vagacli.New(orchestrator, cfg, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -729,20 +664,10 @@ func TestIntegration_CLI_AgentStreaming(t *testing.T) {
 // and passed to subsequent agent invocations.
 func TestIntegration_CLI_MultiTurnHistory(t *testing.T) {
 	// Simulate multi-turn conversation by building up history as the CLI would.
-	coder := &stubStreamAgent{id: "coder", response: "response"}
-	chat := &stubStreamAgent{id: "chat", response: "response"}
-
-	routes := []routeragent.Route{
-		{Agent: coder, Description: "code"},
-		{Agent: chat, Description: "chat"},
-	}
-
-	routeFn := func(_ context.Context, _ *schema.RunRequest, routes []routeragent.Route) (*routeragent.RouteResult, error) {
-		return &routeragent.RouteResult{Agent: routes[0].Agent}, nil
-	}
+	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
 	cfg := &config.Config{Mode: "cli"}
-	app := vagacli.New(routeFn, routes, cfg, nil)
+	app := vagacli.New(orchestrator, cfg, nil)
 
 	// Simulate 3 turns of conversation by verifying message structure.
 	// Turn 1: user message.

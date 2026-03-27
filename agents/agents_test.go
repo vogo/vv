@@ -61,11 +61,8 @@ func TestCreate_AllAgents(t *testing.T) {
 	if allAgents.Reviewer.ID() != "reviewer" {
 		t.Errorf("reviewer ID = %q, want %q", allAgents.Reviewer.ID(), "reviewer")
 	}
-	if allAgents.Planner.ID() != "planner" {
-		t.Errorf("planner ID = %q, want %q", allAgents.Planner.ID(), "planner")
-	}
-	if allAgents.Router.ID() != "router" {
-		t.Errorf("router ID = %q, want %q", allAgents.Router.ID(), "router")
+	if allAgents.Orchestrator.ID() != "orchestrator" {
+		t.Errorf("orchestrator ID = %q, want %q", allAgents.Orchestrator.ID(), "orchestrator")
 	}
 }
 
@@ -129,151 +126,8 @@ func TestCreate_Names(t *testing.T) {
 		t.Errorf("reviewer Name = %q, want %q", allAgents.Reviewer.Name(), "Reviewer Agent")
 	}
 
-	if allAgents.Planner.Name() != "Planner Agent" {
-		t.Errorf("planner Name = %q, want %q", allAgents.Planner.Name(), "Planner Agent")
-	}
-}
-
-func TestCreateRouter_ID(t *testing.T) {
-	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-	}
-
-	coder := &stubAgent{id: "coder"}
-	chat := &stubAgent{id: "chat"}
-
-	router := CreateRouter(cfg, mock, coder, chat)
-
-	if router.ID() != "router" {
-		t.Errorf("router ID = %q, want %q", router.ID(), "router")
-	}
-
-	if router.Name() != "Router Agent" {
-		t.Errorf("router Name = %q, want %q", router.Name(), "Router Agent")
-	}
-}
-
-func TestCreateRouter_RoutesToCoder(t *testing.T) {
-	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("0"),
-					},
-				},
-			},
-		},
-	}
-
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-	}
-
-	coder := &stubAgent{
-		id: "coder",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("coder response"),
-				}, "coder"),
-			},
-		},
-	}
-	chat := &stubAgent{
-		id: "chat",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("chat response"),
-				}, "chat"),
-			},
-		},
-	}
-
-	router := CreateRouter(cfg, mock, coder, chat)
-
-	resp, err := router.Run(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("write some code")},
-	})
-	if err != nil {
-		t.Fatalf("router.Run: %v", err)
-	}
-
-	if len(resp.Messages) == 0 {
-		t.Fatal("expected response messages")
-	}
-
-	text := resp.Messages[0].Content.Text()
-	if text != "coder response" {
-		t.Errorf("response text = %q, want %q", text, "coder response")
-	}
-}
-
-func TestCreateRouter_RoutesToChat(t *testing.T) {
-	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("1"),
-					},
-				},
-			},
-		},
-	}
-
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-	}
-
-	coder := &stubAgent{
-		id: "coder",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("coder response"),
-				}, "coder"),
-			},
-		},
-	}
-	chat := &stubAgent{
-		id: "chat",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("chat response"),
-				}, "chat"),
-			},
-		},
-	}
-
-	router := CreateRouter(cfg, mock, coder, chat)
-
-	resp, err := router.Run(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("tell me a joke")},
-	})
-	if err != nil {
-		t.Fatalf("router.Run: %v", err)
-	}
-
-	if len(resp.Messages) == 0 {
-		t.Fatal("expected response messages")
-	}
-
-	text := resp.Messages[0].Content.Text()
-	if text != "chat response" {
-		t.Errorf("response text = %q, want %q", text, "chat response")
+	if allAgents.Orchestrator.Name() != "Orchestrator Agent" {
+		t.Errorf("orchestrator Name = %q, want %q", allAgents.Orchestrator.Name(), "Orchestrator Agent")
 	}
 }
 
