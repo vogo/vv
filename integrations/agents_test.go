@@ -286,6 +286,8 @@ func TestIntegration_Agents_OrchestratorDirectDispatch(t *testing.T) {
 				2,
 				chatStub,
 				"/tmp/test",
+				nil,
+				nil, // no planner
 			)
 
 			resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -368,6 +370,8 @@ func TestIntegration_Agents_OrchestratorPlanExecution(t *testing.T) {
 		cfg.Memory.MaxConcurrency,
 		chatStub,
 		"/tmp/test",
+		nil,
+		nil, // no planner
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -430,6 +434,8 @@ func TestIntegration_Agents_OrchestratorFallbackOnInvalidJSON(t *testing.T) {
 		2,
 		chatStub,
 		"",
+		nil,
+		nil, // no planner
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -495,6 +501,8 @@ func TestIntegration_Agents_OrchestratorFallbackOnEmptyPlan(t *testing.T) {
 		2,
 		chatStub,
 		"",
+		nil,
+		nil, // no planner
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -560,6 +568,8 @@ func TestIntegration_Agents_OrchestratorFallbackOnInvalidAgent(t *testing.T) {
 		2,
 		chatStub,
 		"",
+		nil,
+		nil, // no planner
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -621,6 +631,8 @@ func TestIntegration_Agents_OrchestratorImplementsStreamAgent(t *testing.T) {
 		2,
 		&stubAgent{id: "chat"},
 		"",
+		nil,
+		nil, // no planner
 	)
 
 	// Verify OrchestratorAgent satisfies agent.StreamAgent.
@@ -931,6 +943,8 @@ func TestIntegration_Agents_WorkingDirectoryCaptureAndPropagation(t *testing.T) 
 		2,
 		&stubAgent{id: "chat"},
 		cfg.Tools.BashWorkingDir,
+		nil,
+		nil, // no planner
 	)
 
 	// 6. Trigger a direct dispatch.
@@ -1033,6 +1047,8 @@ func TestIntegration_Agents_OrchestratorParallelStepExecution(t *testing.T) {
 		2, // maxConcurrency=2 allows parallel execution
 		&stubAgent{id: "chat"},
 		"/tmp/test",
+		nil,
+		nil, // no planner
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -1132,6 +1148,8 @@ func TestIntegration_Agents_OrchestratorPlanStepFailure(t *testing.T) {
 		2,
 		&stubAgent{id: "chat"},
 		"",
+		nil,
+		nil, // no planner
 	)
 
 	// Should not panic or return an unhandled error.
@@ -1212,6 +1230,8 @@ func TestIntegration_Agents_OrchestratorTokenUsageAggregation(t *testing.T) {
 		2,
 		chatStub,
 		"/tmp/test",
+		nil,
+		nil, // no planner
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -1303,6 +1323,8 @@ func TestIntegration_Agents_OrchestratorChatInPlanSteps(t *testing.T) {
 		2,
 		chatStub,
 		"/tmp/test",
+		nil,
+		nil, // no planner
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -1358,6 +1380,8 @@ func TestIntegration_Agents_OrchestratorFallbackOnLLMError(t *testing.T) {
 		2,
 		chatStub,
 		"",
+		nil,
+		nil, // no planner
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{

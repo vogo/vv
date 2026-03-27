@@ -135,6 +135,7 @@ func TestCreate_Names(t *testing.T) {
 type stubAgent struct {
 	id       string
 	response *schema.RunResponse
+	err      error
 }
 
 var _ agent.Agent = (*stubAgent)(nil)
@@ -144,6 +145,9 @@ func (s *stubAgent) Name() string        { return s.id }
 func (s *stubAgent) Description() string { return s.id }
 
 func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	if s.response != nil {
 		return s.response, nil
 	}

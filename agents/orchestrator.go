@@ -15,35 +15,6 @@ import (
 	"github.com/vogo/vage/schema"
 )
 
-// OrchestratorSystemPrompt is the system prompt for the orchestrator agent's classification call.
-const OrchestratorSystemPrompt = `You are an orchestrator agent. You receive user instructions and decide how to fulfill them.
-
-## Working Directory
-The user is working in: {{.WorkingDir}}
-
-## Available Agents
-- "coder": Reads, writes, edits files, runs commands, searches codebases, debugs
-- "researcher": Explores codebases, reads documentation, gathers information (read-only)
-- "reviewer": Reviews code for correctness, style, performance, security
-- "chat": General conversation, questions, explanations, brainstorming
-
-## Response Format
-You MUST respond with ONLY a JSON object. No other text.
-
-### For simple tasks (single agent):
-{"mode": "direct", "agent": "<agent_id>"}
-
-### For complex tasks (multi-step):
-{"mode": "plan", "plan": {"goal": "...", "steps": [{"id": "step_1", "description": "...", "agent": "coder", "depends_on": []}]}}
-
-## Rules
-1. Use "direct" mode for tasks that clearly map to one agent capability.
-2. Use "plan" mode only when the task genuinely requires multiple distinct steps across different capabilities.
-3. For plan steps, use "depends_on" to specify ordering. Steps without dependencies run in parallel.
-4. Keep plans focused: typically 2-5 steps.
-5. Default to "coder" for ambiguous coding tasks, "chat" for general questions.
-`
-
 const PlanSummaryPrompt = `You are summarizing the results of a multi-step task execution. Synthesize the outputs from all completed steps into a coherent, concise response for the user.
 
 For each step result provided, note:
@@ -54,8 +25,8 @@ For each step result provided, note:
 Provide a unified summary that directly addresses the original user request.`
 
 // OrchestratorAgent is the main agent that receives all user requests.
-// It decides whether to handle directly (single agent dispatch) or
-// decompose into a multi-step plan executed as a DAG.
+// It coordinates explorer and planner sub-agents, then dispatches to
+// the appropriate task agents (coder, researcher, reviewer, chat).
 type OrchestratorAgent struct {
 	agent.Base
 	llm            aimodel.ChatCompleter
@@ -65,6 +36,9 @@ type OrchestratorAgent struct {
 	maxConcurrency int
 	fallbackAgent  agent.Agent // chat agent as fallback
 	workingDir     string      // captured CWD
+
+	explorerAgent agent.Agent // explores codebase to build context (nil if not configured)
+	plannerAgent  agent.Agent // classifies/plans tasks
 }
 
 // Compile-time interface checks.
@@ -84,6 +58,8 @@ func NewOrchestratorAgent(
 	maxConcurrency int,
 	fallback agent.Agent,
 	workingDir string,
+	explorerAgent agent.Agent,
+	plannerAgent agent.Agent,
 ) *OrchestratorAgent {
 	return &OrchestratorAgent{
 		Base:           agent.NewBase(cfg),
@@ -94,6 +70,8 @@ func NewOrchestratorAgent(
 		maxConcurrency: maxConcurrency,
 		fallbackAgent:  fallback,
 		workingDir:     workingDir,
+		explorerAgent:  explorerAgent,
+		plannerAgent:   plannerAgent,
 	}
 }
 
@@ -126,63 +104,164 @@ func (cr *ClassifyResult) validate(subAgents map[string]agent.Agent) error {
 	return nil
 }
 
-// Run executes the orchestrator: classifies the request and dispatches accordingly.
+// Run executes the orchestrator: explores context, plans the task, then dispatches.
 func (o *OrchestratorAgent) Run(ctx context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
-	result, classifyUsage, err := o.classifyTask(ctx, req)
+	// Phase 1: Explore project context.
+	contextSummary, exploreUsage := o.explore(ctx, req)
+
+	// Phase 2: Plan/classify the task.
+	result, planUsage, err := o.planTask(ctx, req, contextSummary)
 	if err != nil {
-		slog.Warn("orchestrator: classification failed, falling back to chat", "error", err)
-		return o.fallbackRun(ctx, req, classifyUsage)
+		slog.Warn("orchestrator: planning failed, falling back to chat", "error", err)
+		return o.fallbackRun(ctx, req, aggregateUsage(exploreUsage, nil))
 	}
+
+	totalUsage := aggregateUsage(exploreUsage, planUsage)
+
+	// Phase 3: Dispatch.
+	enrichedReq := o.enrichRequest(req, contextSummary)
 
 	switch result.Mode {
 	case "direct":
-		return o.runDirect(ctx, req, result, classifyUsage)
+		return o.runDirect(ctx, enrichedReq, result, totalUsage)
 	case "plan":
-		return o.runPlan(ctx, req, result.Plan, classifyUsage)
+		return o.runPlan(ctx, enrichedReq, result.Plan, totalUsage, contextSummary)
 	default:
 		slog.Warn("orchestrator: unknown mode, falling back to chat", "mode", result.Mode)
-		return o.fallbackRun(ctx, req, classifyUsage)
+		return o.fallbackRun(ctx, enrichedReq, totalUsage)
 	}
 }
 
-// RunStream implements streaming dispatch with two paths:
-// direct mode proxies the sub-agent stream; plan mode wraps synchronous DAG execution.
+// RunStream implements streaming dispatch.
 func (o *OrchestratorAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
-	result, classifyUsage, err := o.classifyTask(ctx, req)
+	// Phase 1: Explore project context.
+	contextSummary, exploreUsage := o.explore(ctx, req)
+
+	// Phase 2: Plan/classify the task.
+	result, planUsage, err := o.planTask(ctx, req, contextSummary)
 	if err != nil {
-		slog.Warn("orchestrator: classification failed, falling back to chat stream", "error", err)
+		slog.Warn("orchestrator: planning failed, falling back to chat stream", "error", err)
 		return o.fallbackRunStream(ctx, req)
 	}
+
+	totalUsage := aggregateUsage(exploreUsage, planUsage)
+	enrichedReq := o.enrichRequest(req, contextSummary)
 
 	switch result.Mode {
 	case "direct":
 		subAgent, ok := o.subAgents[result.Agent]
 		if !ok {
-			return o.fallbackRunStream(ctx, req)
+			return o.fallbackRunStream(ctx, enrichedReq)
 		}
 		sa, ok := subAgent.(agent.StreamAgent)
 		if !ok {
-			return agent.RunToStream(ctx, subAgent, o.enrichRequest(req)), nil
+			return agent.RunToStream(ctx, subAgent, enrichedReq), nil
 		}
-		return sa.RunStream(ctx, o.enrichRequest(req))
+		return sa.RunStream(ctx, enrichedReq)
 	case "plan":
-		// Wrap plan execution as a stream without re-classifying. We create
-		// a lightweight agent.Agent that runs the already-parsed plan directly.
+		totalUsageCopy := totalUsage
+		ctxSummary := contextSummary
 		planRunner := agent.NewCustomAgent(
 			agent.Config{ID: o.ID(), Name: o.Name(), Description: o.Description()},
 			func(ctx context.Context, innerReq *schema.RunRequest) (*schema.RunResponse, error) {
-				return o.runPlan(ctx, innerReq, result.Plan, classifyUsage)
+				return o.runPlan(ctx, innerReq, result.Plan, totalUsageCopy, ctxSummary)
 			},
 		)
-		return agent.RunToStream(ctx, planRunner, req), nil
+		return agent.RunToStream(ctx, planRunner, enrichedReq), nil
 	default:
-		return o.fallbackRunStream(ctx, req)
+		return o.fallbackRunStream(ctx, enrichedReq)
 	}
 }
 
-// classifyTask makes a single LLM call to classify the user's request.
-func (o *OrchestratorAgent) classifyTask(ctx context.Context, req *schema.RunRequest) (*ClassifyResult, *aimodel.Usage, error) {
-	systemPrompt := strings.Replace(OrchestratorSystemPrompt, "{{.WorkingDir}}", o.workingDir, 1)
+// explore calls the explorer sub-agent to build project context.
+// Returns the context summary text and usage. If no explorer is configured
+// or exploration fails, returns empty summary.
+func (o *OrchestratorAgent) explore(ctx context.Context, req *schema.RunRequest) (string, *aimodel.Usage) {
+	if o.explorerAgent == nil {
+		return "", nil
+	}
+
+	// Build explorer request with working directory context.
+	var msgs []schema.Message
+	if o.workingDir != "" {
+		msgs = append(msgs, schema.NewUserMessage(
+			fmt.Sprintf("Working directory: %s", o.workingDir),
+		))
+	}
+	msgs = append(msgs, req.Messages...)
+
+	explorerReq := &schema.RunRequest{
+		Messages:  msgs,
+		SessionID: req.SessionID,
+	}
+
+	resp, err := o.explorerAgent.Run(ctx, explorerReq)
+	if err != nil {
+		slog.Warn("orchestrator: explorer failed", "error", err)
+		return "", nil
+	}
+
+	if len(resp.Messages) == 0 {
+		return "", resp.Usage
+	}
+
+	return resp.Messages[0].Content.Text(), resp.Usage
+}
+
+// planTask calls the planner sub-agent to classify the request.
+func (o *OrchestratorAgent) planTask(ctx context.Context, req *schema.RunRequest, contextSummary string) (*ClassifyResult, *aimodel.Usage, error) {
+	if o.plannerAgent == nil {
+		return o.classifyTaskDirect(ctx, req)
+	}
+
+	// Build planner request with context.
+	var msgs []schema.Message
+	if o.workingDir != "" {
+		msgs = append(msgs, schema.NewUserMessage(
+			fmt.Sprintf("Working directory: %s", o.workingDir),
+		))
+	}
+	if contextSummary != "" {
+		msgs = append(msgs, schema.NewUserMessage(
+			fmt.Sprintf("Project context:\n%s", contextSummary),
+		))
+	}
+	msgs = append(msgs, req.Messages...)
+
+	plannerReq := &schema.RunRequest{
+		Messages:  msgs,
+		SessionID: req.SessionID,
+	}
+
+	resp, err := o.plannerAgent.Run(ctx, plannerReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("planner run: %w", err)
+	}
+
+	usage := resp.Usage
+
+	if len(resp.Messages) == 0 {
+		return nil, usage, fmt.Errorf("empty planner response")
+	}
+
+	text := resp.Messages[0].Content.Text()
+	jsonStr := extractJSON(text)
+
+	var result ClassifyResult
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		return nil, usage, fmt.Errorf("parse planner JSON: %w", err)
+	}
+
+	if err := result.validate(o.subAgents); err != nil {
+		return nil, usage, err
+	}
+
+	return &result, usage, nil
+}
+
+// classifyTaskDirect makes a direct LLM call to classify the task (fallback when no planner agent).
+func (o *OrchestratorAgent) classifyTaskDirect(ctx context.Context, req *schema.RunRequest) (*ClassifyResult, *aimodel.Usage, error) {
+	systemPrompt := strings.Replace(PlannerSystemPrompt, "{{.WorkingDir}}", o.workingDir, 1)
 
 	msgs := make([]aimodel.Message, 0, len(req.Messages)+1)
 	msgs = append(msgs, aimodel.Message{
@@ -203,7 +282,6 @@ func (o *OrchestratorAgent) classifyTask(ctx context.Context, req *schema.RunReq
 
 	usage := &resp.Usage
 
-	// Extract text from the response.
 	if len(resp.Choices) == 0 {
 		return nil, usage, fmt.Errorf("empty classification response")
 	}
@@ -223,15 +301,22 @@ func (o *OrchestratorAgent) classifyTask(ctx context.Context, req *schema.RunReq
 	return &result, usage, nil
 }
 
-// enrichRequest prepends working directory context to a request for sub-agent dispatch.
-func (o *OrchestratorAgent) enrichRequest(req *schema.RunRequest) *schema.RunRequest {
-	if o.workingDir == "" {
+// enrichRequest prepends working directory and exploration context to a request for sub-agent dispatch.
+func (o *OrchestratorAgent) enrichRequest(req *schema.RunRequest, contextSummary string) *schema.RunRequest {
+	if o.workingDir == "" && contextSummary == "" {
 		return req
 	}
-	msgs := make([]schema.Message, 0, len(req.Messages)+1)
-	msgs = append(msgs, schema.NewUserMessage(
-		fmt.Sprintf("Working directory: %s", o.workingDir),
-	))
+	var msgs []schema.Message
+	if o.workingDir != "" {
+		msgs = append(msgs, schema.NewUserMessage(
+			fmt.Sprintf("Working directory: %s", o.workingDir),
+		))
+	}
+	if contextSummary != "" {
+		msgs = append(msgs, schema.NewUserMessage(
+			fmt.Sprintf("Project context:\n%s", contextSummary),
+		))
+	}
 	msgs = append(msgs, req.Messages...)
 	return &schema.RunRequest{
 		Messages:  msgs,
@@ -248,7 +333,7 @@ func (o *OrchestratorAgent) runDirect(ctx context.Context, req *schema.RunReques
 		return o.fallbackRun(ctx, req, classifyUsage)
 	}
 
-	resp, err := subAgent.Run(ctx, o.enrichRequest(req))
+	resp, err := subAgent.Run(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator: sub-agent %q failed: %w", cr.Agent, err)
 	}
@@ -258,8 +343,8 @@ func (o *OrchestratorAgent) runDirect(ctx context.Context, req *schema.RunReques
 }
 
 // runPlan builds and executes a DAG from the plan.
-func (o *OrchestratorAgent) runPlan(ctx context.Context, req *schema.RunRequest, plan *Plan, classifyUsage *aimodel.Usage) (*schema.RunResponse, error) {
-	nodes, err := o.buildNodes(plan, req)
+func (o *OrchestratorAgent) runPlan(ctx context.Context, req *schema.RunRequest, plan *Plan, classifyUsage *aimodel.Usage, contextSummary string) (*schema.RunResponse, error) {
+	nodes, err := o.buildNodes(plan, req, contextSummary)
 	if err != nil {
 		slog.Warn("orchestrator: DAG build failed, falling back to chat", "error", err)
 		return o.fallbackRun(ctx, req, classifyUsage)
@@ -322,17 +407,17 @@ func (o *OrchestratorAgent) fallbackRunStream(ctx context.Context, req *schema.R
 	return sa.RunStream(ctx, req)
 }
 
-// aggregateUsage merges classify and sub-agent usage into a single Usage.
-func aggregateUsage(classify *aimodel.Usage, sub *aimodel.Usage) *aimodel.Usage {
-	if classify == nil && sub == nil {
+// aggregateUsage merges two usage structs into a single Usage.
+func aggregateUsage(a *aimodel.Usage, b *aimodel.Usage) *aimodel.Usage {
+	if a == nil && b == nil {
 		return nil
 	}
 	result := &aimodel.Usage{}
-	if classify != nil {
-		result.Add(classify)
+	if a != nil {
+		result.Add(a)
 	}
-	if sub != nil {
-		result.Add(sub)
+	if b != nil {
+		result.Add(b)
 	}
 	return result
 }
@@ -406,7 +491,7 @@ func extractJSON(text string) string {
 }
 
 // buildNodes converts a Plan into orchestrate.Node slices for DAG execution.
-func (o *OrchestratorAgent) buildNodes(plan *Plan, req *schema.RunRequest) ([]orchestrate.Node, error) {
+func (o *OrchestratorAgent) buildNodes(plan *Plan, req *schema.RunRequest, contextSummary string) ([]orchestrate.Node, error) {
 	nodes := make([]orchestrate.Node, 0, len(plan.Steps)+1)
 
 	for _, step := range plan.Steps {
@@ -425,23 +510,24 @@ func (o *OrchestratorAgent) buildNodes(plan *Plan, req *schema.RunRequest) ([]or
 			Deps:   step.DependsOn,
 			InputMapper: func(upstream map[string]*schema.RunResponse) (*schema.RunRequest, error) {
 				var msgs []schema.Message
-				// Add working directory context.
 				if o.workingDir != "" {
 					msgs = append(msgs, schema.NewUserMessage(
 						fmt.Sprintf("Working directory: %s", o.workingDir),
 					))
 				}
-				// Add original user goal for context.
+				if contextSummary != "" {
+					msgs = append(msgs, schema.NewUserMessage(
+						fmt.Sprintf("Project context:\n%s", contextSummary),
+					))
+				}
 				msgs = append(msgs, schema.NewUserMessage(
 					fmt.Sprintf("Original request: %s", plan.Goal),
 				))
-				// Prepend upstream context if available.
 				for _, depID := range stepCopy.DependsOn {
 					if resp, ok := upstream[depID]; ok && resp != nil {
 						msgs = append(msgs, resp.Messages...)
 					}
 				}
-				// Add the step description as the task.
 				msgs = append(msgs, schema.NewUserMessage(stepCopy.Description))
 				return &schema.RunRequest{
 					Messages:  msgs,
@@ -514,19 +600,16 @@ func (a *PlanAggregator) Aggregate(ctx context.Context, results map[string]*sche
 		return &schema.RunResponse{}, nil
 	}
 
-	// If only one result, return it directly.
 	if len(results) == 1 {
 		for _, resp := range results {
 			return resp, nil
 		}
 	}
 
-	// Build summary prompt from all step results.
 	var sb strings.Builder
 	sb.WriteString(PlanSummaryPrompt)
 	sb.WriteString("\n\n")
 
-	// Sort keys for deterministic ordering.
 	keys := make([]string, 0, len(results))
 	for k := range results {
 		keys = append(keys, k)

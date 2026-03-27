@@ -133,6 +133,20 @@ func TestOrchestratorAgent_Run_DirectDispatch(t *testing.T) {
 
 	chatStub := &stubAgent{id: "chat"}
 
+	// Use planner stub that returns classification JSON.
+	plannerStub := &stubAgent{
+		id: "planner",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
+				}, "planner"),
+			},
+			Usage: &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+		},
+	}
+
 	orch := NewOrchestratorAgent(
 		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
 		mock,
@@ -147,6 +161,8 @@ func TestOrchestratorAgent_Run_DirectDispatch(t *testing.T) {
 		2,
 		chatStub,
 		"/tmp/test",
+		nil, // no explorer
+		plannerStub,
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -194,6 +210,12 @@ func TestOrchestratorAgent_Run_FallbackOnClassificationFailure(t *testing.T) {
 		},
 	}
 
+	// Planner that fails.
+	plannerStub := &stubAgent{
+		id:  "planner",
+		err: errors.New("planner error"),
+	}
+
 	orch := NewOrchestratorAgent(
 		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
 		mock,
@@ -208,6 +230,8 @@ func TestOrchestratorAgent_Run_FallbackOnClassificationFailure(t *testing.T) {
 		2,
 		chatStub,
 		"",
+		nil, // no explorer
+		plannerStub,
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -253,6 +277,19 @@ func TestOrchestratorAgent_Run_FallbackOnInvalidJSON(t *testing.T) {
 		},
 	}
 
+	// Planner returns invalid JSON.
+	plannerStub := &stubAgent{
+		id: "planner",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent("not json at all"),
+				}, "planner"),
+			},
+		},
+	}
+
 	orch := NewOrchestratorAgent(
 		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
 		mock,
@@ -267,6 +304,8 @@ func TestOrchestratorAgent_Run_FallbackOnInvalidJSON(t *testing.T) {
 		2,
 		chatStub,
 		"",
+		nil, // no explorer
+		plannerStub,
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -319,6 +358,18 @@ func TestOrchestratorAgent_Run_PlanMode(t *testing.T) {
 		taskagent.WithMaxIterations(1),
 	)
 
+	plannerStub := &stubAgent{
+		id: "planner",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent(planJSON),
+				}, "planner"),
+			},
+		},
+	}
+
 	orch := NewOrchestratorAgent(
 		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
 		mock,
@@ -333,6 +384,8 @@ func TestOrchestratorAgent_Run_PlanMode(t *testing.T) {
 		2,
 		&stubAgent{id: "chat"},
 		"/tmp/project",
+		nil, // no explorer
+		plannerStub,
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -366,10 +419,21 @@ func TestOrchestratorAgent_RunStream_DirectDispatch(t *testing.T) {
 		},
 	}
 
-	// stubStreamAgent for coder to verify direct stream proxying.
 	coderStream := &stubStreamAgentForOrch{
 		id:       "coder",
 		response: "streamed coder response",
+	}
+
+	plannerStub := &stubAgent{
+		id: "planner",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
+				}, "planner"),
+			},
+		},
 	}
 
 	orch := NewOrchestratorAgent(
@@ -386,6 +450,8 @@ func TestOrchestratorAgent_RunStream_DirectDispatch(t *testing.T) {
 		2,
 		&stubAgent{id: "chat"},
 		"",
+		nil, // no explorer
+		plannerStub,
 	)
 
 	stream, err := orch.RunStream(context.Background(), &schema.RunRequest{
@@ -430,7 +496,7 @@ func TestOrchestratorAgent_EnrichRequest(t *testing.T) {
 		SessionID: "test",
 	}
 
-	enriched := orch.enrichRequest(req)
+	enriched := orch.enrichRequest(req, "")
 
 	if len(enriched.Messages) != 2 {
 		t.Fatalf("enriched messages = %d, want 2", len(enriched.Messages))
@@ -452,11 +518,33 @@ func TestOrchestratorAgent_EnrichRequest_NoWorkingDir(t *testing.T) {
 		Messages: []schema.Message{schema.NewUserMessage("hello")},
 	}
 
-	enriched := orch.enrichRequest(req)
+	enriched := orch.enrichRequest(req, "")
 
-	// Should return the original request when workingDir is empty.
 	if len(enriched.Messages) != 1 {
 		t.Fatalf("enriched messages = %d, want 1 (no enrichment)", len(enriched.Messages))
+	}
+}
+
+func TestOrchestratorAgent_EnrichRequest_WithContext(t *testing.T) {
+	orch := &OrchestratorAgent{workingDir: "/tmp/project"}
+
+	req := &schema.RunRequest{
+		Messages:  []schema.Message{schema.NewUserMessage("hello")},
+		SessionID: "test",
+	}
+
+	enriched := orch.enrichRequest(req, "Found main.go and orchestrator.go")
+
+	if len(enriched.Messages) != 3 {
+		t.Fatalf("enriched messages = %d, want 3", len(enriched.Messages))
+	}
+
+	if enriched.Messages[0].Content.Text() != "Working directory: /tmp/project" {
+		t.Errorf("first message = %q, want working dir", enriched.Messages[0].Content.Text())
+	}
+
+	if enriched.Messages[1].Content.Text() != "Project context:\nFound main.go and orchestrator.go" {
+		t.Errorf("second message = %q, want project context", enriched.Messages[1].Content.Text())
 	}
 }
 
@@ -521,7 +609,6 @@ func TestFindTerminalNodes(t *testing.T) {
 
 	terminals := findTerminalNodes(orchNodes)
 
-	// Terminal nodes are c and d (no one depends on them).
 	if len(terminals) != 2 {
 		t.Fatalf("terminal nodes = %d, want 2", len(terminals))
 	}
@@ -582,37 +669,37 @@ func TestPlanAggregator_EmptyResults(t *testing.T) {
 
 func TestAggregateUsage(t *testing.T) {
 	tests := []struct {
-		name     string
-		classify *aimodel.Usage
-		sub      *aimodel.Usage
-		wantNil  bool
-		wantPT   int
+		name    string
+		a       *aimodel.Usage
+		b       *aimodel.Usage
+		wantNil bool
+		wantPT  int
 	}{
 		{
 			name:    "both nil",
 			wantNil: true,
 		},
 		{
-			name:     "classify only",
-			classify: &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-			wantPT:   10,
+			name:   "a only",
+			a:      &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+			wantPT: 10,
 		},
 		{
-			name:   "sub only",
-			sub:    &aimodel.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
+			name:   "b only",
+			b:      &aimodel.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
 			wantPT: 20,
 		},
 		{
-			name:     "both present",
-			classify: &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-			sub:      &aimodel.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
-			wantPT:   30,
+			name:   "both present",
+			a:      &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+			b:      &aimodel.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
+			wantPT: 30,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := aggregateUsage(tt.classify, tt.sub)
+			result := aggregateUsage(tt.a, tt.b)
 			if tt.wantNil {
 				if result != nil {
 					t.Errorf("expected nil, got %+v", result)
@@ -689,6 +776,18 @@ func TestOrchestratorAgent_Run_ChatInPlanSteps(t *testing.T) {
 		taskagent.WithMaxIterations(1),
 	)
 
+	plannerStub := &stubAgent{
+		id: "planner",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent(planJSON),
+				}, "planner"),
+			},
+		},
+	}
+
 	orch := NewOrchestratorAgent(
 		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
 		mock,
@@ -703,6 +802,8 @@ func TestOrchestratorAgent_Run_ChatInPlanSteps(t *testing.T) {
 		2,
 		chatStub,
 		"",
+		nil, // no explorer
+		plannerStub,
 	)
 
 	resp, err := orch.Run(context.Background(), &schema.RunRequest{
@@ -757,29 +858,236 @@ func (s *stubStreamAgentForOrch) RunStream(ctx context.Context, req *schema.RunR
 	}), nil
 }
 
-func TestOrchestratorSystemPrompt_NotEmpty(t *testing.T) {
-	if OrchestratorSystemPrompt == "" {
-		t.Fatal("OrchestratorSystemPrompt is empty")
+func TestPlannerSystemPrompt_NotEmpty(t *testing.T) {
+	if PlannerSystemPrompt == "" {
+		t.Fatal("PlannerSystemPrompt is empty")
 	}
 }
 
-func TestOrchestratorSystemPrompt_ContainsJSONSchema(t *testing.T) {
-	if !strings.Contains(OrchestratorSystemPrompt, "direct") {
-		t.Error("OrchestratorSystemPrompt does not contain 'direct'")
+func TestPlannerSystemPrompt_ContainsJSONSchema(t *testing.T) {
+	if !strings.Contains(PlannerSystemPrompt, "direct") {
+		t.Error("PlannerSystemPrompt does not contain 'direct'")
 	}
-	if !strings.Contains(OrchestratorSystemPrompt, "plan") {
-		t.Error("OrchestratorSystemPrompt does not contain 'plan'")
+	if !strings.Contains(PlannerSystemPrompt, "plan") {
+		t.Error("PlannerSystemPrompt does not contain 'plan'")
 	}
-	if !strings.Contains(OrchestratorSystemPrompt, "depends_on") {
-		t.Error("OrchestratorSystemPrompt does not contain 'depends_on'")
+	if !strings.Contains(PlannerSystemPrompt, "depends_on") {
+		t.Error("PlannerSystemPrompt does not contain 'depends_on'")
 	}
-	if !strings.Contains(OrchestratorSystemPrompt, "{{.WorkingDir}}") {
-		t.Error("OrchestratorSystemPrompt does not contain '{{.WorkingDir}}'")
+}
+
+func TestExplorerSystemPrompt_NotEmpty(t *testing.T) {
+	if ExplorerSystemPrompt == "" {
+		t.Fatal("ExplorerSystemPrompt is empty")
 	}
 }
 
 func TestPlanSummaryPrompt_NotEmpty(t *testing.T) {
 	if PlanSummaryPrompt == "" {
 		t.Fatal("PlanSummaryPrompt is empty")
+	}
+}
+
+func TestOrchestratorAgent_Explore_NilExplorer(t *testing.T) {
+	orch := &OrchestratorAgent{}
+
+	summary, usage := orch.explore(context.Background(), &schema.RunRequest{
+		Messages: []schema.Message{schema.NewUserMessage("test")},
+	})
+	if summary != "" {
+		t.Errorf("expected empty summary, got %q", summary)
+	}
+	if usage != nil {
+		t.Error("expected nil usage")
+	}
+}
+
+func TestOrchestratorAgent_Explore_WithExplorer(t *testing.T) {
+	explorerStub := &stubAgent{
+		id: "explorer",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent("Found main.go and orchestrator.go"),
+				}, "explorer"),
+			},
+			Usage: &aimodel.Usage{PromptTokens: 50, CompletionTokens: 20, TotalTokens: 70},
+		},
+	}
+
+	orch := &OrchestratorAgent{
+		workingDir:    "/tmp/project",
+		explorerAgent: explorerStub,
+	}
+
+	summary, usage := orch.explore(context.Background(), &schema.RunRequest{
+		Messages: []schema.Message{schema.NewUserMessage("how does the orchestrator work?")},
+	})
+
+	if summary != "Found main.go and orchestrator.go" {
+		t.Errorf("summary = %q, want explorer output", summary)
+	}
+	if usage == nil {
+		t.Fatal("expected non-nil usage")
+	}
+	if usage.TotalTokens != 70 {
+		t.Errorf("TotalTokens = %d, want 70", usage.TotalTokens)
+	}
+}
+
+func TestOrchestratorAgent_PlanTask_WithPlanner(t *testing.T) {
+	plannerStub := &stubAgent{
+		id: "planner",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
+				}, "planner"),
+			},
+			Usage: &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+		},
+	}
+
+	orch := &OrchestratorAgent{
+		workingDir:   "/tmp/project",
+		plannerAgent: plannerStub,
+		subAgents: map[string]agent.Agent{
+			"coder": &stubAgent{id: "coder"},
+			"chat":  &stubAgent{id: "chat"},
+		},
+	}
+
+	result, usage, err := orch.planTask(context.Background(), &schema.RunRequest{
+		Messages: []schema.Message{schema.NewUserMessage("test")},
+	}, "Some context")
+	if err != nil {
+		t.Fatalf("planTask: %v", err)
+	}
+	if result.Mode != "direct" {
+		t.Errorf("mode = %q, want %q", result.Mode, "direct")
+	}
+	if result.Agent != "coder" {
+		t.Errorf("agent = %q, want %q", result.Agent, "coder")
+	}
+	if usage == nil {
+		t.Fatal("expected non-nil usage")
+	}
+}
+
+func TestOrchestratorAgent_PlanTask_FallbackToDirect(t *testing.T) {
+	mock := &mockChatCompleter{
+		response: &aimodel.ChatResponse{
+			Choices: []aimodel.Choice{
+				{
+					Message: aimodel.Message{
+						Role:    aimodel.RoleAssistant,
+						Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "chat"}`),
+					},
+				},
+			},
+			Usage: aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+		},
+	}
+
+	orch := &OrchestratorAgent{
+		llm:          mock,
+		model:        "test-model",
+		plannerAgent: nil, // no planner, falls back to direct LLM call
+		subAgents: map[string]agent.Agent{
+			"coder": &stubAgent{id: "coder"},
+			"chat":  &stubAgent{id: "chat"},
+		},
+	}
+
+	result, _, err := orch.planTask(context.Background(), &schema.RunRequest{
+		Messages: []schema.Message{schema.NewUserMessage("hello")},
+	}, "")
+	if err != nil {
+		t.Fatalf("planTask: %v", err)
+	}
+	if result.Mode != "direct" {
+		t.Errorf("mode = %q, want %q", result.Mode, "direct")
+	}
+	if result.Agent != "chat" {
+		t.Errorf("agent = %q, want %q", result.Agent, "chat")
+	}
+}
+
+func TestOrchestratorAgent_Run_WithExplorerAndPlanner(t *testing.T) {
+	explorerStub := &stubAgent{
+		id: "explorer",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent("Found orchestrator.go and agents.go"),
+				}, "explorer"),
+			},
+			Usage: &aimodel.Usage{PromptTokens: 30, CompletionTokens: 10, TotalTokens: 40},
+		},
+	}
+
+	plannerStub := &stubAgent{
+		id: "planner",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
+				}, "planner"),
+			},
+			Usage: &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+		},
+	}
+
+	coderStub := &stubAgent{
+		id: "coder",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent("coder response"),
+				}, "coder"),
+			},
+			Usage: &aimodel.Usage{PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150},
+		},
+	}
+
+	chatStub := &stubAgent{id: "chat"}
+
+	orch := NewOrchestratorAgent(
+		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
+		nil, // llm not needed when both explorer and planner are stubs
+		"test-model",
+		map[string]agent.Agent{
+			"coder":      coderStub,
+			"researcher": &stubAgent{id: "researcher"},
+			"reviewer":   &stubAgent{id: "reviewer"},
+			"chat":       chatStub,
+		},
+		nil,
+		2,
+		chatStub,
+		"/tmp/project",
+		explorerStub,
+		plannerStub,
+	)
+
+	resp, err := orch.Run(context.Background(), &schema.RunRequest{
+		Messages: []schema.Message{schema.NewUserMessage("how does orchestrator work?")},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(resp.Messages) == 0 {
+		t.Fatal("expected response messages")
+	}
+
+	text := resp.Messages[0].Content.Text()
+	if text != "coder response" {
+		t.Errorf("response = %q, want %q", text, "coder response")
 	}
 }

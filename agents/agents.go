@@ -16,6 +16,8 @@ type Agents struct {
 	Chat         *taskagent.Agent
 	Researcher   *taskagent.Agent
 	Reviewer     *taskagent.Agent
+	Explorer     *taskagent.Agent
+	Planner      *taskagent.Agent
 	Orchestrator *OrchestratorAgent
 }
 
@@ -33,6 +35,8 @@ func Create(
 	chatAgent := newChatAgent(cfg, llm)
 	researcherAgent := newResearcherAgent(cfg, llm, readOnlyReg, memMgr)
 	reviewerAgent := newReviewerAgent(cfg, llm, reviewReg, memMgr)
+	explorerAgent := newExplorerAgent(cfg, llm, readOnlyReg)
+	plannerAgent := newPlannerAgent(cfg, llm)
 
 	planGen := taskagent.New(
 		agent.Config{
@@ -57,7 +61,7 @@ func Create(
 		agent.Config{
 			ID:          "orchestrator",
 			Name:        "Orchestrator Agent",
-			Description: "Orchestrates user requests: classifies, dispatches, and aggregates",
+			Description: "Orchestrates user requests: explores context, plans tasks, dispatches to agents",
 		},
 		llm,
 		cfg.LLM.Model,
@@ -66,6 +70,8 @@ func Create(
 		cfg.Memory.MaxConcurrency,
 		chatAgent,
 		cfg.Tools.BashWorkingDir,
+		explorerAgent,
+		plannerAgent,
 	)
 
 	return &Agents{
@@ -73,6 +79,8 @@ func Create(
 		Chat:         chatAgent,
 		Researcher:   researcherAgent,
 		Reviewer:     reviewerAgent,
+		Explorer:     explorerAgent,
+		Planner:      plannerAgent,
 		Orchestrator: orchestratorAgent,
 	}
 }
