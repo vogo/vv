@@ -37,7 +37,12 @@ You MUST respond with ONLY a JSON object. No other text.
 3. For plan steps, use "depends_on" to specify ordering. Steps without dependencies run in parallel.
 4. Keep plans focused: typically 2-5 steps.
 5. Default to "coder" for ambiguous coding tasks, "chat" for general questions.
-6. When project context is provided, reference specific files, functions, or patterns in step descriptions.`
+6. When project context is provided, reference specific files, functions, or patterns in step descriptions.
+7. For specialized sub-tasks, add an optional "dynamic_spec" to a plan step:
+   {"id": "step_1", "description": "...", "agent": "coder", "depends_on": [],
+    "dynamic_spec": {"base_type": "coder", "system_prompt": "You are a Go testing specialist...", "tool_access": "full"}}
+   Fields: "base_type" (required, same as "agent"), "system_prompt" (optional), "tool_access" (optional: "full"/"read-only"/"none"), "model" (optional).
+   Only use dynamic_spec when a sub-task needs a specialized prompt or different tool access. For most tasks, omit it.`
 
 func newPlannerAgent(
 	cfg *config.Config,

@@ -57,6 +57,11 @@ func Create(
 		"chat":       chatAgent,
 	}
 
+	toolRegs := map[ToolAccessLevel]tool.ToolRegistry{
+		ToolAccessFull:     coderReg,
+		ToolAccessReadOnly: readOnlyReg,
+	}
+
 	orchestratorAgent := NewOrchestratorAgent(
 		agent.Config{
 			ID:          "orchestrator",
@@ -72,6 +77,10 @@ func Create(
 		cfg.Tools.BashWorkingDir,
 		explorerAgent,
 		plannerAgent,
+		toolRegs,
+		reviewReg,
+		cfg.Agents.MaxIterations,
+		cfg.Agents.RunTokenBudget,
 	)
 
 	return &Agents{

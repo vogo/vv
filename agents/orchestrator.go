@@ -12,7 +12,9 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/orchestrate"
+	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/schema"
+	"github.com/vogo/vage/tool"
 )
 
 const PlanSummaryPrompt = `You are summarizing the results of a multi-step task execution. Synthesize the outputs from all completed steps into a coherent, concise response for the user.
@@ -23,6 +25,68 @@ For each step result provided, note:
 - Key outputs or artifacts produced
 
 Provide a unified summary that directly addresses the original user request.`
+
+// ToolAccessLevel defines what tools a dynamic agent can access.
+type ToolAccessLevel string
+
+const (
+	ToolAccessFull     ToolAccessLevel = "full"      // bash, read, write, edit, glob, grep
+	ToolAccessReadOnly ToolAccessLevel = "read-only" // read, glob, grep
+	ToolAccessNone     ToolAccessLevel = "none"      // no tools (chat-only)
+)
+
+// validToolAccessLevels contains all valid ToolAccessLevel values.
+var validToolAccessLevels = map[ToolAccessLevel]bool{
+	ToolAccessFull:     true,
+	ToolAccessReadOnly: true,
+	ToolAccessNone:     true,
+}
+
+// validBaseTypes contains all valid base types for dynamic agents.
+var validBaseTypes = map[string]bool{
+	"coder":      true,
+	"researcher": true,
+	"reviewer":   true,
+	"chat":       true,
+}
+
+// defaultBaseTypeToolAccess maps base types to their default ToolAccessLevel.
+// "reviewer" is a special case handled separately (uses reviewReg).
+var defaultBaseTypeToolAccess = map[string]ToolAccessLevel{
+	"coder":      ToolAccessFull,
+	"researcher": ToolAccessReadOnly,
+	"chat":       ToolAccessNone,
+}
+
+// defaultBaseTypePrompt maps base types to their default system prompts.
+var defaultBaseTypePrompt = map[string]string{
+	"coder":      CoderSystemPrompt,
+	"researcher": ResearcherSystemPrompt,
+	"reviewer":   ReviewerSystemPrompt,
+	"chat":       ChatSystemPrompt,
+}
+
+// DynamicAgentSpec defines the configuration for a dynamically created sub-agent.
+type DynamicAgentSpec struct {
+	BaseType     string          `json:"base_type"`               // required: coder, researcher, reviewer, chat
+	SystemPrompt string          `json:"system_prompt,omitempty"` // optional: custom system prompt
+	ToolAccess   ToolAccessLevel `json:"tool_access,omitempty"`   // optional: overrides base type default
+	Model        string          `json:"model,omitempty"`         // optional: overrides configured model
+}
+
+// validate checks that a DynamicAgentSpec is well-formed.
+func (s *DynamicAgentSpec) validate() error {
+	if s.BaseType == "" {
+		return fmt.Errorf("dynamic_spec: base_type is required")
+	}
+	if !validBaseTypes[s.BaseType] {
+		return fmt.Errorf("dynamic_spec: invalid base_type %q (valid: coder, researcher, reviewer, chat)", s.BaseType)
+	}
+	if s.ToolAccess != "" && !validToolAccessLevels[s.ToolAccess] {
+		return fmt.Errorf("dynamic_spec: invalid tool_access %q (valid: full, read-only, none)", s.ToolAccess)
+	}
+	return nil
+}
 
 // OrchestratorAgent is the main agent that receives all user requests.
 // It coordinates explorer and planner sub-agents, then dispatches to
@@ -37,8 +101,12 @@ type OrchestratorAgent struct {
 	fallbackAgent  agent.Agent // chat agent as fallback
 	workingDir     string      // captured CWD
 
-	explorerAgent agent.Agent // explores codebase to build context (nil if not configured)
-	plannerAgent  agent.Agent // classifies/plans tasks
+	explorerAgent  agent.Agent                           // explores codebase to build context (nil if not configured)
+	plannerAgent   agent.Agent                           // classifies/plans tasks
+	toolRegistries map[ToolAccessLevel]tool.ToolRegistry // tool registries for dynamic agents (may be nil)
+	reviewReg      tool.ToolRegistry                     // reviewer registry (not exposed as ToolAccessLevel)
+	maxIterations  int                                   // from config, for dynamic agents
+	runTokenBudget int                                   // from config, for dynamic agents (0 = unlimited)
 }
 
 // Compile-time interface checks.
@@ -60,6 +128,10 @@ func NewOrchestratorAgent(
 	workingDir string,
 	explorerAgent agent.Agent,
 	plannerAgent agent.Agent,
+	toolRegistries map[ToolAccessLevel]tool.ToolRegistry,
+	reviewReg tool.ToolRegistry,
+	maxIterations int,
+	runTokenBudget int,
 ) *OrchestratorAgent {
 	return &OrchestratorAgent{
 		Base:           agent.NewBase(cfg),
@@ -72,6 +144,10 @@ func NewOrchestratorAgent(
 		workingDir:     workingDir,
 		explorerAgent:  explorerAgent,
 		plannerAgent:   plannerAgent,
+		toolRegistries: toolRegistries,
+		reviewReg:      reviewReg,
+		maxIterations:  maxIterations,
+		runTokenBudget: runTokenBudget,
 	}
 }
 
@@ -94,8 +170,17 @@ func (cr *ClassifyResult) validate(subAgents map[string]agent.Agent) error {
 			return fmt.Errorf("plan mode but no steps provided")
 		}
 		for _, step := range cr.Plan.Steps {
-			if _, ok := subAgents[step.Agent]; !ok {
-				return fmt.Errorf("unknown agent %q in plan step %q", step.Agent, step.ID)
+			if step.DynamicSpec != nil {
+				if err := step.DynamicSpec.validate(); err != nil {
+					return fmt.Errorf("plan step %q: %w", step.ID, err)
+				}
+				if step.Agent != step.DynamicSpec.BaseType {
+					return fmt.Errorf("plan step %q: agent %q must match dynamic_spec base_type %q", step.ID, step.Agent, step.DynamicSpec.BaseType)
+				}
+			} else {
+				if _, ok := subAgents[step.Agent]; !ok {
+					return fmt.Errorf("unknown agent %q in plan step %q", step.Agent, step.ID)
+				}
 			}
 		}
 	default:
@@ -430,10 +515,11 @@ type Plan struct {
 
 // PlanStep represents a single step in the plan.
 type PlanStep struct {
-	ID          string   `json:"id"`
-	Description string   `json:"description"`
-	Agent       string   `json:"agent"`
-	DependsOn   []string `json:"depends_on"`
+	ID          string            `json:"id"`
+	Description string            `json:"description"`
+	Agent       string            `json:"agent"`
+	DependsOn   []string          `json:"depends_on"`
+	DynamicSpec *DynamicAgentSpec `json:"dynamic_spec,omitempty"` // optional dynamic agent specification
 }
 
 // extractJSON attempts to extract a JSON object from text that may contain
@@ -490,23 +576,119 @@ func extractJSON(text string) string {
 	return text
 }
 
+// buildDynamicAgent creates an ephemeral taskagent from a DynamicAgentSpec.
+// Returns an error if the spec references unavailable registries or the
+// orchestrator was not configured with tool registries.
+func (o *OrchestratorAgent) buildDynamicAgent(stepID string, spec *DynamicAgentSpec) (*taskagent.Agent, error) {
+	// Determine tool access level.
+	var registry tool.ToolRegistry
+	if spec.ToolAccess != "" {
+		// Explicit tool access override.
+		if spec.ToolAccess == ToolAccessNone {
+			registry = nil
+		} else {
+			if o.toolRegistries == nil {
+				return nil, fmt.Errorf("tool registries not configured for dynamic agents")
+			}
+			reg, ok := o.toolRegistries[spec.ToolAccess]
+			if !ok {
+				return nil, fmt.Errorf("no tool registry for access level %q", spec.ToolAccess)
+			}
+			registry = reg
+		}
+	} else {
+		// Derive from base type.
+		if spec.BaseType == "reviewer" {
+			// Reviewer uses its own special registry.
+			registry = o.reviewReg
+		} else if defaultAccess, ok := defaultBaseTypeToolAccess[spec.BaseType]; ok {
+			if defaultAccess == ToolAccessNone {
+				registry = nil
+			} else {
+				if o.toolRegistries == nil {
+					return nil, fmt.Errorf("tool registries not configured for dynamic agents")
+				}
+				reg, ok := o.toolRegistries[defaultAccess]
+				if !ok {
+					return nil, fmt.Errorf("no tool registry for default access level %q of base type %q", defaultAccess, spec.BaseType)
+				}
+				registry = reg
+			}
+		}
+	}
+
+	// Determine system prompt.
+	systemPrompt := spec.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = defaultBaseTypePrompt[spec.BaseType]
+	}
+
+	// Determine model.
+	model := spec.Model
+	if model == "" {
+		model = o.model
+	}
+
+	// Determine max iterations.
+	maxIter := o.maxIterations
+	if maxIter == 0 {
+		maxIter = 10 // sensible default
+	}
+
+	var opts []taskagent.Option
+	opts = append(opts,
+		taskagent.WithChatCompleter(o.llm),
+		taskagent.WithModel(model),
+		taskagent.WithSystemPrompt(prompt.StringPrompt(systemPrompt)),
+		taskagent.WithMaxIterations(maxIter),
+	)
+	if registry != nil {
+		opts = append(opts, taskagent.WithToolRegistry(registry))
+	}
+	if o.runTokenBudget > 0 {
+		opts = append(opts, taskagent.WithRunTokenBudget(o.runTokenBudget))
+	}
+
+	return taskagent.New(
+		agent.Config{
+			ID:          fmt.Sprintf("dynamic_%s_%s", spec.BaseType, stepID),
+			Name:        fmt.Sprintf("Dynamic %s Agent (%s)", spec.BaseType, stepID),
+			Description: fmt.Sprintf("Dynamically created %s agent for step %s", spec.BaseType, stepID),
+		},
+		opts...,
+	), nil
+}
+
 // buildNodes converts a Plan into orchestrate.Node slices for DAG execution.
 func (o *OrchestratorAgent) buildNodes(plan *Plan, req *schema.RunRequest, contextSummary string) ([]orchestrate.Node, error) {
 	nodes := make([]orchestrate.Node, 0, len(plan.Steps)+1)
 
 	for _, step := range plan.Steps {
 		stepCopy := step
-		subAgent, ok := o.subAgents[step.Agent]
-		if !ok {
-			subAgent, ok = o.subAgents["coder"]
-			if !ok {
-				return nil, fmt.Errorf("orchestrator: no agent available for %q", step.Agent)
+		var runner agent.Agent
+
+		if stepCopy.DynamicSpec != nil {
+			// Build dynamic agent from spec.
+			dynAgent, err := o.buildDynamicAgent(stepCopy.ID, stepCopy.DynamicSpec)
+			if err != nil {
+				return nil, fmt.Errorf("orchestrator: build dynamic agent for step %q: %w", stepCopy.ID, err)
 			}
+			runner = dynAgent
+		} else {
+			// Existing static dispatch.
+			subAgent, ok := o.subAgents[step.Agent]
+			if !ok {
+				subAgent, ok = o.subAgents["coder"]
+				if !ok {
+					return nil, fmt.Errorf("orchestrator: no agent available for %q", step.Agent)
+				}
+			}
+			runner = subAgent
 		}
 
 		nodes = append(nodes, orchestrate.Node{
 			ID:     step.ID,
-			Runner: subAgent,
+			Runner: runner,
 			Deps:   step.DependsOn,
 			InputMapper: func(upstream map[string]*schema.RunResponse) (*schema.RunRequest, error) {
 				var msgs []schema.Message
