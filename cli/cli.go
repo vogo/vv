@@ -105,6 +105,9 @@ type model struct {
 	output          strings.Builder
 	currentAgentIdx int // index of the current round's agent message in app.messages, -1 if none
 
+	// Sub-agent metrics tracking.
+	toolCallCount int // tool calls in current sub-agent
+
 	// Confirmation
 	confirmCh   chan bool
 	confirmForm *huh.Form
@@ -426,13 +429,22 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 	case schema.EventToolCallStart:
 		if data, ok := event.Data.(schema.ToolCallStartData); ok {
-			m.appendToolMessage(fmt.Sprintf("Tool call: %s(%s)", data.ToolName, truncate(data.Arguments, 200)))
+			// Flush any accumulated LLM text before showing the tool call,
+			// so text and tool calls appear interleaved in execution order.
+			m.flushAgentOutput()
+
+			m.toolCallCount++
+			rendered := renderToolCallStart(data.ToolName, data.Arguments)
+			m.appendMessage(DisplayMessage{
+				Role:      "tool",
+				Content:   rendered,
+				Timestamp: time.Now(),
+				Rendered:  true,
+			})
 		}
 
 	case schema.EventToolCallEnd:
-		if data, ok := event.Data.(schema.ToolCallEndData); ok {
-			m.appendToolMessage(fmt.Sprintf("Tool %s completed (%dms)", data.ToolName, data.Duration))
-		}
+		// Suppressed — result event provides richer info.
 
 	case schema.EventToolResult:
 		if data, ok := event.Data.(schema.ToolResultData); ok {
@@ -440,11 +452,18 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			for _, part := range data.Result.Content {
 				if part.Type == "text" {
 					resultText = part.Text
-
 					break
 				}
 			}
-			m.appendToolMessage(fmt.Sprintf("Result: %s", truncate(resultText, 500)))
+			rendered := renderToolCallResult(data.ToolName, resultText)
+			if rendered != "" {
+				m.appendMessage(DisplayMessage{
+					Role:      "tool_result",
+					Content:   rendered,
+					Timestamp: time.Now(),
+					Rendered:  true,
+				})
+			}
 		}
 
 	case schema.EventTokenBudgetExhausted:
@@ -453,15 +472,66 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case schema.EventAgentEnd:
-		// Finalize the response: render markdown on the complete text.
-		if m.output.Len() > 0 {
-			rendered := renderAgentMessage(m.output.String(), m.width-4)
-			m.replaceLastAgentOutput(rendered)
-		}
+		// Finalize any remaining text from the agent.
+		m.flushAgentOutput()
 
 	case schema.EventError:
 		if data, ok := event.Data.(schema.ErrorData); ok {
 			m.appendErrorMessage(data.Message)
+		}
+
+	case schema.EventPhaseStart:
+		if data, ok := event.Data.(schema.PhaseStartData); ok {
+			rendered := renderPhaseTransition(data.Phase, data.PhaseIndex, data.TotalPhase, true)
+			m.appendMessage(DisplayMessage{
+				Role:      "phase",
+				Content:   rendered,
+				Timestamp: time.Now(),
+				Rendered:  true,
+			})
+		}
+
+	case schema.EventPhaseEnd:
+		if data, ok := event.Data.(schema.PhaseEndData); ok {
+			rendered := renderPhaseTransition(data.Phase, 0, 0, false)
+			_ = data.Duration // available if needed
+			m.appendMessage(DisplayMessage{
+				Role:      "phase",
+				Content:   rendered,
+				Timestamp: time.Now(),
+				Rendered:  true,
+			})
+		}
+
+	case schema.EventSubAgentStart:
+		if data, ok := event.Data.(schema.SubAgentStartData); ok {
+			m.toolCallCount = 0 // reset tool call counter
+			rendered := renderSubAgentStart(data.AgentName, data.StepID, data.Description, data.StepIndex, data.TotalSteps)
+			m.appendMessage(DisplayMessage{
+				Role:      "subagent",
+				Content:   rendered,
+				Timestamp: time.Now(),
+				Rendered:  true,
+			})
+		}
+
+	case schema.EventSubAgentEnd:
+		if data, ok := event.Data.(schema.SubAgentEndData); ok {
+			// Flush any remaining text from the sub-agent before showing its summary.
+			m.flushAgentOutput()
+
+			toolCalls := data.ToolCalls
+			if toolCalls == 0 {
+				toolCalls = m.toolCallCount
+			}
+			rendered := renderSubAgentEnd(data.AgentName, data.StepID, data.Duration, toolCalls, data.TokensUsed)
+			m.appendMessage(DisplayMessage{
+				Role:      "subagent",
+				Content:   rendered,
+				Timestamp: time.Now(),
+				Rendered:  true,
+			})
+			m.toolCallCount = 0
 		}
 
 	// Suppress LLM call events for cleaner UX.
@@ -534,15 +604,6 @@ func (m *model) appendSystemMessage(text string) {
 	})
 }
 
-// appendToolMessage adds a styled tool message.
-func (m *model) appendToolMessage(text string) {
-	m.appendMessage(DisplayMessage{
-		Role:      "tool",
-		Content:   text,
-		Timestamp: time.Now(),
-	})
-}
-
 // appendErrorMessage adds a styled error message.
 func (m *model) appendErrorMessage(text string) {
 	m.appendMessage(DisplayMessage{
@@ -550,6 +611,22 @@ func (m *model) appendErrorMessage(text string) {
 		Content:   text,
 		Timestamp: time.Now(),
 	})
+}
+
+// flushAgentOutput finalizes any accumulated LLM text as a rendered markdown
+// message and resets the output buffer. This allows text and tool calls to
+// appear interleaved in the viewport, matching the actual execution order.
+func (m *model) flushAgentOutput() {
+	if m.output.Len() == 0 {
+		return
+	}
+
+	rendered := renderAgentMessage(m.output.String(), m.width-4)
+	m.replaceLastAgentOutput(rendered)
+
+	// Reset for the next text segment.
+	m.output.Reset()
+	m.currentAgentIdx = -1
 }
 
 // updateOutputInViewport tracks the current streaming output in the message
@@ -593,6 +670,18 @@ func (m *model) refreshViewport() {
 	var sb strings.Builder
 
 	for _, msg := range m.app.messages {
+		if msg.Rendered {
+			// Pre-rendered content (tool calls, phases, sub-agents) — write directly.
+			sb.WriteString(msg.Content)
+			// Use single newline for compact tool results, double for others.
+			if msg.Role == "tool_result" {
+				sb.WriteString("\n")
+			} else {
+				sb.WriteString("\n\n")
+			}
+			continue
+		}
+
 		switch msg.Role {
 		case "user":
 			sb.WriteString(renderUserMessage(msg.Content))

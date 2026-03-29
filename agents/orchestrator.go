@@ -3,10 +3,14 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
@@ -217,46 +221,297 @@ func (o *OrchestratorAgent) Run(ctx context.Context, req *schema.RunRequest) (*s
 	}
 }
 
-// RunStream implements streaming dispatch.
+// RunStream implements streaming dispatch with phase and sub-agent lifecycle events.
 func (o *OrchestratorAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
-	// Phase 1: Explore project context.
-	contextSummary, exploreUsage := o.explore(ctx, req)
+	return schema.NewRunStream(ctx, agent.DefaultStreamBufferSize, func(ctx context.Context, send func(schema.Event) error) error {
+		agentID := o.ID()
+		sessionID := req.SessionID
 
-	// Phase 2: Plan/classify the task.
-	result, planUsage, err := o.planTask(ctx, req, contextSummary)
-	if err != nil {
-		slog.Warn("orchestrator: planning failed, falling back to chat stream", "error", err)
-		return o.fallbackRunStream(ctx, req)
-	}
-
-	totalUsage := aggregateUsage(exploreUsage, planUsage)
-	enrichedReq := o.enrichRequest(req, contextSummary)
-
-	switch result.Mode {
-	case "direct":
-		subAgent, ok := o.subAgents[result.Agent]
-		if !ok {
-			return o.fallbackRunStream(ctx, enrichedReq)
+		// Determine total phases (explore is optional).
+		totalPhases := 2 // plan + dispatch
+		if o.explorerAgent != nil {
+			totalPhases = 3
 		}
-		sa, ok := subAgent.(agent.StreamAgent)
-		if !ok {
-			return agent.RunToStream(ctx, subAgent, enrichedReq), nil
+		phaseIdx := 0
+
+		// Phase 1: Explore project context.
+		var contextSummary string
+		var exploreUsage *aimodel.Usage
+		if o.explorerAgent != nil {
+			phaseIdx++
+			if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
+				Phase: "explore", PhaseIndex: phaseIdx, TotalPhase: totalPhases,
+			})); err != nil {
+				return err
+			}
+			exploreStart := time.Now()
+			contextSummary, exploreUsage = o.explore(ctx, req)
+			if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
+				Phase: "explore", Duration: time.Since(exploreStart).Milliseconds(),
+			})); err != nil {
+				return err
+			}
 		}
-		return sa.RunStream(ctx, enrichedReq)
-	case "plan":
-		totalUsageCopy := totalUsage
-		ctxSummary := contextSummary
-		planRunner := agent.NewCustomAgent(
-			agent.Config{ID: o.ID(), Name: o.Name(), Description: o.Description()},
-			func(ctx context.Context, innerReq *schema.RunRequest) (*schema.RunResponse, error) {
-				return o.runPlan(ctx, innerReq, result.Plan, totalUsageCopy, ctxSummary)
-			},
-		)
-		return agent.RunToStream(ctx, planRunner, enrichedReq), nil
-	default:
-		return o.fallbackRunStream(ctx, enrichedReq)
-	}
+
+		// Phase 2: Plan/classify the task.
+		phaseIdx++
+		if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
+			Phase: "plan", PhaseIndex: phaseIdx, TotalPhase: totalPhases,
+		})); err != nil {
+			return err
+		}
+		planStart := time.Now()
+		result, planUsage, planErr := o.planTask(ctx, req, contextSummary)
+		if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
+			Phase: "plan", Duration: time.Since(planStart).Milliseconds(),
+		})); err != nil {
+			return err
+		}
+
+		if planErr != nil {
+			slog.Warn("orchestrator: planning failed, falling back to chat stream", "error", planErr)
+			return o.forwardSubAgentStream(ctx, send, o.fallbackAgent, req, "chat", "", sessionID)
+		}
+
+		enrichedReq := o.enrichRequest(req, contextSummary)
+		_ = aggregateUsage(exploreUsage, planUsage) // tracked internally
+
+		// Phase 3: Dispatch.
+		phaseIdx++
+		if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
+			Phase: "dispatch", PhaseIndex: phaseIdx, TotalPhase: totalPhases,
+		})); err != nil {
+			return err
+		}
+		dispatchStart := time.Now()
+
+		var dispatchErr error
+		switch result.Mode {
+		case "direct":
+			subAgent, ok := o.subAgents[result.Agent]
+			if !ok {
+				subAgent = o.fallbackAgent
+			}
+			dispatchErr = o.forwardSubAgentStream(ctx, send, subAgent, enrichedReq, result.Agent, "", sessionID)
+		case "plan":
+			dispatchErr = o.streamPlan(ctx, send, enrichedReq, result.Plan, contextSummary, sessionID)
+		default:
+			dispatchErr = o.forwardSubAgentStream(ctx, send, o.fallbackAgent, enrichedReq, "chat", "", sessionID)
+		}
+
+		if sendErr := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
+			Phase: "dispatch", Duration: time.Since(dispatchStart).Milliseconds(),
+		})); sendErr != nil {
+			return sendErr
+		}
+
+		return dispatchErr
+	}), nil
 }
+
+// forwardSubAgentStream runs a sub-agent and forwards its stream events, wrapping with
+// SubAgentStart/End events that include execution stats.
+func (o *OrchestratorAgent) forwardSubAgentStream(
+	ctx context.Context,
+	send func(schema.Event) error,
+	subAgent agent.Agent,
+	req *schema.RunRequest,
+	agentName string,
+	stepID string,
+	sessionID string,
+) error {
+	if subAgent == nil {
+		return fmt.Errorf("orchestrator: no agent available for %q", agentName)
+	}
+
+	if err := send(schema.NewEvent(schema.EventSubAgentStart, o.ID(), sessionID, schema.SubAgentStartData{
+		AgentName: agentName,
+		StepID:    stepID,
+	})); err != nil {
+		return err
+	}
+
+	start := time.Now()
+	toolCalls := 0
+	tokensUsed := 0
+
+	// Try streaming first, fall back to non-streaming.
+	sa, isStream := subAgent.(agent.StreamAgent)
+	if isStream {
+		stream, err := sa.RunStream(ctx, req)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = stream.Close() }()
+
+		for {
+			event, err := stream.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				return err
+			}
+
+			// Track stats from forwarded events.
+			switch event.Type {
+			case schema.EventToolCallStart:
+				toolCalls++
+			case schema.EventLLMCallEnd:
+				if data, ok := event.Data.(schema.LLMCallEndData); ok {
+					tokensUsed += data.TotalTokens
+				}
+			}
+
+			if err := send(event); err != nil {
+				return err
+			}
+		}
+	} else {
+		resp, err := subAgent.Run(ctx, req)
+		if err != nil {
+			return err
+		}
+		if resp.Usage != nil {
+			tokensUsed = resp.Usage.TotalTokens
+		}
+		// Emit the response text as a single TextDelta + AgentEnd.
+		if len(resp.Messages) > 0 {
+			text := resp.Messages[0].Content.Text()
+			if text != "" {
+				if err := send(schema.NewEvent(schema.EventTextDelta, subAgent.ID(), sessionID, schema.TextDeltaData{Delta: text})); err != nil {
+					return err
+				}
+			}
+			if err := send(schema.NewEvent(schema.EventAgentEnd, subAgent.ID(), sessionID, schema.AgentEndData{
+				Duration: time.Since(start).Milliseconds(),
+				Message:  text,
+			})); err != nil {
+				return err
+			}
+		}
+	}
+
+	return send(schema.NewEvent(schema.EventSubAgentEnd, o.ID(), sessionID, schema.SubAgentEndData{
+		AgentName:  agentName,
+		StepID:     stepID,
+		Duration:   time.Since(start).Milliseconds(),
+		ToolCalls:  toolCalls,
+		TokensUsed: tokensUsed,
+	}))
+}
+
+// streamPlan executes a plan's steps and emits sub-agent lifecycle events for each step.
+func (o *OrchestratorAgent) streamPlan(
+	ctx context.Context,
+	send func(schema.Event) error,
+	req *schema.RunRequest,
+	plan *Plan,
+	contextSummary string,
+	sessionID string,
+) error {
+	nodes, err := o.buildNodes(plan, req, contextSummary)
+	if err != nil {
+		slog.Warn("orchestrator: DAG build failed, falling back to chat stream", "error", err)
+		return o.forwardSubAgentStream(ctx, send, o.fallbackAgent, req, "chat", "", sessionID)
+	}
+
+	totalSteps := len(plan.Steps)
+
+	// Build a step index map for progress display.
+	stepIndex := make(map[string]int, totalSteps)
+	stepAgent := make(map[string]string, totalSteps)
+	stepDesc := make(map[string]string, totalSteps)
+	for i, step := range plan.Steps {
+		stepIndex[step.ID] = i + 1
+		stepAgent[step.ID] = step.Agent
+		stepDesc[step.ID] = step.Description
+	}
+
+	// Use the DAG EventHandler to emit sub-agent lifecycle events.
+	dagCfg := orchestrate.DAGConfig{
+		MaxConcurrency: o.maxConcurrency,
+		ErrorStrategy:  orchestrate.Skip,
+		Aggregator:     &PlanAggregator{summarizer: o.planGen},
+		EventHandler: &streamingDAGHandler{
+			send:       send,
+			agentID:    o.ID(),
+			sessionID:  sessionID,
+			stepIndex:  stepIndex,
+			totalSteps: totalSteps,
+			stepAgent:  stepAgent,
+			stepDesc:   stepDesc,
+			startTimes: make(map[string]time.Time),
+		},
+	}
+
+	result, err := orchestrate.ExecuteDAG(ctx, dagCfg, nodes, req)
+	if err != nil {
+		return err
+	}
+
+	// Emit the final aggregated output.
+	if result.FinalOutput != nil && len(result.FinalOutput.Messages) > 0 {
+		text := result.FinalOutput.Messages[0].Content.Text()
+		if text != "" {
+			if err := send(schema.NewEvent(schema.EventTextDelta, o.ID(), sessionID, schema.TextDeltaData{Delta: text})); err != nil {
+				return err
+			}
+			return send(schema.NewEvent(schema.EventAgentEnd, o.ID(), sessionID, schema.AgentEndData{
+				Duration: 0,
+				Message:  text,
+			}))
+		}
+	}
+
+	return nil
+}
+
+// streamingDAGHandler implements orchestrate.DAGEventHandler to emit sub-agent events.
+type streamingDAGHandler struct {
+	send       func(schema.Event) error
+	agentID    string
+	sessionID  string
+	stepIndex  map[string]int
+	totalSteps int
+	stepAgent  map[string]string
+	stepDesc   map[string]string
+	startTimes map[string]time.Time
+	mu         sync.Mutex
+}
+
+func (h *streamingDAGHandler) OnNodeStart(nodeID string) {
+	h.mu.Lock()
+	h.startTimes[nodeID] = time.Now()
+	h.mu.Unlock()
+
+	_ = h.send(schema.NewEvent(schema.EventSubAgentStart, h.agentID, h.sessionID, schema.SubAgentStartData{
+		AgentName:   h.stepAgent[nodeID],
+		StepID:      nodeID,
+		Description: h.stepDesc[nodeID],
+		StepIndex:   h.stepIndex[nodeID],
+		TotalSteps:  h.totalSteps,
+	}))
+}
+
+func (h *streamingDAGHandler) OnNodeComplete(nodeID string, status orchestrate.NodeStatus, err error) {
+	h.mu.Lock()
+	start := h.startTimes[nodeID]
+	h.mu.Unlock()
+
+	duration := int64(0)
+	if !start.IsZero() {
+		duration = time.Since(start).Milliseconds()
+	}
+
+	_ = h.send(schema.NewEvent(schema.EventSubAgentEnd, h.agentID, h.sessionID, schema.SubAgentEndData{
+		AgentName: h.stepAgent[nodeID],
+		StepID:    nodeID,
+		Duration:  duration,
+	}))
+}
+
+func (h *streamingDAGHandler) OnCheckpointError(_ string, _ error) {}
 
 // explore calls the explorer sub-agent to build project context.
 // Returns the context summary text and usage. If no explorer is configured

@@ -34,7 +34,8 @@ const (
 
 // DisplayMessage represents a rendered message in the conversation history.
 type DisplayMessage struct {
-	Role      string // "user", "agent", "system", "tool", "error"
+	Role      string // "user", "agent", "system", "tool", "tool_result", "error", "phase", "subagent"
 	Content   string // rendered text content
 	Timestamp time.Time
+	Rendered  bool // true if Content is already styled (skip default styling in refreshViewport)
 }
