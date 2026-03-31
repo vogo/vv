@@ -245,7 +245,7 @@ func (o *OrchestratorAgent) RunStream(ctx context.Context, req *schema.RunReques
 				return err
 			}
 			exploreStart := time.Now()
-			contextSummary, exploreUsage = o.explore(ctx, req)
+			contextSummary, exploreUsage = o.exploreStream(ctx, req, send)
 			if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
 				Phase: "explore", Duration: time.Since(exploreStart).Milliseconds(),
 			})); err != nil {
@@ -261,7 +261,7 @@ func (o *OrchestratorAgent) RunStream(ctx context.Context, req *schema.RunReques
 			return err
 		}
 		planStart := time.Now()
-		result, planUsage, planErr := o.planTask(ctx, req, contextSummary)
+		result, planUsage, planErr := o.planTaskStream(ctx, req, contextSummary, send)
 		if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
 			Phase: "plan", Duration: time.Since(planStart).Milliseconds(),
 		})); err != nil {
@@ -513,6 +513,189 @@ func (h *streamingDAGHandler) OnNodeComplete(nodeID string, status orchestrate.N
 
 func (h *streamingDAGHandler) OnCheckpointError(_ string, _ error) {}
 
+// exploreStream calls the explorer sub-agent using streaming, forwarding tool events via send.
+// Returns the context summary text and usage. If no explorer is configured
+// or exploration fails, returns empty summary.
+func (o *OrchestratorAgent) exploreStream(
+	ctx context.Context,
+	req *schema.RunRequest,
+	send func(schema.Event) error,
+) (string, *aimodel.Usage) {
+	if o.explorerAgent == nil {
+		return "", nil
+	}
+
+	// Try streaming path.
+	sa, ok := o.explorerAgent.(agent.StreamAgent)
+	if !ok {
+		// Fallback to non-streaming.
+		return o.explore(ctx, req)
+	}
+
+	// Build explorer request with working directory context (same as explore).
+	var msgs []schema.Message
+	if o.workingDir != "" {
+		msgs = append(msgs, schema.NewUserMessage(
+			fmt.Sprintf("Working directory: %s", o.workingDir),
+		))
+	}
+	msgs = append(msgs, req.Messages...)
+
+	explorerReq := &schema.RunRequest{
+		Messages:  msgs,
+		SessionID: req.SessionID,
+	}
+
+	stream, err := sa.RunStream(ctx, explorerReq)
+	if err != nil {
+		slog.Warn("orchestrator: explorer stream failed", "error", err)
+		return "", nil
+	}
+	defer func() { _ = stream.Close() }()
+
+	var textBuf strings.Builder
+	var usage aimodel.Usage
+	var hasUsage bool
+
+	for {
+		event, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			slog.Warn("orchestrator: explorer stream recv error", "error", recvErr)
+			break
+		}
+
+		switch event.Type {
+		case schema.EventTextDelta:
+			if data, ok := event.Data.(schema.TextDeltaData); ok {
+				textBuf.WriteString(data.Delta)
+			}
+		case schema.EventToolCallStart, schema.EventToolResult, schema.EventError:
+			if err := send(event); err != nil {
+				slog.Warn("orchestrator: explorer stream send error", "error", err)
+			}
+		case schema.EventLLMCallEnd:
+			if data, ok := event.Data.(schema.LLMCallEndData); ok {
+				hasUsage = true
+				usage.PromptTokens += data.PromptTokens
+				usage.CompletionTokens += data.CompletionTokens
+				usage.TotalTokens += data.TotalTokens
+			}
+		case schema.EventAgentEnd:
+			if data, ok := event.Data.(schema.AgentEndData); ok {
+				if textBuf.Len() == 0 && data.Message != "" {
+					textBuf.WriteString(data.Message)
+				}
+			}
+		}
+	}
+
+	if hasUsage {
+		return textBuf.String(), &usage
+	}
+	return textBuf.String(), nil
+}
+
+// planTaskStream calls the planner sub-agent using streaming, forwarding tool events via send.
+func (o *OrchestratorAgent) planTaskStream(
+	ctx context.Context,
+	req *schema.RunRequest,
+	contextSummary string,
+	send func(schema.Event) error,
+) (*ClassifyResult, *aimodel.Usage, error) {
+	if o.plannerAgent == nil {
+		return o.classifyTaskDirect(ctx, req)
+	}
+
+	// Try streaming path.
+	sa, ok := o.plannerAgent.(agent.StreamAgent)
+	if !ok {
+		// Fallback to non-streaming.
+		return o.planTask(ctx, req, contextSummary)
+	}
+
+	// Build planner request with context (same as planTask).
+	var msgs []schema.Message
+	if o.workingDir != "" {
+		msgs = append(msgs, schema.NewUserMessage(
+			fmt.Sprintf("Working directory: %s", o.workingDir),
+		))
+	}
+	if contextSummary != "" {
+		msgs = append(msgs, schema.NewUserMessage(
+			fmt.Sprintf("Project context:\n%s", contextSummary),
+		))
+	}
+	msgs = append(msgs, req.Messages...)
+
+	plannerReq := &schema.RunRequest{
+		Messages:  msgs,
+		SessionID: req.SessionID,
+	}
+
+	stream, err := sa.RunStream(ctx, plannerReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("planner stream: %w", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	var textBuf strings.Builder
+	var usage aimodel.Usage
+	var hasUsage bool
+
+	for {
+		event, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			if hasUsage {
+				return nil, &usage, fmt.Errorf("planner stream recv: %w", recvErr)
+			}
+			return nil, nil, fmt.Errorf("planner stream recv: %w", recvErr)
+		}
+
+		switch event.Type {
+		case schema.EventTextDelta:
+			if data, ok := event.Data.(schema.TextDeltaData); ok {
+				textBuf.WriteString(data.Delta)
+			}
+		case schema.EventToolCallStart, schema.EventToolResult, schema.EventError:
+			if err := send(event); err != nil {
+				slog.Warn("orchestrator: planner stream send error", "error", err)
+			}
+		case schema.EventLLMCallEnd:
+			if data, ok := event.Data.(schema.LLMCallEndData); ok {
+				hasUsage = true
+				usage.PromptTokens += data.PromptTokens
+				usage.CompletionTokens += data.CompletionTokens
+				usage.TotalTokens += data.TotalTokens
+			}
+		}
+	}
+
+	var usagePtr *aimodel.Usage
+	if hasUsage {
+		usagePtr = &usage
+	}
+
+	text := textBuf.String()
+	jsonStr := extractJSON(text)
+
+	var result ClassifyResult
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		return nil, usagePtr, fmt.Errorf("parse planner JSON: %w", err)
+	}
+
+	if err := result.validate(o.subAgents); err != nil {
+		return nil, usagePtr, err
+	}
+
+	return &result, usagePtr, nil
+}
+
 // explore calls the explorer sub-agent to build project context.
 // Returns the context summary text and usage. If no explorer is configured
 // or exploration fails, returns empty summary.
@@ -733,18 +916,6 @@ func (o *OrchestratorAgent) fallbackRun(ctx context.Context, req *schema.RunRequ
 
 	resp.Usage = aggregateUsage(classifyUsage, resp.Usage)
 	return resp, nil
-}
-
-// fallbackRunStream returns a stream from the fallback agent.
-func (o *OrchestratorAgent) fallbackRunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
-	if o.fallbackAgent == nil {
-		return nil, fmt.Errorf("orchestrator: no fallback agent available")
-	}
-	sa, ok := o.fallbackAgent.(agent.StreamAgent)
-	if !ok {
-		return agent.RunToStream(ctx, o.fallbackAgent, req), nil
-	}
-	return sa.RunStream(ctx, req)
 }
 
 // aggregateUsage merges two usage structs into a single Usage.

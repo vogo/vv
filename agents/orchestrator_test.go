@@ -1835,3 +1835,410 @@ func TestToolAccessLevel_Constants(t *testing.T) {
 		t.Errorf("ToolAccessNone = %q, want %q", ToolAccessNone, "none")
 	}
 }
+
+// stubStreamExplorer implements agent.StreamAgent and emits tool events during streaming.
+type stubStreamExplorer struct {
+	id       string
+	events   []schema.Event // events to emit during RunStream
+	response string         // text response (emitted as TextDelta + AgentEnd)
+}
+
+var _ agent.StreamAgent = (*stubStreamExplorer)(nil)
+
+func (s *stubStreamExplorer) ID() string          { return s.id }
+func (s *stubStreamExplorer) Name() string        { return s.id }
+func (s *stubStreamExplorer) Description() string { return s.id }
+
+func (s *stubStreamExplorer) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
+	return &schema.RunResponse{
+		Messages: []schema.Message{
+			schema.NewAssistantMessage(aimodel.Message{
+				Role:    aimodel.RoleAssistant,
+				Content: aimodel.NewTextContent(s.response),
+			}, s.id),
+		},
+	}, nil
+}
+
+func (s *stubStreamExplorer) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
+	return schema.NewRunStream(ctx, 16, func(ctx context.Context, send func(schema.Event) error) error {
+		// Emit custom events (tool calls, etc.).
+		for _, ev := range s.events {
+			if err := send(ev); err != nil {
+				return err
+			}
+		}
+		// Emit text delta with response.
+		if s.response != "" {
+			if err := send(schema.NewEvent(schema.EventTextDelta, s.id, req.SessionID, schema.TextDeltaData{Delta: s.response})); err != nil {
+				return err
+			}
+		}
+		return send(schema.NewEvent(schema.EventAgentEnd, s.id, req.SessionID, schema.AgentEndData{
+			Message: s.response,
+		}))
+	}), nil
+}
+
+func TestOrchestratorAgent_RunStream_ExploreToolEvents(t *testing.T) {
+	// Create a streaming explorer that emits tool events.
+	explorer := &stubStreamExplorer{
+		id:       "explorer",
+		response: "Found main.go",
+		events: []schema.Event{
+			schema.NewEvent(schema.EventToolCallStart, "explorer", "sess", schema.ToolCallStartData{
+				ToolCallID: "tc1", ToolName: "read", Arguments: `{"path":"main.go"}`,
+			}),
+			schema.NewEvent(schema.EventToolResult, "explorer", "sess", schema.ToolResultData{
+				ToolCallID: "tc1", ToolName: "read", Result: schema.TextResult("tc1", "package main"),
+			}),
+		},
+	}
+
+	plannerStub := &stubStreamExplorer{
+		id:       "planner",
+		response: `{"mode": "direct", "agent": "coder"}`,
+	}
+
+	coderStream := &stubStreamAgentForOrch{
+		id:       "coder",
+		response: "code output",
+	}
+
+	chatStub := &stubAgent{id: "chat"}
+
+	orch := NewOrchestratorAgent(
+		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
+		nil,
+		"test-model",
+		map[string]agent.Agent{
+			"coder":      coderStream,
+			"researcher": &stubAgent{id: "researcher"},
+			"reviewer":   &stubAgent{id: "reviewer"},
+			"chat":       chatStub,
+		},
+		nil,
+		2,
+		chatStub,
+		"/tmp/test",
+		explorer,
+		plannerStub,
+		nil, nil, 0, 0,
+	)
+
+	stream, err := orch.RunStream(context.Background(), &schema.RunRequest{
+		Messages:  []schema.Message{schema.NewUserMessage("test")},
+		SessionID: "sess",
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	var toolStartCount, toolResultCount int
+	var phases []string
+
+	for {
+		event, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			t.Fatalf("Recv: %v", recvErr)
+		}
+		switch event.Type {
+		case schema.EventToolCallStart:
+			toolStartCount++
+		case schema.EventToolResult:
+			toolResultCount++
+		case schema.EventPhaseStart:
+			if data, ok := event.Data.(schema.PhaseStartData); ok {
+				phases = append(phases, data.Phase)
+			}
+		}
+	}
+
+	if toolStartCount < 1 {
+		t.Errorf("expected at least 1 ToolCallStart event from explore phase, got %d", toolStartCount)
+	}
+	if toolResultCount < 1 {
+		t.Errorf("expected at least 1 ToolResult event from explore phase, got %d", toolResultCount)
+	}
+	// Verify all 3 phases ran.
+	if len(phases) != 3 {
+		t.Errorf("expected 3 phases, got %d: %v", len(phases), phases)
+	}
+}
+
+func TestOrchestratorAgent_RunStream_ExploreTextCapture(t *testing.T) {
+	// Verify that text deltas from explore stream are captured as context summary.
+	explorer := &stubStreamExplorer{
+		id:       "explorer",
+		response: "project has main.go and utils.go",
+	}
+
+	// Planner that returns classification JSON (streamed).
+	plannerStream := &stubStreamExplorer{
+		id:       "planner",
+		response: `{"mode": "direct", "agent": "coder"}`,
+	}
+
+	// Coder that captures the request it receives (to verify context enrichment).
+	var capturedReq *schema.RunRequest
+	coderStream := &capturingStreamAgent{
+		id:       "coder",
+		response: "code done",
+		captureReq: func(req *schema.RunRequest) {
+			capturedReq = req
+		},
+	}
+
+	chatStub := &stubAgent{id: "chat"}
+
+	orch := NewOrchestratorAgent(
+		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
+		nil,
+		"test-model",
+		map[string]agent.Agent{
+			"coder":      coderStream,
+			"researcher": &stubAgent{id: "researcher"},
+			"reviewer":   &stubAgent{id: "reviewer"},
+			"chat":       chatStub,
+		},
+		nil,
+		2,
+		chatStub,
+		"/tmp/test",
+		explorer,
+		plannerStream,
+		nil, nil, 0, 0,
+	)
+
+	stream, err := orch.RunStream(context.Background(), &schema.RunRequest{
+		Messages:  []schema.Message{schema.NewUserMessage("build something")},
+		SessionID: "sess",
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	// Drain stream.
+	for {
+		_, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			t.Fatalf("Recv: %v", recvErr)
+		}
+	}
+
+	// Verify coder received enriched request with context summary.
+	if capturedReq == nil {
+		t.Fatal("coder never received a request")
+	}
+
+	var foundContext bool
+	for _, msg := range capturedReq.Messages {
+		if strings.Contains(msg.Content.Text(), "project has main.go and utils.go") {
+			foundContext = true
+			break
+		}
+	}
+	if !foundContext {
+		t.Error("expected explore context summary to be passed to dispatch agent")
+	}
+}
+
+// capturingStreamAgent captures the request it receives and emits a simple stream.
+type capturingStreamAgent struct {
+	id         string
+	response   string
+	captureReq func(*schema.RunRequest)
+}
+
+var _ agent.StreamAgent = (*capturingStreamAgent)(nil)
+
+func (c *capturingStreamAgent) ID() string          { return c.id }
+func (c *capturingStreamAgent) Name() string        { return c.id }
+func (c *capturingStreamAgent) Description() string { return c.id }
+
+func (c *capturingStreamAgent) Run(_ context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
+	if c.captureReq != nil {
+		c.captureReq(req)
+	}
+	return &schema.RunResponse{
+		Messages: []schema.Message{
+			schema.NewAssistantMessage(aimodel.Message{
+				Role:    aimodel.RoleAssistant,
+				Content: aimodel.NewTextContent(c.response),
+			}, c.id),
+		},
+	}, nil
+}
+
+func (c *capturingStreamAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
+	if c.captureReq != nil {
+		c.captureReq(req)
+	}
+	return schema.NewRunStream(ctx, 8, func(ctx context.Context, send func(schema.Event) error) error {
+		if err := send(schema.NewEvent(schema.EventAgentStart, c.id, req.SessionID, schema.AgentStartData{})); err != nil {
+			return err
+		}
+		if err := send(schema.NewEvent(schema.EventTextDelta, c.id, req.SessionID, schema.TextDeltaData{Delta: c.response})); err != nil {
+			return err
+		}
+		return send(schema.NewEvent(schema.EventAgentEnd, c.id, req.SessionID, schema.AgentEndData{Message: c.response}))
+	}), nil
+}
+
+func TestOrchestratorAgent_RunStream_PlanToolEvents(t *testing.T) {
+	// Planner that emits tool events during streaming.
+	plannerStream := &stubStreamExplorer{
+		id:       "planner",
+		response: `{"mode": "direct", "agent": "coder"}`,
+		events: []schema.Event{
+			schema.NewEvent(schema.EventToolCallStart, "planner", "sess", schema.ToolCallStartData{
+				ToolCallID: "tc-plan-1", ToolName: "search", Arguments: `{"query":"test"}`,
+			}),
+			schema.NewEvent(schema.EventToolResult, "planner", "sess", schema.ToolResultData{
+				ToolCallID: "tc-plan-1", ToolName: "search", Result: schema.TextResult("tc-plan-1", "found it"),
+			}),
+		},
+	}
+
+	coderStream := &stubStreamAgentForOrch{
+		id:       "coder",
+		response: "code output",
+	}
+	chatStub := &stubAgent{id: "chat"}
+
+	orch := NewOrchestratorAgent(
+		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
+		nil,
+		"test-model",
+		map[string]agent.Agent{
+			"coder":      coderStream,
+			"researcher": &stubAgent{id: "researcher"},
+			"reviewer":   &stubAgent{id: "reviewer"},
+			"chat":       chatStub,
+		},
+		nil,
+		2,
+		chatStub,
+		"",
+		nil, // no explorer
+		plannerStream,
+		nil, nil, 0, 0,
+	)
+
+	stream, err := orch.RunStream(context.Background(), &schema.RunRequest{
+		Messages:  []schema.Message{schema.NewUserMessage("test")},
+		SessionID: "sess",
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	var toolStartCount, toolResultCount int
+	for {
+		event, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			t.Fatalf("Recv: %v", recvErr)
+		}
+		switch event.Type {
+		case schema.EventToolCallStart:
+			toolStartCount++
+		case schema.EventToolResult:
+			toolResultCount++
+		}
+	}
+
+	if toolStartCount < 1 {
+		t.Errorf("expected at least 1 ToolCallStart from plan phase, got %d", toolStartCount)
+	}
+	if toolResultCount < 1 {
+		t.Errorf("expected at least 1 ToolResult from plan phase, got %d", toolResultCount)
+	}
+}
+
+func TestOrchestratorAgent_RunStream_NonStreamExplorerFallback(t *testing.T) {
+	// Explorer that does NOT implement StreamAgent (only agent.Agent).
+	explorerStub := &stubAgent{
+		id: "explorer",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent("non-stream context"),
+				}, "explorer"),
+			},
+			Usage: &aimodel.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
+		},
+	}
+
+	plannerStub := &stubStreamExplorer{
+		id:       "planner",
+		response: `{"mode": "direct", "agent": "coder"}`,
+	}
+
+	coderStream := &stubStreamAgentForOrch{
+		id:       "coder",
+		response: "code output",
+	}
+	chatStub := &stubAgent{id: "chat"}
+
+	orch := NewOrchestratorAgent(
+		agent.Config{ID: "orchestrator", Name: "Orchestrator"},
+		nil,
+		"test-model",
+		map[string]agent.Agent{
+			"coder":      coderStream,
+			"researcher": &stubAgent{id: "researcher"},
+			"reviewer":   &stubAgent{id: "reviewer"},
+			"chat":       chatStub,
+		},
+		nil,
+		2,
+		chatStub,
+		"/tmp/test",
+		explorerStub, // non-streaming explorer
+		plannerStub,
+		nil, nil, 0, 0,
+	)
+
+	stream, err := orch.RunStream(context.Background(), &schema.RunRequest{
+		Messages:  []schema.Message{schema.NewUserMessage("test")},
+		SessionID: "sess",
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	var phases []string
+	for {
+		event, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			t.Fatalf("Recv: %v", recvErr)
+		}
+		if event.Type == schema.EventPhaseStart {
+			if data, ok := event.Data.(schema.PhaseStartData); ok {
+				phases = append(phases, data.Phase)
+			}
+		}
+	}
+
+	// Should still complete all 3 phases (explore was non-streaming fallback).
+	if len(phases) != 3 {
+		t.Errorf("expected 3 phases, got %d: %v", len(phases), phases)
+	}
+}
