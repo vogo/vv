@@ -79,16 +79,6 @@ func renderToolMessage(text string) string {
 	return bulletStyle.Render(bullet) + toolStyle.Render(text)
 }
 
-// renderPhaseMessage renders a phase transition message.
-func renderPhaseMessage(text string) string {
-	return bulletStyle.Render(bullet) + phaseStyle.Render(text)
-}
-
-// renderSubAgentMessage renders a sub-agent lifecycle message.
-func renderSubAgentMessage(text string) string {
-	return bulletStyle.Render(bullet) + subAgentStyle.Render(text)
-}
-
 // renderToolCallStart renders a tool call start with Claude Code-like formatting.
 // Shows: ● ToolName(file_path_or_summary)
 func renderToolCallStart(toolName, arguments string) string {

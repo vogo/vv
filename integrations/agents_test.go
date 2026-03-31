@@ -2404,17 +2404,15 @@ func TestIntegration_DynamicAgents_NilToolRegistriesGracefulDegradation(t *testi
 			Messages: []schema.Message{schema.NewUserMessage("test nil registries")},
 		})
 		if err != nil {
-			t.Fatalf("Run should fall back, not error: %v", err)
+			t.Fatalf("Run should not error: %v", err)
 		}
 
-		// Should fall back to chat because buildDynamicAgent fails.
+		// In the refactored architecture, dynamic agents can build their own tool
+		// registries via ToolProfile.BuildRegistry(), so buildDynamicAgent succeeds
+		// even without pre-supplied registries. The dynamic agent runs and produces
+		// a response (from the mock LLM).
 		if resp == nil || len(resp.Messages) == 0 {
-			t.Fatal("expected fallback response")
-		}
-
-		text := resp.Messages[0].Content.Text()
-		if text != "chat fallback nil registries" {
-			t.Errorf("response = %q, want %q", text, "chat fallback nil registries")
+			t.Fatal("expected response")
 		}
 	})
 

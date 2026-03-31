@@ -1,13 +1,10 @@
 package agents
 
 import (
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
-	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vagents/vaga/registry"
 )
 
 const CoderSystemPrompt = `You are an expert software engineer. You have access to tools for reading, writing, editing files, running shell commands, and searching codebases.
@@ -28,37 +25,46 @@ const CoderSystemPrompt = `You are an expert software engineer. You have access 
 5. Explain your reasoning and what you changed.
 6. When running commands, check the output for errors.`
 
-func newCoderAgent(
-	cfg *config.Config,
-	llm aimodel.ChatCompleter,
-	coderReg tool.ToolRegistry,
-	memMgr *memory.Manager,
-	persistentPrompt prompt.PromptTemplate,
-) *taskagent.Agent {
-	coderPrompt := prompt.PromptTemplate(prompt.StringPrompt(CoderSystemPrompt))
-	if persistentPrompt != nil {
-		coderPrompt = persistentPrompt
-	}
+// RegisterCoder registers the coder agent descriptor with the registry.
+func RegisterCoder(reg *registry.Registry) {
+	reg.MustRegister(registry.AgentDescriptor{
+		ID:           "coder",
+		DisplayName:  "Coder",
+		Description:  "Reads, writes, edits files, runs commands, searches codebases, debugs",
+		ToolProfile:  registry.ProfileFull,
+		SystemPrompt: CoderSystemPrompt,
+		Dispatchable: true,
+		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+			// Build system prompt: use persistent memory prompt if available.
+			var sysPrompt prompt.PromptTemplate
+			if opts.PersistentMemory != nil {
+				sysPrompt = NewPersistentMemoryPrompt(CoderSystemPrompt, opts.PersistentMemory)
+			} else {
+				sysPrompt = prompt.StringPrompt(CoderSystemPrompt)
+			}
 
-	var opts []taskagent.Option
-	opts = append(opts,
-		taskagent.WithChatCompleter(llm),
-		taskagent.WithModel(cfg.LLM.Model),
-		taskagent.WithToolRegistry(coderReg),
-		taskagent.WithSystemPrompt(coderPrompt),
-		taskagent.WithMaxIterations(cfg.Agents.MaxIterations),
-		taskagent.WithRunTokenBudget(cfg.Agents.RunTokenBudget),
-	)
-	if memMgr != nil {
-		opts = append(opts, taskagent.WithMemory(memMgr))
-	}
+			var taskOpts []taskagent.Option
 
-	return taskagent.New(
-		agent.Config{
-			ID:          "coder",
-			Name:        "Coder Agent",
-			Description: "Performs coding tasks: reads, writes, edits files, runs commands, and searches codebases",
+			taskOpts = append(taskOpts,
+				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithModel(opts.Model),
+				taskagent.WithSystemPrompt(sysPrompt),
+				taskagent.WithMaxIterations(opts.MaxIterations),
+				taskagent.WithRunTokenBudget(opts.RunTokenBudget),
+			)
+
+			if opts.ToolRegistry != nil {
+				taskOpts = append(taskOpts, taskagent.WithToolRegistry(opts.ToolRegistry))
+			}
+
+			if opts.Memory != nil {
+				taskOpts = append(taskOpts, taskagent.WithMemory(opts.Memory))
+			}
+
+			return taskagent.New(
+				agent.Config{ID: "coder", Name: "Coder Agent", Description: "Performs coding tasks: reads, writes, edits files, runs commands, and searches codebases"},
+				taskOpts...,
+			), nil
 		},
-		opts...,
-	)
+	})
 }

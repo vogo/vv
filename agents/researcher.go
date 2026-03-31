@@ -1,13 +1,10 @@
 package agents
 
 import (
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
-	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vagents/vaga/registry"
 )
 
 const ResearcherSystemPrompt = `You are an expert code researcher. You explore codebases, read documentation, and gather information to answer questions thoroughly.
@@ -25,30 +22,41 @@ const ResearcherSystemPrompt = `You are an expert code researcher. You explore c
 5. Cross-reference multiple files to give comprehensive answers.
 6. Do not attempt to modify any files -- you are read-only.`
 
-func newResearcherAgent(
-	cfg *config.Config,
-	llm aimodel.ChatCompleter,
-	readOnlyReg tool.ToolRegistry,
-	memMgr *memory.Manager,
-) *taskagent.Agent {
-	var opts []taskagent.Option
-	opts = append(opts,
-		taskagent.WithChatCompleter(llm),
-		taskagent.WithModel(cfg.LLM.Model),
-		taskagent.WithToolRegistry(readOnlyReg),
-		taskagent.WithSystemPrompt(prompt.StringPrompt(ResearcherSystemPrompt)),
-		taskagent.WithMaxIterations(cfg.Agents.MaxIterations),
-	)
-	if memMgr != nil {
-		opts = append(opts, taskagent.WithMemory(memMgr))
-	}
+// RegisterResearcher registers the researcher agent descriptor with the registry.
+func RegisterResearcher(reg *registry.Registry) {
+	reg.MustRegister(registry.AgentDescriptor{
+		ID:           "researcher",
+		DisplayName:  "Researcher",
+		Description:  "Explores codebases, reads documentation, gathers information (read-only)",
+		ToolProfile:  registry.ProfileReadOnly,
+		SystemPrompt: ResearcherSystemPrompt,
+		Dispatchable: true,
+		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+			var taskOpts []taskagent.Option
 
-	return taskagent.New(
-		agent.Config{
-			ID:          "researcher",
-			Name:        "Researcher Agent",
-			Description: "Explores codebases, reads documentation, and gathers information",
+			taskOpts = append(taskOpts,
+				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithModel(opts.Model),
+				taskagent.WithSystemPrompt(prompt.StringPrompt(ResearcherSystemPrompt)),
+				taskagent.WithMaxIterations(opts.MaxIterations),
+			)
+
+			if opts.ToolRegistry != nil {
+				taskOpts = append(taskOpts, taskagent.WithToolRegistry(opts.ToolRegistry))
+			}
+
+			if opts.Memory != nil {
+				taskOpts = append(taskOpts, taskagent.WithMemory(opts.Memory))
+			}
+
+			return taskagent.New(
+				agent.Config{
+					ID:          "researcher",
+					Name:        "Researcher Agent",
+					Description: "Explores codebases, reads documentation, and gathers information",
+				},
+				taskOpts...,
+			), nil
 		},
-		opts...,
-	)
+	})
 }

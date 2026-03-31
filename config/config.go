@@ -17,9 +17,12 @@ type MemoryConfig struct {
 	Dir            string `yaml:"dir"`             // default ~/.vaga/memory/
 	SessionWindow  int    `yaml:"session_window"`  // sliding window size, default 50
 	PersistentLoad bool   `yaml:"persistent_load"` // load at startup, default true
-	MaxConcurrency int    `yaml:"max_concurrency"` // orchestrator DAG concurrency, default 2
-	// TODO: MaxConcurrency is orchestration config, not memory config.
-	// Move to a dedicated OrchestratorConfig in a future cleanup.
+	MaxConcurrency int    `yaml:"max_concurrency"` // Deprecated: use orchestrate.max_concurrency
+}
+
+// OrchestrateConfig holds orchestration configuration.
+type OrchestrateConfig struct {
+	MaxConcurrency int `yaml:"max_concurrency"` // DAG concurrency, default 2
 }
 
 // DefaultDir returns the default vaga config directory (~/.vaga).
@@ -39,13 +42,14 @@ func DefaultPath() string {
 
 // Config holds all vaga application configuration.
 type Config struct {
-	LLM    LLMConfig    `yaml:"llm"`
-	Server ServerConfig `yaml:"server"`
-	Tools  ToolsConfig  `yaml:"tools"`
-	Agents AgentsConfig `yaml:"agents"`
-	Mode   string       `yaml:"mode"` // "cli" or "http"; default "cli"
-	CLI    CLIConfig    `yaml:"cli"`
-	Memory MemoryConfig `yaml:"memory"`
+	LLM         LLMConfig         `yaml:"llm"`
+	Server      ServerConfig      `yaml:"server"`
+	Tools       ToolsConfig       `yaml:"tools"`
+	Agents      AgentsConfig      `yaml:"agents"`
+	Mode        string            `yaml:"mode"` // "cli" or "http"; default "cli"
+	CLI         CLIConfig         `yaml:"cli"`
+	Memory      MemoryConfig      `yaml:"memory"`
+	Orchestrate OrchestrateConfig `yaml:"orchestrate"`
 }
 
 // CLIConfig holds CLI-specific configuration.
@@ -223,6 +227,14 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Memory.MaxConcurrency == 0 {
 		cfg.Memory.MaxConcurrency = 2
+	}
+
+	// Migrate MaxConcurrency from memory to orchestrate.
+	if cfg.Memory.MaxConcurrency != 0 && cfg.Orchestrate.MaxConcurrency == 0 {
+		cfg.Orchestrate.MaxConcurrency = cfg.Memory.MaxConcurrency
+	}
+	if cfg.Orchestrate.MaxConcurrency == 0 {
+		cfg.Orchestrate.MaxConcurrency = 2
 	}
 }
 

@@ -2,13 +2,13 @@ package agents
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vagents/vaga/registry"
 )
 
 // mockChatCompleter is a simple mock for testing agent creation.
@@ -27,108 +27,6 @@ func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatReq
 
 func (m *mockChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
 	return nil, m.err
-}
-
-func newTestRegistry(t *testing.T) *tool.Registry {
-	t.Helper()
-
-	reg := tool.NewRegistry()
-
-	return reg
-}
-
-func TestCreate_AllAgents(t *testing.T) {
-	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-	}
-
-	reg := newTestRegistry(t)
-
-	allAgents := Create(cfg, mock, reg, reg, reg, nil, nil)
-
-	if allAgents.Coder.ID() != "coder" {
-		t.Errorf("coder ID = %q, want %q", allAgents.Coder.ID(), "coder")
-	}
-	if allAgents.Chat.ID() != "chat" {
-		t.Errorf("chat ID = %q, want %q", allAgents.Chat.ID(), "chat")
-	}
-	if allAgents.Researcher.ID() != "researcher" {
-		t.Errorf("researcher ID = %q, want %q", allAgents.Researcher.ID(), "researcher")
-	}
-	if allAgents.Reviewer.ID() != "reviewer" {
-		t.Errorf("reviewer ID = %q, want %q", allAgents.Reviewer.ID(), "reviewer")
-	}
-	if allAgents.Orchestrator.ID() != "orchestrator" {
-		t.Errorf("orchestrator ID = %q, want %q", allAgents.Orchestrator.ID(), "orchestrator")
-	}
-}
-
-func TestCreate_CoderHasTools(t *testing.T) {
-	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-	}
-
-	reg := newTestRegistry(t)
-
-	allAgents := Create(cfg, mock, reg, reg, reg, nil, nil)
-	_ = allAgents.Coder.Tools()
-}
-
-func TestCreate_ChatHasNoTools(t *testing.T) {
-	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-	}
-
-	reg := newTestRegistry(t)
-
-	allAgents := Create(cfg, mock, reg, reg, reg, nil, nil)
-	tools := allAgents.Chat.Tools()
-
-	if len(tools) != 0 {
-		t.Errorf("chat tools = %d, want 0", len(tools))
-	}
-}
-
-func TestCreate_Names(t *testing.T) {
-	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-	}
-
-	reg := newTestRegistry(t)
-
-	allAgents := Create(cfg, mock, reg, reg, reg, nil, nil)
-
-	if allAgents.Coder.Name() != "Coder Agent" {
-		t.Errorf("coder Name = %q, want %q", allAgents.Coder.Name(), "Coder Agent")
-	}
-
-	if allAgents.Chat.Name() != "Chat Agent" {
-		t.Errorf("chat Name = %q, want %q", allAgents.Chat.Name(), "Chat Agent")
-	}
-
-	if allAgents.Researcher.Name() != "Researcher Agent" {
-		t.Errorf("researcher Name = %q, want %q", allAgents.Researcher.Name(), "Researcher Agent")
-	}
-
-	if allAgents.Reviewer.Name() != "Reviewer Agent" {
-		t.Errorf("reviewer Name = %q, want %q", allAgents.Reviewer.Name(), "Reviewer Agent")
-	}
-
-	if allAgents.Orchestrator.Name() != "Orchestrator Agent" {
-		t.Errorf("orchestrator Name = %q, want %q", allAgents.Orchestrator.Name(), "Orchestrator Agent")
-	}
 }
 
 // stubAgent is a minimal agent implementation for testing.
@@ -160,4 +58,198 @@ func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunRes
 			}, s.id),
 		},
 	}, nil
+}
+
+func TestRegisterAll_AgentIDs(t *testing.T) {
+	reg := registry.New()
+	RegisterCoder(reg)
+	RegisterResearcher(reg)
+	RegisterReviewer(reg)
+	RegisterChat(reg)
+	RegisterExplorer(reg)
+	RegisterPlanner(reg)
+
+	// Verify all expected agents are registered.
+	for _, id := range []string{"coder", "researcher", "reviewer", "chat", "explorer", "planner"} {
+		if _, ok := reg.Get(id); !ok {
+			t.Errorf("expected agent %q to be registered", id)
+		}
+	}
+}
+
+func TestRegisterAll_Dispatchable(t *testing.T) {
+	reg := registry.New()
+	RegisterCoder(reg)
+	RegisterResearcher(reg)
+	RegisterReviewer(reg)
+	RegisterChat(reg)
+	RegisterExplorer(reg)
+	RegisterPlanner(reg)
+
+	dispatchable := reg.Dispatchable()
+	dispatchableIDs := make(map[string]bool)
+
+	for _, d := range dispatchable {
+		dispatchableIDs[d.ID] = true
+	}
+
+	// Dispatchable: coder, researcher, reviewer, chat.
+	for _, id := range []string{"coder", "researcher", "reviewer", "chat"} {
+		if !dispatchableIDs[id] {
+			t.Errorf("expected %q to be dispatchable", id)
+		}
+	}
+
+	// Not dispatchable: explorer, planner.
+	for _, id := range []string{"explorer", "planner"} {
+		if dispatchableIDs[id] {
+			t.Errorf("expected %q to NOT be dispatchable", id)
+		}
+	}
+}
+
+func TestFactory_CoderAgent(t *testing.T) {
+	reg := registry.New()
+	RegisterCoder(reg)
+
+	desc, ok := reg.Get("coder")
+	if !ok {
+		t.Fatal("coder not registered")
+	}
+
+	mock := &mockChatCompleter{}
+
+	a, err := desc.Factory(registry.FactoryOptions{
+		LLM:           mock,
+		Model:         "test-model",
+		MaxIterations: 10,
+	})
+	if err != nil {
+		t.Fatalf("Factory: %v", err)
+	}
+
+	if a.ID() != "coder" {
+		t.Errorf("ID = %q, want %q", a.ID(), "coder")
+	}
+
+	if a.Name() != "Coder Agent" {
+		t.Errorf("Name = %q, want %q", a.Name(), "Coder Agent")
+	}
+}
+
+func TestFactory_ChatAgent(t *testing.T) {
+	reg := registry.New()
+	RegisterChat(reg)
+
+	desc, ok := reg.Get("chat")
+	if !ok {
+		t.Fatal("chat not registered")
+	}
+
+	mock := &mockChatCompleter{}
+
+	a, err := desc.Factory(registry.FactoryOptions{
+		LLM:   mock,
+		Model: "test-model",
+	})
+	if err != nil {
+		t.Fatalf("Factory: %v", err)
+	}
+
+	if a.ID() != "chat" {
+		t.Errorf("ID = %q, want %q", a.ID(), "chat")
+	}
+
+	if a.Name() != "Chat Agent" {
+		t.Errorf("Name = %q, want %q", a.Name(), "Chat Agent")
+	}
+}
+
+func TestFactory_ResearcherAgent(t *testing.T) {
+	reg := registry.New()
+	RegisterResearcher(reg)
+
+	desc, ok := reg.Get("researcher")
+	if !ok {
+		t.Fatal("researcher not registered")
+	}
+
+	mock := &mockChatCompleter{}
+
+	a, err := desc.Factory(registry.FactoryOptions{
+		LLM:           mock,
+		Model:         "test-model",
+		MaxIterations: 10,
+	})
+	if err != nil {
+		t.Fatalf("Factory: %v", err)
+	}
+
+	if a.ID() != "researcher" {
+		t.Errorf("ID = %q, want %q", a.ID(), "researcher")
+	}
+
+	if a.Name() != "Researcher Agent" {
+		t.Errorf("Name = %q, want %q", a.Name(), "Researcher Agent")
+	}
+}
+
+func TestFactory_ReviewerAgent(t *testing.T) {
+	reg := registry.New()
+	RegisterReviewer(reg)
+
+	desc, ok := reg.Get("reviewer")
+	if !ok {
+		t.Fatal("reviewer not registered")
+	}
+
+	mock := &mockChatCompleter{}
+
+	a, err := desc.Factory(registry.FactoryOptions{
+		LLM:           mock,
+		Model:         "test-model",
+		MaxIterations: 10,
+	})
+	if err != nil {
+		t.Fatalf("Factory: %v", err)
+	}
+
+	if a.ID() != "reviewer" {
+		t.Errorf("ID = %q, want %q", a.ID(), "reviewer")
+	}
+
+	if a.Name() != "Reviewer Agent" {
+		t.Errorf("Name = %q, want %q", a.Name(), "Reviewer Agent")
+	}
+}
+
+func TestBuildPlannerSystemPrompt(t *testing.T) {
+	reg := registry.New()
+	RegisterCoder(reg)
+	RegisterResearcher(reg)
+	RegisterReviewer(reg)
+	RegisterChat(reg)
+
+	prompt := BuildPlannerSystemPrompt(reg)
+
+	if !strings.Contains(prompt, "coder") {
+		t.Error("planner prompt should contain 'coder'")
+	}
+
+	if !strings.Contains(prompt, "researcher") {
+		t.Error("planner prompt should contain 'researcher'")
+	}
+
+	if !strings.Contains(prompt, "reviewer") {
+		t.Error("planner prompt should contain 'reviewer'")
+	}
+
+	if !strings.Contains(prompt, "chat") {
+		t.Error("planner prompt should contain 'chat'")
+	}
+
+	// Should not contain the template placeholder.
+	if strings.Contains(prompt, "{{.AgentList}}") {
+		t.Error("planner prompt should not contain the template placeholder")
+	}
 }

@@ -14,10 +14,11 @@ import (
 
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
-	"github.com/vogo/vagents/vaga/agents"
+	"github.com/vogo/vage/tool"
 	vagacli "github.com/vogo/vagents/vaga/cli"
 	"github.com/vogo/vagents/vaga/config"
 	vagamemory "github.com/vogo/vagents/vaga/memory"
+	"github.com/vogo/vagents/vaga/setup"
 	"github.com/vogo/vagents/vaga/tools"
 )
 
@@ -94,24 +95,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Register tools.
+	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
 		slog.Error("vaga: register tools", "error", err)
 		flag.Usage()
-		os.Exit(1)
-	}
-
-	// Register read-only and review tool registries.
-	readOnlyReg, err := tools.RegisterReadOnly(cfg.Tools)
-	if err != nil {
-		slog.Error("vaga: register read-only tools", "error", err)
-		os.Exit(1)
-	}
-
-	reviewReg, err := tools.RegisterReviewTools(cfg.Tools)
-	if err != nil {
-		slog.Error("vaga: register review tools", "error", err)
 		os.Exit(1)
 	}
 
@@ -131,14 +119,17 @@ func main() {
 		memory.WithCompressor(memory.NewSlidingWindowCompressor(cfg.Memory.SessionWindow)),
 	)
 
-	// Create persistent memory prompt for coder.
-	persistentPrompt := agents.NewPersistentMemoryPrompt(agents.CoderSystemPrompt, persistentMem)
-
-	// Wrap coder registry with confirmation.
-	coderReg := vagacli.WrapRegistry(toolRegistry, cfg.CLI.ConfirmTools)
-
-	// Create all agents.
-	allAgents := agents.Create(cfg, llmClient, coderReg, readOnlyReg, reviewReg, memMgr, persistentPrompt)
+	// Set up all agents via setup package.
+	confirmTools := cfg.CLI.ConfirmTools
+	result, err := setup.New(cfg, llmClient, memMgr, persistentMem, &setup.Options{
+		WrapToolRegistry: func(r *tool.Registry) tool.ToolRegistry {
+			return vagacli.WrapRegistry(r, confirmTools)
+		},
+	})
+	if err != nil {
+		slog.Error("vaga: setup agents", "error", err)
+		os.Exit(1)
+	}
 
 	// Graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -151,16 +142,12 @@ func main() {
 			service.Config{Addr: cfg.Server.Addr},
 			service.WithToolRegistry(toolRegistry),
 		)
-		svc.RegisterAgent(allAgents.Orchestrator)
-		svc.RegisterAgent(allAgents.Coder)
-		svc.RegisterAgent(allAgents.Chat)
-		svc.RegisterAgent(allAgents.Researcher)
-		svc.RegisterAgent(allAgents.Reviewer)
+		svc.RegisterAgent(result.Dispatcher)
+		for _, a := range result.Agents() {
+			svc.RegisterAgent(a)
+		}
 
 		// Build a custom mux that wraps the service handler with memory endpoints.
-		// We cannot use svc.Start(ctx) because it builds its own internal mux,
-		// ignoring any custom routes. Instead, we start an http.Server manually
-		// using svc.Handler() as the base, extended with memory endpoints.
 		svcHandler := svc.Handler()
 		mux := http.NewServeMux()
 		mux.Handle("/", svcHandler)
@@ -193,7 +180,7 @@ func main() {
 		slog.Info("vaga: shutdown complete")
 
 	default: // "cli" or any other value defaults to CLI mode.
-		app := vagacli.New(allAgents.Orchestrator, cfg, persistentMem)
+		app := vagacli.New(result.Dispatcher, cfg, persistentMem)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vaga: CLI error", "error", err)
 			os.Exit(1)

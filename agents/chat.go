@@ -1,11 +1,10 @@
 package agents
 
 import (
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vagents/vaga/registry"
 )
 
 const ChatSystemPrompt = `You are a helpful, knowledgeable assistant. You provide accurate, clear, and well-structured responses.
@@ -16,16 +15,27 @@ const ChatSystemPrompt = `You are a helpful, knowledgeable assistant. You provid
 3. Use formatting (lists, code blocks) when it improves clarity.
 4. If a question is ambiguous, address the most likely interpretation and note alternatives.`
 
-func newChatAgent(cfg *config.Config, llm aimodel.ChatCompleter) *taskagent.Agent {
-	return taskagent.New(
-		agent.Config{
-			ID:          "chat",
-			Name:        "Chat Agent",
-			Description: "Handles general conversation, questions, and non-coding tasks",
+// RegisterChat registers the chat agent descriptor with the registry.
+func RegisterChat(reg *registry.Registry) {
+	reg.MustRegister(registry.AgentDescriptor{
+		ID:           "chat",
+		DisplayName:  "Chat",
+		Description:  "General conversation, questions, explanations, brainstorming",
+		ToolProfile:  registry.ProfileNone,
+		SystemPrompt: ChatSystemPrompt,
+		Dispatchable: true,
+		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+			return taskagent.New(
+				agent.Config{
+					ID:          "chat",
+					Name:        "Chat Agent",
+					Description: "Handles general conversation, questions, and non-coding tasks",
+				},
+				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithModel(opts.Model),
+				taskagent.WithSystemPrompt(prompt.StringPrompt(ChatSystemPrompt)),
+				taskagent.WithMaxIterations(1), // hardcoded to 1, preserving current behavior
+			), nil
 		},
-		taskagent.WithChatCompleter(llm),
-		taskagent.WithModel(cfg.LLM.Model),
-		taskagent.WithSystemPrompt(prompt.StringPrompt(ChatSystemPrompt)),
-		taskagent.WithMaxIterations(1),
-	)
+	})
 }

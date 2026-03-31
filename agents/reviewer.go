@@ -1,13 +1,10 @@
 package agents
 
 import (
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
-	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vagents/vaga/registry"
 )
 
 const ReviewerSystemPrompt = `You are an expert code reviewer. You analyze code for correctness, style, performance, and security issues.
@@ -28,30 +25,41 @@ const ReviewerSystemPrompt = `You are an expert code reviewer. You analyze code 
 7. Provide specific, actionable feedback with file references.
 8. Do not modify code -- provide review feedback only.`
 
-func newReviewerAgent(
-	cfg *config.Config,
-	llm aimodel.ChatCompleter,
-	reviewReg tool.ToolRegistry,
-	memMgr *memory.Manager,
-) *taskagent.Agent {
-	var opts []taskagent.Option
-	opts = append(opts,
-		taskagent.WithChatCompleter(llm),
-		taskagent.WithModel(cfg.LLM.Model),
-		taskagent.WithToolRegistry(reviewReg),
-		taskagent.WithSystemPrompt(prompt.StringPrompt(ReviewerSystemPrompt)),
-		taskagent.WithMaxIterations(cfg.Agents.MaxIterations),
-	)
-	if memMgr != nil {
-		opts = append(opts, taskagent.WithMemory(memMgr))
-	}
+// RegisterReviewer registers the reviewer agent descriptor with the registry.
+func RegisterReviewer(reg *registry.Registry) {
+	reg.MustRegister(registry.AgentDescriptor{
+		ID:           "reviewer",
+		DisplayName:  "Reviewer",
+		Description:  "Reviews code for correctness, style, performance, security",
+		ToolProfile:  registry.ProfileReview,
+		SystemPrompt: ReviewerSystemPrompt,
+		Dispatchable: true,
+		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+			var taskOpts []taskagent.Option
 
-	return taskagent.New(
-		agent.Config{
-			ID:          "reviewer",
-			Name:        "Reviewer Agent",
-			Description: "Reviews code for correctness, style, performance, and security",
+			taskOpts = append(taskOpts,
+				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithModel(opts.Model),
+				taskagent.WithSystemPrompt(prompt.StringPrompt(ReviewerSystemPrompt)),
+				taskagent.WithMaxIterations(opts.MaxIterations),
+			)
+
+			if opts.ToolRegistry != nil {
+				taskOpts = append(taskOpts, taskagent.WithToolRegistry(opts.ToolRegistry))
+			}
+
+			if opts.Memory != nil {
+				taskOpts = append(taskOpts, taskagent.WithMemory(opts.Memory))
+			}
+
+			return taskagent.New(
+				agent.Config{
+					ID:          "reviewer",
+					Name:        "Reviewer Agent",
+					Description: "Reviews code for correctness, style, performance, and security",
+				},
+				taskOpts...,
+			), nil
 		},
-		opts...,
-	)
+	})
 }

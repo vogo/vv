@@ -555,3 +555,80 @@ func TestNewLLMClient_EmptyProviderDefaultsToOpenAI(t *testing.T) {
 		t.Fatal("expected non-nil client")
 	}
 }
+
+func TestLoad_OrchestrateConfig_Default(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "test-key"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Orchestrate.MaxConcurrency != 2 {
+		t.Errorf("Orchestrate.MaxConcurrency = %d, want 2 (default)", cfg.Orchestrate.MaxConcurrency)
+	}
+}
+
+func TestLoad_OrchestrateConfig_Migration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "test-key"
+memory:
+  max_concurrency: 4
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Should migrate from memory.max_concurrency to orchestrate.max_concurrency.
+	if cfg.Orchestrate.MaxConcurrency != 4 {
+		t.Errorf("Orchestrate.MaxConcurrency = %d, want 4 (migrated from memory)", cfg.Orchestrate.MaxConcurrency)
+	}
+}
+
+func TestLoad_OrchestrateConfig_ExplicitOverridesMigration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "test-key"
+memory:
+  max_concurrency: 4
+orchestrate:
+  max_concurrency: 8
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Explicit orchestrate.max_concurrency should take precedence.
+	if cfg.Orchestrate.MaxConcurrency != 8 {
+		t.Errorf("Orchestrate.MaxConcurrency = %d, want 8 (explicit)", cfg.Orchestrate.MaxConcurrency)
+	}
+}
