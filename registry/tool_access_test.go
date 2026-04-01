@@ -3,7 +3,7 @@ package registry
 import (
 	"testing"
 
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vv/config"
 )
 
 func TestToolProfile_Has(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vv/config"
 )
 
 // stubStreamAgent implements agent.StreamAgent for testing.

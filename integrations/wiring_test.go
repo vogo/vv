@@ -10,9 +10,9 @@ import (
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/service"
-	"github.com/vogo/vagents/vaga/agents"
-	"github.com/vogo/vagents/vaga/config"
-	"github.com/vogo/vagents/vaga/tools"
+	"github.com/vogo/vv/agents"
+	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/tools"
 )
 
 // --- Test: Full Wiring with HTTP Service (Design Test 6) ---

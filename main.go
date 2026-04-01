@@ -15,11 +15,11 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/tool"
-	vagacli "github.com/vogo/vagents/vaga/cli"
-	"github.com/vogo/vagents/vaga/config"
-	vagamemory "github.com/vogo/vagents/vaga/memory"
-	"github.com/vogo/vagents/vaga/setup"
-	"github.com/vogo/vagents/vaga/tools"
+	vagacli "github.com/vogo/vv/cli"
+	"github.com/vogo/vv/config"
+	vagamemory "github.com/vogo/vv/memory"
+	"github.com/vogo/vv/setup"
+	"github.com/vogo/vv/tools"
 )
 
 func main() {

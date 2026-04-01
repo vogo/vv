@@ -11,11 +11,11 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/agents"
-	"github.com/vogo/vagents/vaga/config"
-	"github.com/vogo/vagents/vaga/dispatch"
-	"github.com/vogo/vagents/vaga/lifecycle"
-	"github.com/vogo/vagents/vaga/registry"
+	"github.com/vogo/vv/agents"
+	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/dispatch"
+	"github.com/vogo/vv/lifecycle"
+	"github.com/vogo/vv/registry"
 )
 
 // Result holds the assembled components for the application.

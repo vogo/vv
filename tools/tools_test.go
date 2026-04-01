@@ -3,7 +3,7 @@ package tools
 import (
 	"testing"
 
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vv/config"
 )
 
 func TestRegister_AllRegistered(t *testing.T) {

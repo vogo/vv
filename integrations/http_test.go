@@ -17,9 +17,9 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
-	"github.com/vogo/vagents/vaga/config"
-	vagamemory "github.com/vogo/vagents/vaga/memory"
-	"github.com/vogo/vagents/vaga/tools"
+	"github.com/vogo/vv/config"
+	vagamemory "github.com/vogo/vv/memory"
+	"github.com/vogo/vv/tools"
 )
 
 // setupTestServer creates an httptest.Server backed by a real service.Service

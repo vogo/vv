@@ -6,7 +6,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vagents/vaga/registry"
+	"github.com/vogo/vv/registry"
 )
 
 // PlannerSystemPromptTemplate is the system prompt template for the planner sub-agent.

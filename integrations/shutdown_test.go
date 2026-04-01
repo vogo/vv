@@ -10,8 +10,8 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
-	"github.com/vogo/vagents/vaga/config"
-	"github.com/vogo/vagents/vaga/tools"
+	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/tools"
 )
 
 func TestIntegration_GracefulShutdown(t *testing.T) {

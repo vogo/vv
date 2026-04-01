@@ -12,7 +12,7 @@ import (
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/orchestrate"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vagents/vaga/registry"
+	"github.com/vogo/vv/registry"
 )
 
 // mockChatCompleter is a simple mock for testing.

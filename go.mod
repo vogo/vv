@@ -1,4 +1,4 @@
-module github.com/vogo/vagents/vaga
+module github.com/vogo/vv
 
 go 1.26.0
 

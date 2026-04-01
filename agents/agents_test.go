@@ -8,7 +8,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vagents/vaga/registry"
+	"github.com/vogo/vv/registry"
 )
 
 // mockChatCompleter is a simple mock for testing agent creation.

@@ -16,7 +16,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -24,7 +23,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vv/config"
 )
 
 // App holds the CLI TUI application state.
@@ -75,7 +74,8 @@ func (a *App) Run(ctx context.Context) error {
 
 	m := newModel(a, ctx)
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	// Inline mode: no WithAltScreen so output stays in terminal scrollback.
+	p := tea.NewProgram(m)
 	a.program = p
 
 	_, err = p.Run()
@@ -95,15 +95,13 @@ type model struct {
 	ctx context.Context
 	// UI components
 	textarea textarea.Model
-	viewport viewport.Model
 	spinner  spinner.Model
 	width    int
 	height   int
 
 	// State
-	status          sessionStatus
-	output          strings.Builder
-	currentAgentIdx int // index of the current round's agent message in app.messages, -1 if none
+	status sessionStatus
+	output strings.Builder
 
 	// Sub-agent metrics tracking.
 	toolCallCount int // tool calls in current sub-agent
@@ -130,20 +128,13 @@ func newModel(app *App, ctx context.Context) *model {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 
-	vp := viewport.New(80, 20)
-	welcome := fmt.Sprintf("Welcome to vaga CLI. (provider: %s, model: %s)\nWorking directory: %s\nType a message to begin.\n",
-		app.cfg.LLM.Provider, app.cfg.LLM.Model, app.cfg.Tools.BashWorkingDir)
-	vp.SetContent(welcome)
-
 	m := &model{
-		app:             app,
-		ctx:             ctx,
-		textarea:        ta,
-		viewport:        vp,
-		spinner:         sp,
-		status:          statusIdle,
-		currentAgentIdx: -1,
-		confirmCh:       make(chan bool, 1),
+		app:       app,
+		ctx:       ctx,
+		textarea:  ta,
+		spinner:   sp,
+		status:    statusIdle,
+		confirmCh: make(chan bool, 1),
 	}
 
 	return m
@@ -165,7 +156,15 @@ func isExitCommand(input string) bool {
 }
 
 func (m *model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.spinner.Tick)
+	header := m.headerView()
+	welcome := fmt.Sprintf("Working directory: %s\nType a message to begin.",
+		m.app.cfg.Tools.BashWorkingDir)
+
+	return tea.Batch(
+		textarea.Blink,
+		m.spinner.Tick,
+		tea.Println(header+"\n"+welcome),
+	)
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -185,8 +184,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.viewport.Width = msg.Width
-		m.viewport.Height = msg.Height - 6 - headerHeight // leave space for header, textarea, status bar
 		m.textarea.SetWidth(msg.Width)
 		return m, nil
 
@@ -240,16 +237,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update viewport for scroll.
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
-
 	return m, tea.Batch(cmds...)
 }
-
-// headerHeight is the number of lines the persistent header occupies.
-const headerHeight = 2
 
 func (m *model) headerView() string {
 	dir := m.app.cfg.Tools.BashWorkingDir
@@ -269,13 +258,12 @@ func (m *model) headerView() string {
 func (m *model) View() string {
 	var sb strings.Builder
 
-	// Persistent header showing project directory.
-	sb.WriteString(m.headerView())
-	sb.WriteString("\n")
-
-	// Viewport (output area).
-	sb.WriteString(m.viewport.View())
-	sb.WriteString("\n")
+	// Show current streaming output above input (live, not yet committed to scrollback).
+	if m.output.Len() > 0 {
+		sb.WriteString(agentStyle.Render("Agent: "))
+		sb.WriteString(m.output.String())
+		sb.WriteString("\n")
+	}
 
 	// Status line.
 	switch m.status {
@@ -307,8 +295,7 @@ func (m *model) handleCtrlC() (tea.Model, tea.Cmd) {
 		}
 		m.status = statusIdle
 		m.textarea.Focus()
-		m.appendSystemMessage("Request cancelled.")
-		return m, nil
+		return m, m.printSystem("Request cancelled.")
 	case statusConfirming:
 		// Reject the confirmation and cancel the run.
 		select {
@@ -322,8 +309,7 @@ func (m *model) handleCtrlC() (tea.Model, tea.Cmd) {
 		m.confirmForm = nil
 		m.pendingTC = nil
 		m.textarea.Focus()
-		m.appendSystemMessage("Confirmation cancelled.")
-		return m, nil
+		return m, m.printSystem("Confirmation cancelled.")
 	default:
 		m.status = statusQuitting
 		return m, tea.Quit
@@ -342,36 +328,36 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	// Handle /memory commands before agent routing.
-	if m.handleCommand(input) {
+	if cmd := m.handleCommand(input); cmd != nil {
 		m.textarea.Reset()
-		return m, nil
+		return m, cmd
 	}
 
 	m.textarea.Reset()
 	m.textarea.Blur()
 	m.status = statusProcessing
 
-	// Add user message to display.
-	m.appendMessage(DisplayMessage{
+	// Add user message to display and history.
+	m.app.messages = append(m.app.messages, DisplayMessage{
 		Role:      "user",
 		Content:   input,
 		Timestamp: time.Now(),
 	})
-
-	// Add to conversation history.
 	userMsg := schema.NewUserMessage(input)
 	m.app.history = append(m.app.history, userMsg)
 
-	// Reset output builder and agent message index for this round.
+	// Reset output builder for this round.
 	m.output.Reset()
-	m.currentAgentIdx = -1
 
 	// Create a cancellable context for this run.
 	runCtx, cancel := context.WithCancel(m.ctx)
 	m.runCancel = cancel
 
-	// Start agent invocation.
-	return m, m.invokeAgent(runCtx, input)
+	// Print user message to scrollback, then start agent.
+	return m, tea.Batch(
+		tea.Println(renderUserMessage(input)),
+		m.invokeAgent(runCtx, input),
+	)
 }
 
 // invokeAgent creates a tea.Cmd that runs the agent asynchronously.
@@ -424,23 +410,23 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case schema.EventTextDelta:
 		if data, ok := event.Data.(schema.TextDeltaData); ok {
 			m.output.WriteString(data.Delta)
-			m.updateOutputInViewport()
 		}
 
 	case schema.EventToolCallStart:
 		if data, ok := event.Data.(schema.ToolCallStartData); ok {
-			// Flush any accumulated LLM text before showing the tool call,
-			// so text and tool calls appear interleaved in execution order.
-			m.flushAgentOutput()
+			// Flush any accumulated LLM text before showing the tool call.
+			flushCmd := m.flushAgentOutput()
 
 			m.toolCallCount++
 			rendered := renderToolCallStart(data.ToolName, data.Arguments)
-			m.appendMessage(DisplayMessage{
+			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "tool",
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
 			})
+
+			return m, tea.Batch(flushCmd, tea.Println(rendered))
 		}
 
 	case schema.EventToolCallEnd:
@@ -457,81 +443,86 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			}
 			rendered := renderToolCallResult(data.ToolName, resultText)
 			if rendered != "" {
-				m.appendMessage(DisplayMessage{
+				m.app.messages = append(m.app.messages, DisplayMessage{
 					Role:      "tool_result",
 					Content:   rendered,
 					Timestamp: time.Now(),
 					Rendered:  true,
 				})
+				return m, tea.Println(rendered)
 			}
 		}
 
 	case schema.EventTokenBudgetExhausted:
 		if data, ok := event.Data.(schema.TokenBudgetExhaustedData); ok {
-			m.appendSystemMessage(fmt.Sprintf("Token budget exhausted (used %d/%d in %d iterations)", data.Used, data.Budget, data.Iterations))
+			return m, m.printSystem(fmt.Sprintf("Token budget exhausted (used %d/%d in %d iterations)", data.Used, data.Budget, data.Iterations))
 		}
 
 	case schema.EventAgentEnd:
 		// Finalize any remaining text from the agent.
-		m.flushAgentOutput()
+		return m, m.flushAgentOutput()
 
 	case schema.EventError:
 		if data, ok := event.Data.(schema.ErrorData); ok {
-			m.appendErrorMessage(data.Message)
+			return m, m.printError(data.Message)
 		}
 
 	case schema.EventPhaseStart:
 		if data, ok := event.Data.(schema.PhaseStartData); ok {
 			rendered := renderPhaseTransition(data.Phase, data.PhaseIndex, data.TotalPhase, true)
-			m.appendMessage(DisplayMessage{
+			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "phase",
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
 			})
+			return m, tea.Println(rendered)
 		}
 
 	case schema.EventPhaseEnd:
 		if data, ok := event.Data.(schema.PhaseEndData); ok {
 			rendered := renderPhaseTransition(data.Phase, 0, 0, false)
 			_ = data.Duration // available if needed
-			m.appendMessage(DisplayMessage{
+			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "phase",
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
 			})
+			return m, tea.Println(rendered)
 		}
 
 	case schema.EventSubAgentStart:
 		if data, ok := event.Data.(schema.SubAgentStartData); ok {
 			m.toolCallCount = 0 // reset tool call counter
 			rendered := renderSubAgentStart(data.AgentName, data.StepID, data.Description, data.StepIndex, data.TotalSteps)
-			m.appendMessage(DisplayMessage{
+			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "subagent",
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
 			})
+			return m, tea.Println(rendered)
 		}
 
 	case schema.EventSubAgentEnd:
 		if data, ok := event.Data.(schema.SubAgentEndData); ok {
 			// Flush any remaining text from the sub-agent before showing its summary.
-			m.flushAgentOutput()
+			flushCmd := m.flushAgentOutput()
 
 			toolCalls := data.ToolCalls
 			if toolCalls == 0 {
 				toolCalls = m.toolCallCount
 			}
 			rendered := renderSubAgentEnd(data.AgentName, data.StepID, data.Duration, toolCalls, data.TokensUsed)
-			m.appendMessage(DisplayMessage{
+			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "subagent",
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
 			})
 			m.toolCallCount = 0
+			return m, tea.Batch(flushCmd, tea.Println(rendered))
 		}
 
 	// Suppress LLM call events for cleaner UX.
@@ -544,8 +535,10 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 // handleStreamDone handles stream completion.
 func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	if msg.err != nil {
-		m.appendErrorMessage(msg.err.Error())
+		cmds = append(cmds, m.printError(msg.err.Error()))
 	}
 
 	// Add agent response to conversation history for multi-turn context.
@@ -555,6 +548,7 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 			"",
 		)
 		m.app.history = append(m.app.history, agentMsg)
+		cmds = append(cmds, m.flushAgentOutput())
 	}
 
 	m.status = statusIdle
@@ -562,6 +556,9 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.textarea.Focus()
 	m.runCancel = nil
 
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
 	return m, nil
 }
 
@@ -589,118 +586,46 @@ func (m *model) handleConfirmRequest(msg confirmRequestMsg) (tea.Model, tea.Cmd)
 	return m, m.confirmForm.Init()
 }
 
-// appendMessage adds a display message and updates the viewport.
-func (m *model) appendMessage(msg DisplayMessage) {
-	m.app.messages = append(m.app.messages, msg)
-	m.refreshViewport()
-}
-
-// appendSystemMessage adds a styled system message.
-func (m *model) appendSystemMessage(text string) {
-	m.appendMessage(DisplayMessage{
+// printSystem stores a system message and returns a tea.Cmd to print it to scrollback.
+func (m *model) printSystem(text string) tea.Cmd {
+	m.app.messages = append(m.app.messages, DisplayMessage{
 		Role:      "system",
 		Content:   text,
 		Timestamp: time.Now(),
 	})
+	return tea.Println(renderSystemMessage(text))
 }
 
-// appendErrorMessage adds a styled error message.
-func (m *model) appendErrorMessage(text string) {
-	m.appendMessage(DisplayMessage{
+// printError stores an error message and returns a tea.Cmd to print it to scrollback.
+func (m *model) printError(text string) tea.Cmd {
+	m.app.messages = append(m.app.messages, DisplayMessage{
 		Role:      "error",
 		Content:   text,
 		Timestamp: time.Now(),
 	})
+	return tea.Println(errorStyle.Render("Error: " + text))
 }
 
-// flushAgentOutput finalizes any accumulated LLM text as a rendered markdown
-// message and resets the output buffer. This allows text and tool calls to
-// appear interleaved in the viewport, matching the actual execution order.
-func (m *model) flushAgentOutput() {
+// flushAgentOutput finalizes any accumulated LLM text, returns a tea.Cmd to
+// print it to the terminal scrollback, and resets the output buffer.
+func (m *model) flushAgentOutput() tea.Cmd {
 	if m.output.Len() == 0 {
-		return
+		return nil
 	}
 
-	rendered := renderAgentMessage(m.output.String(), m.width-4)
-	m.replaceLastAgentOutput(rendered)
+	text := m.output.String()
+	rendered := renderAgentMessage(text, m.width-4)
 
-	// Reset for the next text segment.
-	m.output.Reset()
-	m.currentAgentIdx = -1
-}
-
-// updateOutputInViewport tracks the current streaming output in the message
-// list and refreshes the viewport.
-func (m *model) updateOutputInViewport() {
-	if m.currentAgentIdx >= 0 && m.currentAgentIdx < len(m.app.messages) {
-		m.app.messages[m.currentAgentIdx].Content = m.output.String()
-	} else {
-		m.currentAgentIdx = len(m.app.messages)
-		m.app.messages = append(m.app.messages, DisplayMessage{
-			Role:      "agent",
-			Content:   m.output.String(),
-			Timestamp: time.Now(),
-		})
-	}
-
-	m.refreshViewport()
-}
-
-// replaceLastAgentOutput replaces the raw streaming output with rendered markdown.
-func (m *model) replaceLastAgentOutput(rendered string) {
-	if m.currentAgentIdx >= 0 && m.currentAgentIdx < len(m.app.messages) {
-		m.app.messages[m.currentAgentIdx].Content = rendered
-		m.refreshViewport()
-
-		return
-	}
-
-	// No agent message found, add one.
-	m.currentAgentIdx = len(m.app.messages)
-	m.appendMessage(DisplayMessage{
+	m.app.messages = append(m.app.messages, DisplayMessage{
 		Role:      "agent",
 		Content:   rendered,
 		Timestamp: time.Now(),
+		Rendered:  true,
 	})
-}
 
-// refreshViewport rebuilds the viewport content from all messages.
-// This method only reads m.app.messages; it never mutates the slice.
-func (m *model) refreshViewport() {
-	var sb strings.Builder
+	m.output.Reset()
 
-	for _, msg := range m.app.messages {
-		if msg.Rendered {
-			// Pre-rendered content (tool calls, phases, sub-agents) — write directly.
-			sb.WriteString(msg.Content)
-			// Use single newline for compact tool results, double for others.
-			if msg.Role == "tool_result" {
-				sb.WriteString("\n")
-			} else {
-				sb.WriteString("\n\n")
-			}
-			continue
-		}
-
-		switch msg.Role {
-		case "user":
-			sb.WriteString(renderUserMessage(msg.Content))
-		case "agent":
-			sb.WriteString(agentStyle.Render("Agent: "))
-			sb.WriteString(msg.Content)
-		case "system":
-			sb.WriteString(renderSystemMessage(msg.Content))
-		case "tool":
-			sb.WriteString(renderToolMessage(msg.Content))
-		case "error":
-			sb.WriteString(errorStyle.Render("Error: " + msg.Content))
-		}
-
-		sb.WriteString("\n\n")
-	}
-
-	m.viewport.SetContent(sb.String())
-	m.viewport.GotoBottom()
+	return tea.Println(agentStyle.Render("Agent: ") + rendered)
 }
 
 // agentMessage creates an aimodel.Message from agent text.

@@ -6,7 +6,7 @@ import (
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vv/config"
 )
 
 // mockChatCompleter is a simple mock for testing.

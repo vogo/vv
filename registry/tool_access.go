@@ -12,7 +12,7 @@ import (
 	"github.com/vogo/vage/tool/greptool"
 	"github.com/vogo/vage/tool/readtool"
 	"github.com/vogo/vage/tool/writetool"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vv/config"
 )
 
 // ToolCapability represents a single tool access capability.

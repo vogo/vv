@@ -8,9 +8,9 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vagents/vaga/config"
-	"github.com/vogo/vagents/vaga/lifecycle"
-	"github.com/vogo/vagents/vaga/registry"
+	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/lifecycle"
+	"github.com/vogo/vv/registry"
 )
 
 // Dispatcher is the main orchestration agent. It receives user requests,

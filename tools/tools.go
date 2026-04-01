@@ -11,7 +11,7 @@ import (
 	"github.com/vogo/vage/tool/greptool"
 	"github.com/vogo/vage/tool/readtool"
 	"github.com/vogo/vage/tool/writetool"
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vv/config"
 )
 
 // Register creates a tool registry and registers all built-in tools.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/vagents/vaga/config"
+	"github.com/vogo/vv/config"
 )
 
 func TestIntegration_Config_ValidYAML(t *testing.T) {

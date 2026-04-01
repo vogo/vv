@@ -19,12 +19,12 @@ import (
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/config"
-	"github.com/vogo/vagents/vaga/dispatch"
-	"github.com/vogo/vagents/vaga/lifecycle"
-	vagamemory "github.com/vogo/vagents/vaga/memory"
-	"github.com/vogo/vagents/vaga/registry"
-	"github.com/vogo/vagents/vaga/setup"
+	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/dispatch"
+	"github.com/vogo/vv/lifecycle"
+	vagamemory "github.com/vogo/vv/memory"
+	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/setup"
 )
 
 // =============================================================================

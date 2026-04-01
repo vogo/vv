@@ -4,24 +4,24 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // handleCommand checks for slash commands (e.g. /memory) before routing to agents.
-// Returns true if the input was handled as a command.
-func (m *model) handleCommand(input string) bool {
+// Returns a non-nil tea.Cmd if the input was handled as a command, nil otherwise.
+func (m *model) handleCommand(input string) tea.Cmd {
 	parts := strings.Fields(input)
 	if len(parts) == 0 || parts[0] != "/memory" {
-		return false
+		return nil
 	}
 
 	if m.app.persistentMem == nil {
-		m.appendSystemMessage("Memory is not configured.")
-		return true
+		return m.printSystem("Memory is not configured.")
 	}
 
 	if len(parts) < 2 {
-		m.appendSystemMessage("Usage: /memory list|show|set|delete ...")
-		return true
+		return m.printSystem("Usage: /memory list|show|set|delete ...")
 	}
 
 	ctx := context.Background()
@@ -32,48 +32,41 @@ func (m *model) handleCommand(input string) bool {
 		if len(parts) >= 3 {
 			prefix = parts[2]
 		}
-		m.handleMemoryList(ctx, prefix)
+		return m.handleMemoryList(ctx, prefix)
 
 	case "show":
 		if len(parts) < 3 {
-			m.appendSystemMessage("Usage: /memory show <namespace:key>")
-			return true
+			return m.printSystem("Usage: /memory show <namespace:key>")
 		}
-		m.handleMemoryShow(ctx, parts[2])
+		return m.handleMemoryShow(ctx, parts[2])
 
 	case "set":
 		if len(parts) < 4 {
-			m.appendSystemMessage("Usage: /memory set <namespace:key> <content...>")
-			return true
+			return m.printSystem("Usage: /memory set <namespace:key> <content...>")
 		}
 		key := parts[2]
 		content := strings.Join(parts[3:], " ")
-		m.handleMemorySet(ctx, key, content)
+		return m.handleMemorySet(ctx, key, content)
 
 	case "delete":
 		if len(parts) < 3 {
-			m.appendSystemMessage("Usage: /memory delete <namespace:key>")
-			return true
+			return m.printSystem("Usage: /memory delete <namespace:key>")
 		}
-		m.handleMemoryDelete(ctx, parts[2])
+		return m.handleMemoryDelete(ctx, parts[2])
 
 	default:
-		m.appendSystemMessage("Unknown memory command: " + parts[1] + "\nUsage: /memory list|show|set|delete ...")
+		return m.printSystem("Unknown memory command: " + parts[1] + "\nUsage: /memory list|show|set|delete ...")
 	}
-
-	return true
 }
 
-func (m *model) handleMemoryList(ctx context.Context, prefix string) {
+func (m *model) handleMemoryList(ctx context.Context, prefix string) tea.Cmd {
 	entries, err := m.app.persistentMem.List(ctx, prefix)
 	if err != nil {
-		m.appendErrorMessage(fmt.Sprintf("Memory list: %v", err))
-		return
+		return m.printError(fmt.Sprintf("Memory list: %v", err))
 	}
 
 	if len(entries) == 0 {
-		m.appendSystemMessage("No memory entries found.")
-		return
+		return m.printSystem("No memory entries found.")
 	}
 
 	var sb strings.Builder
@@ -82,40 +75,36 @@ func (m *model) handleMemoryList(ctx context.Context, prefix string) {
 		val := truncateValue(e.Value)
 		fmt.Fprintf(&sb, "  %s: %s\n", e.Key, val)
 	}
-	m.appendSystemMessage(sb.String())
+	return m.printSystem(sb.String())
 }
 
-func (m *model) handleMemoryShow(ctx context.Context, key string) {
+func (m *model) handleMemoryShow(ctx context.Context, key string) tea.Cmd {
 	val, err := m.app.persistentMem.Get(ctx, key)
 	if err != nil {
-		m.appendErrorMessage(fmt.Sprintf("Memory show: %v", err))
-		return
+		return m.printError(fmt.Sprintf("Memory show: %v", err))
 	}
 
 	if val == nil {
-		m.appendSystemMessage(fmt.Sprintf("Memory entry %q not found.", key))
-		return
+		return m.printSystem(fmt.Sprintf("Memory entry %q not found.", key))
 	}
 
-	m.appendSystemMessage(fmt.Sprintf("[%s]\n%v", key, val))
+	return m.printSystem(fmt.Sprintf("[%s]\n%v", key, val))
 }
 
-func (m *model) handleMemorySet(ctx context.Context, key, content string) {
+func (m *model) handleMemorySet(ctx context.Context, key, content string) tea.Cmd {
 	if err := m.app.persistentMem.Set(ctx, key, content, 0); err != nil {
-		m.appendErrorMessage(fmt.Sprintf("Memory set: %v", err))
-		return
+		return m.printError(fmt.Sprintf("Memory set: %v", err))
 	}
 
-	m.appendSystemMessage(fmt.Sprintf("Memory entry %q saved.", key))
+	return m.printSystem(fmt.Sprintf("Memory entry %q saved.", key))
 }
 
-func (m *model) handleMemoryDelete(ctx context.Context, key string) {
+func (m *model) handleMemoryDelete(ctx context.Context, key string) tea.Cmd {
 	if err := m.app.persistentMem.Delete(ctx, key); err != nil {
-		m.appendErrorMessage(fmt.Sprintf("Memory delete: %v", err))
-		return
+		return m.printError(fmt.Sprintf("Memory delete: %v", err))
 	}
 
-	m.appendSystemMessage(fmt.Sprintf("Memory entry %q deleted.", key))
+	return m.printSystem(fmt.Sprintf("Memory entry %q deleted.", key))
 }
 
 // truncateValue returns a short preview of a memory entry value.

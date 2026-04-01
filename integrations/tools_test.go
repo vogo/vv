@@ -3,8 +3,8 @@ package integrations
 import (
 	"testing"
 
-	"github.com/vogo/vagents/vaga/config"
-	"github.com/vogo/vagents/vaga/tools"
+	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/tools"
 )
 
 func TestIntegration_Tools_AllRegistered(t *testing.T) {

@@ -16,10 +16,10 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/agents"
-	"github.com/vogo/vagents/vaga/config"
-	vagamemory "github.com/vogo/vagents/vaga/memory"
-	"github.com/vogo/vagents/vaga/tools"
+	"github.com/vogo/vv/agents"
+	"github.com/vogo/vv/config"
+	vagamemory "github.com/vogo/vv/memory"
+	"github.com/vogo/vv/tools"
 )
 
 // --- Test 1a: Coder has all 6 tools (bash, file_read, file_write, file_edit, glob, grep) ---

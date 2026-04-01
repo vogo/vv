@@ -13,8 +13,8 @@ import (
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vagents/vaga/lifecycle"
-	"github.com/vogo/vagents/vaga/registry"
+	"github.com/vogo/vv/lifecycle"
+	"github.com/vogo/vv/registry"
 )
 
 // runDirect dispatches to a single sub-agent and aggregates usage.
