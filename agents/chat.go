@@ -4,7 +4,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 const ChatSystemPrompt = `You are a helpful, knowledgeable assistant. You provide accurate, clear, and well-structured responses.
@@ -15,16 +15,16 @@ const ChatSystemPrompt = `You are a helpful, knowledgeable assistant. You provid
 3. Use formatting (lists, code blocks) when it improves clarity.
 4. If a question is ambiguous, address the most likely interpretation and note alternatives.`
 
-// RegisterChat registers the chat agent descriptor with the registry.
-func RegisterChat(reg *registry.Registry) {
-	reg.MustRegister(registry.AgentDescriptor{
+// RegisterChat registers the chat agent descriptor with the registries.
+func RegisterChat(reg *registries.Registry) {
+	reg.MustRegister(registries.AgentDescriptor{
 		ID:           "chat",
 		DisplayName:  "Chat",
 		Description:  "General conversation, questions, explanations, brainstorming",
-		ToolProfile:  registry.ProfileNone,
+		ToolProfile:  registries.ProfileNone,
 		SystemPrompt: ChatSystemPrompt,
 		Dispatchable: true,
-		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
 			return taskagent.New(
 				agent.Config{
 					ID:          "chat",

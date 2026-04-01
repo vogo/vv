@@ -18,7 +18,7 @@ import (
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/agents"
 	vagacli "github.com/vogo/vv/cli"
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/tools"
 )
 
@@ -67,7 +67,7 @@ func (s *stubStreamAgent) RunStream(ctx context.Context, req *schema.RunRequest)
 // Verifies that when no mode is specified in YAML or env, the default is "cli".
 func TestIntegration_CLI_ConfigModeDefault(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -79,9 +79,9 @@ llm:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if cfg.Mode != "cli" {
@@ -93,7 +93,7 @@ llm:
 // Verifies that mode can be set to "http" via YAML.
 func TestIntegration_CLI_ConfigModeHTTP(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -106,9 +106,9 @@ mode: "http"
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if cfg.Mode != "http" {
@@ -120,7 +120,7 @@ mode: "http"
 // Verifies that mode can be explicitly set to "cli" via YAML.
 func TestIntegration_CLI_ConfigModeCLI(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -133,9 +133,9 @@ mode: "cli"
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if cfg.Mode != "cli" {
@@ -147,7 +147,7 @@ mode: "cli"
 // Verifies that VAGA_MODE env var overrides YAML mode setting.
 func TestIntegration_CLI_ConfigModeEnvOverride(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -162,9 +162,9 @@ mode: "cli"
 
 	t.Setenv("VAGA_MODE", "http")
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if cfg.Mode != "http" {
@@ -176,7 +176,7 @@ mode: "cli"
 // Verifies that the confirm_tools list is correctly loaded.
 func TestIntegration_CLI_ConfigConfirmTools(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -193,9 +193,9 @@ cli:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if len(cfg.CLI.ConfirmTools) != 3 {
@@ -214,7 +214,7 @@ cli:
 // Verifies that absent confirm_tools results in an empty slice.
 func TestIntegration_CLI_ConfigConfirmToolsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -226,9 +226,9 @@ llm:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if len(cfg.CLI.ConfirmTools) != 0 {
@@ -241,10 +241,10 @@ llm:
 func TestIntegration_CLI_AppConstruction(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "orchestrated response"}
 
-	cfg := &config.Config{
+	cfg := &configs.Config{
 		Mode: "cli",
-		LLM:  config.LLMConfig{Model: "test-model", Provider: "openai", APIKey: "test-key"},
-		CLI:  config.CLIConfig{ConfirmTools: []string{"bash"}},
+		LLM:  configs.LLMConfig{Model: "test-model", Provider: "openai", APIKey: "test-key"},
+		CLI:  configs.CLIConfig{ConfirmTools: []string{"bash"}},
 	}
 
 	app := vagacli.New(orchestrator, cfg, nil)
@@ -256,7 +256,7 @@ func TestIntegration_CLI_AppConstruction(t *testing.T) {
 // --- Test: WrapRegistry with no confirm tools returns original registry ---
 // Verifies that WrapRegistry is a no-op when confirm_tools is empty.
 func TestIntegration_CLI_WrapRegistryNoConfirmTools(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -265,20 +265,20 @@ func TestIntegration_CLI_WrapRegistryNoConfirmTools(t *testing.T) {
 
 	// Should be the exact same pointer.
 	if wrapped != reg {
-		t.Error("WrapRegistry with nil confirm_tools should return the original registry")
+		t.Error("WrapRegistry with nil confirm_tools should return the original registries")
 	}
 
 	// Also test with empty slice.
 	wrapped2 := vagacli.WrapRegistry(reg, []string{})
 	if wrapped2 != reg {
-		t.Error("WrapRegistry with empty confirm_tools should return the original registry")
+		t.Error("WrapRegistry with empty confirm_tools should return the original registries")
 	}
 }
 
 // --- Test: WrapRegistry with confirm tools wraps the registry ---
 // Verifies that WrapRegistry returns a confirming executor when confirm_tools is provided.
 func TestIntegration_CLI_WrapRegistryWithConfirmTools(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestIntegration_CLI_WrapRegistryWithConfirmTools(t *testing.T) {
 
 	// Should be a different object.
 	if wrapped == reg {
-		t.Error("WrapRegistry with confirm_tools should return a new wrapped registry")
+		t.Error("WrapRegistry with confirm_tools should return a new wrapped registries")
 	}
 
 	// The wrapped registry should still expose the same tools.
@@ -306,7 +306,7 @@ func TestIntegration_CLI_WrapRegistryWithConfirmTools(t *testing.T) {
 // --- Test: ConfirmingExecutor approve flow ---
 // Verifies that when confirmFn returns true, the tool executes normally.
 func TestIntegration_CLI_ConfirmingExecutorApprove(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 5})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 5})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestIntegration_CLI_ConfirmingExecutorApprove(t *testing.T) {
 // --- Test: ConfirmingExecutor passthrough for non-confirmed tool ---
 // Verifies that tools NOT in the confirm list execute without invoking confirmFn.
 func TestIntegration_CLI_ConfirmingExecutorPassthrough(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 5})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 5})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestIntegration_CLI_ConfirmingExecutorPassthrough(t *testing.T) {
 // --- Test: agents.Create accepts tool.ToolRegistry interface ---
 // Verifies that agents.Create works with both the original registry and a wrapped one.
 func TestIntegration_CLI_AgentsCreateWithWrappedRegistry(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -383,16 +383,16 @@ func TestIntegration_CLI_AgentsCreateWithWrappedRegistry(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		CLI:    config.CLIConfig{ConfirmTools: []string{"bash", "file_write"}},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		CLI:    configs.CLIConfig{ConfirmTools: []string{"bash", "file_write"}},
 	}
 
 	// Wrap registry (as main.go does).
 	wrapped := vagacli.WrapRegistry(reg, cfg.CLI.ConfirmTools)
 
-	cfg.Memory = config.MemoryConfig{MaxConcurrency: 2}
+	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
 
 	// Create agents with wrapped registry -- should work without error.
 	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
@@ -421,7 +421,7 @@ func TestIntegration_CLI_AgentsCreateWithWrappedRegistry(t *testing.T) {
 // including config loading, tool registration, agent creation, and registry wrapping.
 func TestIntegration_CLI_FullWiringCLIMode(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "test-config.yaml")
+	configPath := filepath.Join(dir, "test-configs.yaml")
 	configContent := `
 llm:
   provider: "openai"
@@ -441,9 +441,9 @@ tools:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(configPath, true)
+	cfg, err := configs.Load(configPath, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if cfg.Mode != "cli" {
@@ -466,7 +466,7 @@ tools:
 	// Wrap registry as main.go does.
 	wrapped := vagacli.WrapRegistry(toolRegistry, cfg.CLI.ConfirmTools)
 
-	cfg.Memory = config.MemoryConfig{MaxConcurrency: 2}
+	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
 	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
 
 	if allAgents.Orchestrator.ID() != "orchestrator" {
@@ -491,7 +491,7 @@ tools:
 // Verifies that the HTTP service path is unaffected by CLI mode additions.
 func TestIntegration_CLI_HTTPModeUnchanged(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "test-config.yaml")
+	configPath := filepath.Join(dir, "test-configs.yaml")
 	configContent := `
 llm:
   provider: "openai"
@@ -509,9 +509,9 @@ agents:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(configPath, true)
+	cfg, err := configs.Load(configPath, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if cfg.Mode != "http" {
@@ -531,7 +531,7 @@ agents:
 		},
 	}
 
-	cfg.Memory = config.MemoryConfig{MaxConcurrency: 2}
+	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
 	allAgents := agents.Create(cfg, mock, toolRegistry, toolRegistry, toolRegistry, nil, nil)
 
 	svc := service.New(
@@ -592,9 +592,9 @@ agents:
 func TestIntegration_CLI_OrchestratorWiring(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "orchestrated response"}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 5},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 5},
 	}
 
 	app := vagacli.New(orchestrator, cfg, nil)
@@ -666,7 +666,7 @@ func TestIntegration_CLI_MultiTurnHistory(t *testing.T) {
 	// Simulate multi-turn conversation by building up history as the CLI would.
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
-	cfg := &config.Config{Mode: "cli"}
+	cfg := &configs.Config{Mode: "cli"}
 	app := vagacli.New(orchestrator, cfg, nil)
 
 	// Simulate 3 turns of conversation by verifying message structure.
@@ -757,7 +757,7 @@ func TestIntegration_CLI_CancellationPropagation(t *testing.T) {
 // Verifies that a config with all CLI-related fields loads correctly.
 func TestIntegration_CLI_FullConfigWithAllFields(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -783,9 +783,9 @@ cli:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	checks := []struct {
@@ -816,7 +816,7 @@ cli:
 // Verifies that wrapping a registry with confirm_tools still allows tool execution
 // to pass through for non-confirmed tools and confirms for confirmed tools.
 func TestIntegration_CLI_WrapRegistryPreservesExecution(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 5})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 5})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -888,7 +888,7 @@ func TestIntegration_CLI_ModeSelectionBranching(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			path := filepath.Join(dir, "config.yaml")
+			path := filepath.Join(dir, "configs.yaml")
 
 			if err := os.WriteFile(path, []byte(tt.yaml), 0o644); err != nil {
 				t.Fatal(err)
@@ -898,9 +898,9 @@ func TestIntegration_CLI_ModeSelectionBranching(t *testing.T) {
 				t.Setenv("VAGA_MODE", tt.envMode)
 			}
 
-			cfg, err := config.Load(path, true)
+			cfg, err := configs.Load(path, true)
 			if err != nil {
-				t.Fatalf("config.Load: %v", err)
+				t.Fatalf("configs.Load: %v", err)
 			}
 
 			if cfg.Mode != tt.wantMode {

@@ -4,7 +4,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 // ExplorerSystemPrompt is the system prompt for the explorer sub-agent.
@@ -28,16 +28,16 @@ Given a user's question and a working directory, explore the project to build co
 
 Keep your summary focused and actionable -- it will be used by other agents to fulfill the user's request.`
 
-// RegisterExplorer registers the explorer agent descriptor with the registry.
-func RegisterExplorer(reg *registry.Registry) {
-	reg.MustRegister(registry.AgentDescriptor{
+// RegisterExplorer registers the explorer agent descriptor with the registries.
+func RegisterExplorer(reg *registries.Registry) {
+	reg.MustRegister(registries.AgentDescriptor{
 		ID:           "explorer",
 		DisplayName:  "Explorer",
 		Description:  "Explores codebases to build project context for a given question",
-		ToolProfile:  registry.ProfileReadOnly,
+		ToolProfile:  registries.ProfileReadOnly,
 		SystemPrompt: ExplorerSystemPrompt,
 		Dispatchable: false, // infrastructure agent, not a dispatch target
-		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
 			maxIter := min(opts.MaxIterations,
 				// cap exploration iterations
 				15)

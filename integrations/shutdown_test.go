@@ -10,12 +10,12 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/tools"
 )
 
 func TestIntegration_GracefulShutdown(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestIntegration_GracefulShutdown(t *testing.T) {
 }
 
 func TestIntegration_GracefulShutdown_ServesBeforeCancel(t *testing.T) {
-	reg, _ := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, _ := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 
 	testAgent := agent.NewCustomAgent(agent.Config{
 		ID: "sig-test", Name: "Signal Test", Description: "test",

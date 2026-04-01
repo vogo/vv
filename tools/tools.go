@@ -11,11 +11,11 @@ import (
 	"github.com/vogo/vage/tool/greptool"
 	"github.com/vogo/vage/tool/readtool"
 	"github.com/vogo/vage/tool/writetool"
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 )
 
 // Register creates a tool registry and registers all built-in tools.
-func Register(cfg config.ToolsConfig) (*tool.Registry, error) {
+func Register(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	reg := tool.NewRegistry()
 
 	// bash
@@ -71,7 +71,7 @@ func Register(cfg config.ToolsConfig) (*tool.Registry, error) {
 }
 
 // RegisterReadOnly creates a registry with read, glob, grep only.
-func RegisterReadOnly(cfg config.ToolsConfig) (*tool.Registry, error) {
+func RegisterReadOnly(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	reg := tool.NewRegistry()
 
 	// read
@@ -103,7 +103,7 @@ func RegisterReadOnly(cfg config.ToolsConfig) (*tool.Registry, error) {
 }
 
 // RegisterReviewTools creates a registry with read, glob, grep, bash.
-func RegisterReviewTools(cfg config.ToolsConfig) (*tool.Registry, error) {
+func RegisterReviewTools(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	reg := tool.NewRegistry()
 
 	// bash

@@ -7,7 +7,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 )
 
 // stubStreamAgent implements agent.StreamAgent for testing.
@@ -52,7 +52,7 @@ func (s *stubStreamAgent) RunStream(ctx context.Context, req *schema.RunRequest)
 func TestMultiTurnHistory(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
-	app := New(orchestrator, &config.Config{}, nil)
+	app := New(orchestrator, &configs.Config{}, nil)
 
 	// Simulate adding messages to history.
 	app.history = append(app.history, schema.NewUserMessage("first message"))
@@ -111,7 +111,7 @@ func TestDisplayMessageRendering(t *testing.T) {
 func TestNewApp(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
-	cfg := &config.Config{Mode: "cli"}
+	cfg := &configs.Config{Mode: "cli"}
 
 	app := New(orchestrator, cfg, nil)
 

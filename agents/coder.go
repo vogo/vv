@@ -4,7 +4,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 const CoderSystemPrompt = `You are an expert software engineer. You have access to tools for reading, writing, editing files, running shell commands, and searching codebases.
@@ -25,16 +25,16 @@ const CoderSystemPrompt = `You are an expert software engineer. You have access 
 5. Explain your reasoning and what you changed.
 6. When running commands, check the output for errors.`
 
-// RegisterCoder registers the coder agent descriptor with the registry.
-func RegisterCoder(reg *registry.Registry) {
-	reg.MustRegister(registry.AgentDescriptor{
+// RegisterCoder registers the coder agent descriptor with the registries.
+func RegisterCoder(reg *registries.Registry) {
+	reg.MustRegister(registries.AgentDescriptor{
 		ID:           "coder",
 		DisplayName:  "Coder",
 		Description:  "Reads, writes, edits files, runs commands, searches codebases, debugs",
-		ToolProfile:  registry.ProfileFull,
+		ToolProfile:  registries.ProfileFull,
 		SystemPrompt: CoderSystemPrompt,
 		Dispatchable: true,
-		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
 			// Build system prompt: use persistent memory prompt if available.
 			var sysPrompt prompt.PromptTemplate
 			if opts.PersistentMemory != nil {

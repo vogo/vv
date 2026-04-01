@@ -15,16 +15,16 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/tool"
-	vagacli "github.com/vogo/vv/cli"
-	"github.com/vogo/vv/config"
-	vagamemory "github.com/vogo/vv/memory"
+	"github.com/vogo/vv/cli"
+	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/memories"
 	"github.com/vogo/vv/setup"
 	"github.com/vogo/vv/tools"
 )
 
 func main() {
 	// Parse flags.
-	configPath := flag.String("config", config.DefaultPath(), "config file path")
+	configPath := flag.String("config", configs.DefaultPath(), "config file path")
 	listenAddr := flag.String("addr", "", "listen address (overrides config)")
 	modeFlag := flag.String("mode", "", "run mode: cli or http (default: cli)")
 	flag.Usage = func() {
@@ -37,7 +37,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  VAGA_LLM_PROVIDER     LLM provider (openai, anthropic)\n")
 		fmt.Fprintf(os.Stderr, "  VAGA_SERVER_ADDR      Server listen address\n")
 		fmt.Fprintf(os.Stderr, "  VAGA_MODE             Run mode (cli or http)\n")
-		fmt.Fprintf(os.Stderr, "\nConfig file: %s\n", config.DefaultPath())
+		fmt.Fprintf(os.Stderr, "\nConfig file: %s\n", configs.DefaultPath())
 	}
 	flag.Parse()
 
@@ -49,8 +49,8 @@ func main() {
 		}
 	})
 
-	// Load config.
-	cfg, err := config.Load(*configPath, explicit)
+	// Load configs.
+	cfg, err := configs.Load(*configPath, explicit)
 	if err != nil {
 		slog.Error("vaga: load config", "error", err)
 		flag.Usage()
@@ -58,11 +58,11 @@ func main() {
 	}
 
 	// If required config is missing, prompt the user interactively.
-	if config.NeedsSetup(cfg) {
+	if configs.NeedsSetup(cfg) {
 		fmt.Println("No configuration found. Please provide the following values:")
 		fmt.Println()
 
-		if err := config.Prompt(cfg, *configPath, os.Stdin, os.Stdout); err != nil {
+		if err := configs.Prompt(cfg, *configPath, os.Stdin, os.Stdout); err != nil {
 			slog.Error("vaga: save config", "error", err)
 			os.Exit(1)
 		}
@@ -88,7 +88,7 @@ func main() {
 	}
 
 	// Create LLM client.
-	llmClient, err := config.NewLLMClient(cfg.LLM)
+	llmClient, err := configs.NewLLMClient(cfg.LLM)
 	if err != nil {
 		slog.Error("vaga: create LLM client", "error", err)
 		flag.Usage()
@@ -104,7 +104,7 @@ func main() {
 	}
 
 	// Create persistent memory with FileStore backend.
-	fileStore, err := vagamemory.NewFileStore(cfg.Memory.Dir)
+	fileStore, err := memories.NewFileStore(cfg.Memory.Dir)
 	if err != nil {
 		slog.Error("vaga: create file store", "error", err)
 		os.Exit(1)
@@ -123,7 +123,7 @@ func main() {
 	confirmTools := cfg.CLI.ConfirmTools
 	result, err := setup.New(cfg, llmClient, memMgr, persistentMem, &setup.Options{
 		WrapToolRegistry: func(r *tool.Registry) tool.ToolRegistry {
-			return vagacli.WrapRegistry(r, confirmTools)
+			return cli.WrapRegistry(r, confirmTools)
 		},
 	})
 	if err != nil {
@@ -180,7 +180,7 @@ func main() {
 		slog.Info("vaga: shutdown complete")
 
 	default: // "cli" or any other value defaults to CLI mode.
-		app := vagacli.New(result.Dispatcher, cfg, persistentMem)
+		app := cli.New(result.Dispatcher, cfg, persistentMem)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vaga: CLI error", "error", err)
 			os.Exit(1)

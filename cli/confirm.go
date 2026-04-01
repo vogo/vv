@@ -15,7 +15,7 @@ type confirmingExecutor struct {
 	confirmFn    func(ctx context.Context, toolName, args string) (bool, error)
 }
 
-// newConfirmingExecutor creates a confirmingExecutor wrapping the given registry.
+// newConfirmingExecutor creates a confirmingExecutor wrapping the given registries.
 func newConfirmingExecutor(
 	inner tool.ToolRegistry,
 	confirmTools []string,

@@ -7,13 +7,13 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vv/config"
-	"github.com/vogo/vv/dispatch"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/dispatches"
+	"github.com/vogo/vv/registries"
 )
 
 // ToolAccessLevel defines what tools a dynamic agent can access.
-// Deprecated: Use registry.ToolProfile instead.
+// Deprecated: Use registries.ToolProfile instead.
 type ToolAccessLevel = string
 
 const (
@@ -31,15 +31,15 @@ type Agents struct {
 	Reviewer     *taskagent.Agent
 	Explorer     *taskagent.Agent
 	Planner      *taskagent.Agent
-	Orchestrator *dispatch.Dispatcher
+	Orchestrator *dispatches.Dispatcher
 }
 
 // OrchestratorAgent is an alias for backward compatibility.
-// Deprecated: Use dispatch.Dispatcher instead.
-type OrchestratorAgent = dispatch.Dispatcher
+// Deprecated: Use dispatches.Dispatcher instead.
+type OrchestratorAgent = dispatches.Dispatcher
 
 // NewOrchestratorAgent creates a new Dispatcher (backward compatibility shim).
-// Deprecated: Use dispatch.New instead.
+// Deprecated: Use dispatches.New instead.
 func NewOrchestratorAgent(
 	cfg agent.Config,
 	llm aimodel.ChatCompleter,
@@ -55,11 +55,11 @@ func NewOrchestratorAgent(
 	reviewReg tool.ToolRegistry,
 	maxIterations int,
 	runTokenBudget int,
-) *dispatch.Dispatcher {
+) *dispatches.Dispatcher {
 	// Build a registry from the provided sub-agents for validation.
-	reg := registry.New()
+	reg := registries.New()
 	for id := range subAgents {
-		reg.MustRegister(registry.AgentDescriptor{
+		reg.MustRegister(registries.AgentDescriptor{
 			ID:           id,
 			Dispatchable: true,
 		})
@@ -67,24 +67,24 @@ func NewOrchestratorAgent(
 	// Register additional known types for dynamic agent validation.
 	for _, id := range []string{"coder", "researcher", "reviewer", "chat"} {
 		if !reg.ValidateRef(id) {
-			profile := registry.ProfileNone
+			profile := registries.ProfileNone
 			sysPrompt := ""
 
 			switch id {
 			case "coder":
-				profile = registry.ProfileFull
+				profile = registries.ProfileFull
 				sysPrompt = CoderSystemPrompt
 			case "researcher":
-				profile = registry.ProfileReadOnly
+				profile = registries.ProfileReadOnly
 				sysPrompt = ResearcherSystemPrompt
 			case "reviewer":
-				profile = registry.ProfileReview
+				profile = registries.ProfileReview
 				sysPrompt = ReviewerSystemPrompt
 			case "chat":
 				sysPrompt = ChatSystemPrompt
 			}
 
-			reg.MustRegister(registry.AgentDescriptor{
+			reg.MustRegister(registries.AgentDescriptor{
 				ID:           id,
 				Dispatchable: true,
 				ToolProfile:  profile,
@@ -98,20 +98,20 @@ func NewOrchestratorAgent(
 		planGenAgent = planGen
 	}
 
-	opts := []dispatch.Option{
-		dispatch.WithLLM(llm, model),
-		dispatch.WithMaxConcurrency(maxConcurrency),
-		dispatch.WithWorkingDir(workingDir),
-		dispatch.WithMaxIterations(maxIterations),
-		dispatch.WithRunTokenBudget(runTokenBudget),
-		dispatch.WithPlannerSystemPrompt(PlannerSystemPrompt),
+	opts := []dispatches.Option{
+		dispatches.WithLLM(llm, model),
+		dispatches.WithMaxConcurrency(maxConcurrency),
+		dispatches.WithWorkingDir(workingDir),
+		dispatches.WithMaxIterations(maxIterations),
+		dispatches.WithRunTokenBudget(runTokenBudget),
+		dispatches.WithPlannerSystemPrompt(PlannerSystemPrompt),
 	}
 
 	if fallback != nil {
-		opts = append(opts, dispatch.WithFallbackAgent(fallback))
+		opts = append(opts, dispatches.WithFallbackAgent(fallback))
 	}
 
-	return dispatch.New(
+	return dispatches.New(
 		reg,
 		subAgents,
 		explorerAgent,
@@ -124,7 +124,7 @@ func NewOrchestratorAgent(
 // Create creates all task agents and the orchestrator.
 // Deprecated: Use setup.New instead.
 func Create(
-	cfg *config.Config,
+	cfg *configs.Config,
 	llm aimodel.ChatCompleter,
 	coderReg tool.ToolRegistry,
 	readOnlyReg tool.ToolRegistry,
@@ -216,7 +216,7 @@ func Create(
 		agent.Config{ID: "plan-gen", Name: "Plan Generator", Description: "Summarizes execution plan results"},
 		taskagent.WithChatCompleter(llm),
 		taskagent.WithModel(cfg.LLM.Model),
-		taskagent.WithSystemPrompt(prompt.StringPrompt(dispatch.PlanSummaryPrompt)),
+		taskagent.WithSystemPrompt(prompt.StringPrompt(dispatches.PlanSummaryPrompt)),
 		taskagent.WithMaxIterations(1),
 	)
 

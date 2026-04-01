@@ -4,7 +4,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 const ReviewerSystemPrompt = `You are an expert code reviewer. You analyze code for correctness, style, performance, and security issues.
@@ -25,16 +25,16 @@ const ReviewerSystemPrompt = `You are an expert code reviewer. You analyze code 
 7. Provide specific, actionable feedback with file references.
 8. Do not modify code -- provide review feedback only.`
 
-// RegisterReviewer registers the reviewer agent descriptor with the registry.
-func RegisterReviewer(reg *registry.Registry) {
-	reg.MustRegister(registry.AgentDescriptor{
+// RegisterReviewer registers the reviewer agent descriptor with the registries.
+func RegisterReviewer(reg *registries.Registry) {
+	reg.MustRegister(registries.AgentDescriptor{
 		ID:           "reviewer",
 		DisplayName:  "Reviewer",
 		Description:  "Reviews code for correctness, style, performance, security",
-		ToolProfile:  registry.ProfileReview,
+		ToolProfile:  registries.ProfileReview,
 		SystemPrompt: ReviewerSystemPrompt,
 		Dispatchable: true,
-		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
 			var taskOpts []taskagent.Option
 
 			taskOpts = append(taskOpts,

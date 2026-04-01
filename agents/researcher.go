@@ -4,7 +4,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 const ResearcherSystemPrompt = `You are an expert code researcher. You explore codebases, read documentation, and gather information to answer questions thoroughly.
@@ -22,16 +22,16 @@ const ResearcherSystemPrompt = `You are an expert code researcher. You explore c
 5. Cross-reference multiple files to give comprehensive answers.
 6. Do not attempt to modify any files -- you are read-only.`
 
-// RegisterResearcher registers the researcher agent descriptor with the registry.
-func RegisterResearcher(reg *registry.Registry) {
-	reg.MustRegister(registry.AgentDescriptor{
+// RegisterResearcher registers the researcher agent descriptor with the registries.
+func RegisterResearcher(reg *registries.Registry) {
+	reg.MustRegister(registries.AgentDescriptor{
 		ID:           "researcher",
 		DisplayName:  "Researcher",
 		Description:  "Explores codebases, reads documentation, gathers information (read-only)",
-		ToolProfile:  registry.ProfileReadOnly,
+		ToolProfile:  registries.ProfileReadOnly,
 		SystemPrompt: ResearcherSystemPrompt,
 		Dispatchable: true,
-		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
 			var taskOpts []taskagent.Option
 
 			taskOpts = append(taskOpts,

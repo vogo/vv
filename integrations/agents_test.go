@@ -17,8 +17,8 @@ import (
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/agents"
-	"github.com/vogo/vv/config"
-	vagamemory "github.com/vogo/vv/memory"
+	"github.com/vogo/vv/configs"
+	vagamemory "github.com/vogo/vv/memories"
 	"github.com/vogo/vv/tools"
 )
 
@@ -27,26 +27,26 @@ import (
 //   - Coder agent has exactly 6 tools registered
 //   - All expected tool names are present: bash, file_read, file_write, file_edit, glob, grep
 func TestIntegration_Agents_CoderHasTools(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	readOnlyReg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	readOnlyReg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
 
-	reviewReg, err := tools.RegisterReviewTools(config.ToolsConfig{BashTimeout: 30})
+	reviewReg, err := tools.RegisterReviewTools(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReviewTools: %v", err)
 	}
 
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
 	}
 
 	allAgents := agents.Create(cfg, mock, reg, readOnlyReg, reviewReg, nil, nil)
@@ -72,26 +72,26 @@ func TestIntegration_Agents_CoderHasTools(t *testing.T) {
 // Test cases:
 //   - Chat agent has zero tools registered
 func TestIntegration_Agents_ChatHasNoTools(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	readOnlyReg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	readOnlyReg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
 
-	reviewReg, err := tools.RegisterReviewTools(config.ToolsConfig{BashTimeout: 30})
+	reviewReg, err := tools.RegisterReviewTools(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReviewTools: %v", err)
 	}
 
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
 	}
 
 	allAgents := agents.Create(cfg, mock, reg, readOnlyReg, reviewReg, nil, nil)
@@ -108,26 +108,26 @@ func TestIntegration_Agents_ChatHasNoTools(t *testing.T) {
 //   - All expected tools present: file_read, glob, grep
 //   - Write/edit/bash tools are NOT present
 func TestIntegration_Agents_ResearcherHasReadOnlyTools(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	readOnlyReg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	readOnlyReg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
 
-	reviewReg, err := tools.RegisterReviewTools(config.ToolsConfig{BashTimeout: 30})
+	reviewReg, err := tools.RegisterReviewTools(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReviewTools: %v", err)
 	}
 
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
 	}
 
 	allAgents := agents.Create(cfg, mock, reg, readOnlyReg, reviewReg, nil, nil)
@@ -162,26 +162,26 @@ func TestIntegration_Agents_ResearcherHasReadOnlyTools(t *testing.T) {
 //   - All expected tools present: bash, file_read, glob, grep
 //   - Write/edit tools are NOT present
 func TestIntegration_Agents_ReviewerHasCorrectTools(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	readOnlyReg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	readOnlyReg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
 
-	reviewReg, err := tools.RegisterReviewTools(config.ToolsConfig{BashTimeout: 30})
+	reviewReg, err := tools.RegisterReviewTools(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReviewTools: %v", err)
 	}
 
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
 	}
 
 	allAgents := agents.Create(cfg, mock, reg, readOnlyReg, reviewReg, nil, nil)
@@ -343,10 +343,10 @@ func TestIntegration_Agents_OrchestratorPlanExecution(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 1},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 1},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
 	}
 
 	coderStub := &stubAgent{id: "coder", response: makeStubResponse("code written", "coder")}
@@ -907,11 +907,11 @@ func TestIntegration_Agents_WorkingDirectoryCaptureAndPropagation(t *testing.T) 
 	}
 
 	// 2. Load config with empty BashWorkingDir.
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashWorkingDir: ""},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashWorkingDir: ""},
 	}
 
 	// 3. Apply working directory logic from main.go.
@@ -1580,12 +1580,12 @@ func TestIntegration_DynamicAgents_DynamicOnlyPlan(t *testing.T) {
 	researcherStub := &recordingStubAgent{id: "researcher", response: makeStubResponse("static researcher response", "researcher")}
 	chatStub := &stubAgent{id: "chat", response: makeStubResponse("chat done", "chat")}
 
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	readOnlyReg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	readOnlyReg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
@@ -1691,7 +1691,7 @@ func TestIntegration_DynamicAgents_MixedStaticDynamicPlan(t *testing.T) {
 	coderStub := &recordingStubAgent{id: "coder", response: makeStubResponse("static code done", "coder")}
 	chatStub := &stubAgent{id: "chat", response: makeStubResponse("chat done", "chat")}
 
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -1864,26 +1864,26 @@ func TestIntegration_DynamicAgents_ValidationFailures(t *testing.T) {
 //   - Base type "researcher" default gets read-only tools
 //   - Base type "chat" default gets no tools
 func TestIntegration_DynamicAgents_ToolAccessLevelCorrectness(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	readOnlyReg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	readOnlyReg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
 
-	reviewReg, err := tools.RegisterReviewTools(config.ToolsConfig{BashTimeout: 30})
+	reviewReg, err := tools.RegisterReviewTools(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReviewTools: %v", err)
 	}
 
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
 	}
 
 	allAgents := agents.Create(cfg, mock, reg, readOnlyReg, reviewReg, nil, nil)
@@ -2035,7 +2035,7 @@ func TestIntegration_DynamicAgents_DefaultFallbackBehavior(t *testing.T) {
 		},
 	}
 
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -2113,7 +2113,7 @@ func TestIntegration_DynamicAgents_CustomSystemPrompt(t *testing.T) {
 		},
 	}
 
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -2192,12 +2192,12 @@ func TestIntegration_DynamicAgents_ORCH19PrecedenceRule(t *testing.T) {
 		},
 	}
 
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	readOnlyReg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	readOnlyReg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
@@ -2486,17 +2486,17 @@ func TestIntegration_DynamicAgents_NilToolRegistriesGracefulDegradation(t *testi
 //   - Create function returns non-nil Orchestrator
 //   - Orchestrator can execute a plan with dynamic spec after being built by Create
 func TestIntegration_DynamicAgents_CreateWiresToolRegistries(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	readOnlyReg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	readOnlyReg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
 
-	reviewReg, err := tools.RegisterReviewTools(config.ToolsConfig{BashTimeout: 30})
+	reviewReg, err := tools.RegisterReviewTools(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReviewTools: %v", err)
 	}
@@ -2514,10 +2514,10 @@ func TestIntegration_DynamicAgents_CreateWiresToolRegistries(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
 	}
 
 	allAgents := agents.Create(cfg, mock, reg, readOnlyReg, reviewReg, nil, nil)

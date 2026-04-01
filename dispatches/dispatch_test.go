@@ -1,4 +1,4 @@
-package dispatch
+package dispatches
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/orchestrate"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 // mockChatCompleter is a simple mock for testing.
@@ -64,10 +64,10 @@ func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunRes
 	}, nil
 }
 
-func newTestRegistry() *registry.Registry {
-	reg := registry.New()
+func newTestRegistry() *registries.Registry {
+	reg := registries.New()
 	for _, id := range []string{"coder", "researcher", "reviewer", "chat"} {
-		reg.MustRegister(registry.AgentDescriptor{
+		reg.MustRegister(registries.AgentDescriptor{
 			ID:           id,
 			DisplayName:  id,
 			Description:  id,

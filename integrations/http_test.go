@@ -17,8 +17,8 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
-	"github.com/vogo/vv/config"
-	vagamemory "github.com/vogo/vv/memory"
+	"github.com/vogo/vv/configs"
+	vagamemory "github.com/vogo/vv/memories"
 	"github.com/vogo/vv/tools"
 )
 
@@ -27,7 +27,7 @@ import (
 func setupTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestIntegration_HTTP_AsyncTaskLifecycle(t *testing.T) {
 }
 
 func TestIntegration_HTTP_AsyncTaskCancel(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}

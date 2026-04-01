@@ -238,7 +238,7 @@ func TestWrapRegistryNoConfirmTools(t *testing.T) {
 
 	// Should return the inner registry unchanged.
 	if result != inner {
-		t.Error("WrapRegistry with no confirm tools should return inner registry")
+		t.Error("WrapRegistry with no confirm tools should return inner registries")
 	}
 }
 

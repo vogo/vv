@@ -1,4 +1,4 @@
-package registry
+package registries
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ import (
 	"github.com/vogo/vage/tool/greptool"
 	"github.com/vogo/vage/tool/readtool"
 	"github.com/vogo/vage/tool/writetool"
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 )
 
 // ToolCapability represents a single tool access capability.
@@ -64,7 +64,7 @@ func ProfileByName(name string) (ToolProfile, bool) {
 // BuildRegistry constructs a new tool.Registry containing only the tools
 // granted by this profile's capabilities. Each tool is freshly registered
 // with the provided tool configuration (bash timeout, working dir, etc.).
-func (p ToolProfile) BuildRegistry(toolsCfg config.ToolsConfig) (*tool.Registry, error) {
+func (p ToolProfile) BuildRegistry(toolsCfg configs.ToolsConfig) (*tool.Registry, error) {
 	if len(p.Capabilities) == 0 {
 		return tool.NewRegistry(), nil
 	}
@@ -81,7 +81,7 @@ func (p ToolProfile) BuildRegistry(toolsCfg config.ToolsConfig) (*tool.Registry,
 }
 
 // registerCapabilityTools registers the tools for a single capability.
-func registerCapabilityTools(reg *tool.Registry, cap ToolCapability, cfg config.ToolsConfig) error {
+func registerCapabilityTools(reg *tool.Registry, cap ToolCapability, cfg configs.ToolsConfig) error {
 	switch cap {
 	case CapRead:
 		return readtool.Register(reg)

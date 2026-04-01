@@ -8,7 +8,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 // mockChatCompleter is a simple mock for testing agent creation.
@@ -61,7 +61,7 @@ func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunRes
 }
 
 func TestRegisterAll_AgentIDs(t *testing.T) {
-	reg := registry.New()
+	reg := registries.New()
 	RegisterCoder(reg)
 	RegisterResearcher(reg)
 	RegisterReviewer(reg)
@@ -78,7 +78,7 @@ func TestRegisterAll_AgentIDs(t *testing.T) {
 }
 
 func TestRegisterAll_Dispatchable(t *testing.T) {
-	reg := registry.New()
+	reg := registries.New()
 	RegisterCoder(reg)
 	RegisterResearcher(reg)
 	RegisterReviewer(reg)
@@ -109,7 +109,7 @@ func TestRegisterAll_Dispatchable(t *testing.T) {
 }
 
 func TestFactory_CoderAgent(t *testing.T) {
-	reg := registry.New()
+	reg := registries.New()
 	RegisterCoder(reg)
 
 	desc, ok := reg.Get("coder")
@@ -119,7 +119,7 @@ func TestFactory_CoderAgent(t *testing.T) {
 
 	mock := &mockChatCompleter{}
 
-	a, err := desc.Factory(registry.FactoryOptions{
+	a, err := desc.Factory(registries.FactoryOptions{
 		LLM:           mock,
 		Model:         "test-model",
 		MaxIterations: 10,
@@ -138,7 +138,7 @@ func TestFactory_CoderAgent(t *testing.T) {
 }
 
 func TestFactory_ChatAgent(t *testing.T) {
-	reg := registry.New()
+	reg := registries.New()
 	RegisterChat(reg)
 
 	desc, ok := reg.Get("chat")
@@ -148,7 +148,7 @@ func TestFactory_ChatAgent(t *testing.T) {
 
 	mock := &mockChatCompleter{}
 
-	a, err := desc.Factory(registry.FactoryOptions{
+	a, err := desc.Factory(registries.FactoryOptions{
 		LLM:   mock,
 		Model: "test-model",
 	})
@@ -166,7 +166,7 @@ func TestFactory_ChatAgent(t *testing.T) {
 }
 
 func TestFactory_ResearcherAgent(t *testing.T) {
-	reg := registry.New()
+	reg := registries.New()
 	RegisterResearcher(reg)
 
 	desc, ok := reg.Get("researcher")
@@ -176,7 +176,7 @@ func TestFactory_ResearcherAgent(t *testing.T) {
 
 	mock := &mockChatCompleter{}
 
-	a, err := desc.Factory(registry.FactoryOptions{
+	a, err := desc.Factory(registries.FactoryOptions{
 		LLM:           mock,
 		Model:         "test-model",
 		MaxIterations: 10,
@@ -195,7 +195,7 @@ func TestFactory_ResearcherAgent(t *testing.T) {
 }
 
 func TestFactory_ReviewerAgent(t *testing.T) {
-	reg := registry.New()
+	reg := registries.New()
 	RegisterReviewer(reg)
 
 	desc, ok := reg.Get("reviewer")
@@ -205,7 +205,7 @@ func TestFactory_ReviewerAgent(t *testing.T) {
 
 	mock := &mockChatCompleter{}
 
-	a, err := desc.Factory(registry.FactoryOptions{
+	a, err := desc.Factory(registries.FactoryOptions{
 		LLM:           mock,
 		Model:         "test-model",
 		MaxIterations: 10,
@@ -224,7 +224,7 @@ func TestFactory_ReviewerAgent(t *testing.T) {
 }
 
 func TestBuildPlannerSystemPrompt(t *testing.T) {
-	reg := registry.New()
+	reg := registries.New()
 	RegisterCoder(reg)
 	RegisterResearcher(reg)
 	RegisterReviewer(reg)

@@ -23,13 +23,13 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 )
 
 // App holds the CLI TUI application state.
 type App struct {
 	orchestrator  agent.StreamAgent // replaces routeFn + routes
-	cfg           *config.Config
+	cfg           *configs.Config
 	sessionID     string
 	history       []schema.Message
 	messages      []DisplayMessage
@@ -40,7 +40,7 @@ type App struct {
 // New creates a new CLI App.
 func New(
 	orchestrator agent.StreamAgent,
-	cfg *config.Config,
+	cfg *configs.Config,
 	persistentMem memory.Memory,
 ) *App {
 	return &App{
@@ -59,7 +59,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// Redirect slog to a file to avoid corrupting TUI.
 	logFile, err := os.OpenFile(
-		filepath.Join(config.DefaultDir(), "vaga.log"),
+		filepath.Join(configs.DefaultDir(), "vaga.log"),
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600,
 	)
 	if err != nil {

@@ -1,4 +1,4 @@
-package dispatch
+package dispatches
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 // PlanSummaryPrompt is the system prompt for plan summarization.
@@ -30,7 +30,7 @@ type ClassifyResult struct {
 
 // validate checks that the classification result references valid agents.
 // Uses the registry instead of a map[string]agent.Agent.
-func (cr *ClassifyResult) validate(reg *registry.Registry, subAgents map[string]agent.Agent) error {
+func (cr *ClassifyResult) validate(reg *registries.Registry, subAgents map[string]agent.Agent) error {
 	switch cr.Mode {
 	case "direct":
 		if _, ok := subAgents[cr.Agent]; !ok {
@@ -87,7 +87,7 @@ type DynamicAgentSpec struct {
 }
 
 // validate checks that a DynamicAgentSpec is well-formed.
-func (s *DynamicAgentSpec) validate(reg *registry.Registry) error {
+func (s *DynamicAgentSpec) validate(reg *registries.Registry) error {
 	if s.BaseType == "" {
 		return fmt.Errorf("dynamic_spec: base_type is required")
 	}
@@ -97,7 +97,7 @@ func (s *DynamicAgentSpec) validate(reg *registry.Registry) error {
 	}
 
 	if s.ToolAccess != "" {
-		if _, ok := registry.ProfileByName(s.ToolAccess); !ok {
+		if _, ok := registries.ProfileByName(s.ToolAccess); !ok {
 			return fmt.Errorf("dynamic_spec: invalid tool_access %q", s.ToolAccess)
 		}
 	}

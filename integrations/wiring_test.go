@@ -11,7 +11,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/agents"
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/tools"
 )
 
@@ -25,7 +25,7 @@ import (
 //   - Agent detail for "orchestrator" returns correct ID
 func TestIntegration_FullWiring(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "test-config.yaml")
+	configPath := filepath.Join(dir, "test-configs.yaml")
 	configContent := `
 llm:
   provider: "openai"
@@ -42,9 +42,9 @@ agents:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(configPath, true)
+	cfg, err := configs.Load(configPath, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	toolRegistry, err := tools.Register(cfg.Tools)

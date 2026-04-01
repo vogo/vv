@@ -6,7 +6,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/registries"
 )
 
 // PlannerSystemPromptTemplate is the system prompt template for the planner sub-agent.
@@ -81,23 +81,23 @@ You MUST respond with ONLY a JSON object. No other text.
    Only use dynamic_spec when a sub-task needs a specialized prompt or different tool access. For most tasks, omit it.`
 
 // BuildPlannerSystemPrompt constructs the planner system prompt by replacing
-// the {{.AgentList}} placeholder with the actual agent list from the registry.
-func BuildPlannerSystemPrompt(reg *registry.Registry) string {
+// the {{.AgentList}} placeholder with the actual agent list from the registries.
+func BuildPlannerSystemPrompt(reg *registries.Registry) string {
 	return strings.Replace(PlannerSystemPromptTemplate, "{{.AgentList}}", reg.PlannerAgentList(), 1)
 }
 
-// RegisterPlanner registers the planner agent descriptor with the registry.
-func RegisterPlanner(reg *registry.Registry) {
-	reg.MustRegister(registry.AgentDescriptor{
+// RegisterPlanner registers the planner agent descriptor with the registries.
+func RegisterPlanner(reg *registries.Registry) {
+	reg.MustRegister(registries.AgentDescriptor{
 		ID:           "planner",
 		DisplayName:  "Planner",
 		Description:  "Analyzes requests and produces task classification or execution plans",
-		ToolProfile:  registry.ProfileNone,
+		ToolProfile:  registries.ProfileNone,
 		SystemPrompt: "", // set dynamically via BuildPlannerSystemPrompt
 		Dispatchable: false,
-		Factory: func(opts registry.FactoryOptions) (agent.Agent, error) {
+		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
 			// The system prompt should be set by the caller via opts or
-			// computed from the registry. We use the fallback PlannerSystemPrompt
+			// computed from the registries. We use the fallback PlannerSystemPrompt
 			// as a sensible default.
 			sysPrompt := PlannerSystemPrompt
 

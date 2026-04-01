@@ -1,4 +1,4 @@
-package dispatch
+package dispatches
 
 import (
 	"context"
@@ -8,9 +8,9 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vv/config"
-	"github.com/vogo/vv/lifecycle"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/hooks"
+	"github.com/vogo/vv/registries"
 )
 
 // Dispatcher is the main orchestration agent. It receives user requests,
@@ -20,7 +20,7 @@ type Dispatcher struct {
 	agent.Base
 	llm                 aimodel.ChatCompleter
 	model               string
-	registry            *registry.Registry
+	registry            *registries.Registry
 	subAgents           map[string]agent.Agent // built from registry, keyed by descriptor ID
 	planGen             agent.Agent            // agent.Agent interface, not *taskagent.Agent
 	maxConcurrency      int
@@ -28,8 +28,8 @@ type Dispatcher struct {
 	workingDir          string
 	explorerAgent       agent.Agent
 	plannerAgent        agent.Agent
-	toolsCfg            config.ToolsConfig // for dynamic agent tool registry construction
-	hooks               []lifecycle.Hook
+	toolsCfg            configs.ToolsConfig // for dynamic agent tool registry construction
+	hooks               []hooks.Hook
 	maxIterations       int
 	runTokenBudget      int
 	plannerSystemPrompt string // used for classifyDirect fallback
@@ -40,7 +40,7 @@ type Option func(*Dispatcher)
 
 // New creates a Dispatcher with required parameters and optional configuration.
 func New(
-	reg *registry.Registry,
+	reg *registries.Registry,
 	subAgents map[string]agent.Agent,
 	explorerAgent agent.Agent,
 	plannerAgent agent.Agent,
@@ -97,14 +97,14 @@ func WithWorkingDir(dir string) Option {
 }
 
 // WithToolsConfig sets tool configuration for dynamic agent registry construction.
-func WithToolsConfig(cfg config.ToolsConfig) Option {
+func WithToolsConfig(cfg configs.ToolsConfig) Option {
 	return func(d *Dispatcher) {
 		d.toolsCfg = cfg
 	}
 }
 
 // WithHooks sets lifecycle hooks for sub-agent execution.
-func WithHooks(hooks []lifecycle.Hook) Option {
+func WithHooks(hooks []hooks.Hook) Option {
 	return func(d *Dispatcher) {
 		d.hooks = hooks
 	}

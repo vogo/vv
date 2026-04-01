@@ -1,4 +1,4 @@
-package dispatch
+package dispatches
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vv/lifecycle"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/hooks"
+	"github.com/vogo/vv/registries"
 )
 
 // runDirect dispatches to a single sub-agent and aggregates usage.
@@ -157,9 +157,9 @@ func (d *Dispatcher) buildDynamicAgent(stepID string, spec *DynamicAgentSpec) (*
 	}
 
 	// Determine tool profile.
-	var profile registry.ToolProfile
+	var profile registries.ToolProfile
 	if spec.ToolAccess != "" {
-		p, ok := registry.ProfileByName(spec.ToolAccess)
+		p, ok := registries.ProfileByName(spec.ToolAccess)
 		if !ok {
 			return nil, fmt.Errorf("unknown tool access profile %q", spec.ToolAccess)
 		}
@@ -262,7 +262,7 @@ func (d *Dispatcher) wrapWithHooks(agentID string, runner agent.Agent) agent.Age
 // hookedAgent wraps an agent.Agent and invokes lifecycle hooks around Run calls.
 type hookedAgent struct {
 	inner   agent.Agent
-	hooks   []lifecycle.Hook
+	hooks   []hooks.Hook
 	agentID string
 }
 

@@ -19,11 +19,11 @@ import (
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vv/config"
-	"github.com/vogo/vv/dispatch"
-	"github.com/vogo/vv/lifecycle"
-	vagamemory "github.com/vogo/vv/memory"
-	"github.com/vogo/vv/registry"
+	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/dispatches"
+	"github.com/vogo/vv/hooks"
+	vagamemory "github.com/vogo/vv/memories"
+	"github.com/vogo/vv/registries"
 	"github.com/vogo/vv/setup"
 )
 
@@ -43,11 +43,11 @@ import (
 //   - Result.Agents() returns exactly 4 agents (sorted by ID)
 func TestIntegration_SetupNew_AllAgentsCreated(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -93,10 +93,10 @@ func TestIntegration_SetupNew_AllAgentsCreated(t *testing.T) {
 //   - All expected tool names are present: bash, file_read, file_write, file_edit, glob, grep
 func TestIntegration_SetupNew_CoderHasFullTools(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -138,10 +138,10 @@ func TestIntegration_SetupNew_CoderHasFullTools(t *testing.T) {
 //   - Write/edit/bash tools are NOT present
 func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -189,10 +189,10 @@ func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 //   - Write/edit tools are NOT present
 func TestIntegration_SetupNew_ReviewerHasReviewTools(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -238,10 +238,10 @@ func TestIntegration_SetupNew_ReviewerHasReviewTools(t *testing.T) {
 //   - Chat agent has zero tools registered
 func TestIntegration_SetupNew_ChatHasNoTools(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -274,7 +274,7 @@ func TestIntegration_SetupNew_ChatHasNoTools(t *testing.T) {
 //   - Agent detail for "orchestrator" returns correct ID
 func TestIntegration_SetupNew_FullWiringHTTP(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "test-config.yaml")
+	configPath := filepath.Join(dir, "test-configs.yaml")
 	configContent := `
 llm:
   provider: "openai"
@@ -291,9 +291,9 @@ agents:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(configPath, true)
+	cfg, err := configs.Load(configPath, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	mock := &mockChatCompleter{
@@ -315,7 +315,7 @@ agents:
 	}
 
 	// Build a tool registry for the service (same as main.go would).
-	toolReg, err := registry.ProfileFull.BuildRegistry(cfg.Tools)
+	toolReg, err := registries.ProfileFull.BuildRegistry(cfg.Tools)
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
@@ -406,11 +406,11 @@ func TestIntegration_SetupNew_DispatcherDirectDispatch(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 5},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 5},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -462,9 +462,9 @@ func TestIntegration_SetupNew_DispatcherStreaming(t *testing.T) {
 	// the nil stream issue from mockChatCompleter's ChatCompletionStream.
 	coderStub := &stubStreamAgent{id: "coder", response: "stream done"}
 
-	reg := registry.New()
+	reg := registries.New()
 	for _, id := range []string{"coder", "researcher", "reviewer", "chat"} {
-		reg.MustRegister(registry.AgentDescriptor{
+		reg.MustRegister(registries.AgentDescriptor{
 			ID:           id,
 			Dispatchable: true,
 		})
@@ -477,15 +477,15 @@ func TestIntegration_SetupNew_DispatcherStreaming(t *testing.T) {
 		"chat":       &stubAgent{id: "chat"},
 	}
 
-	dispatcher := dispatch.New(
+	dispatcher := dispatches.New(
 		reg,
 		subAgents,
 		nil, // no explorer
 		nil, // no planner
 		nil, // no planGen
-		dispatch.WithLLM(mock, "test-model"),
-		dispatch.WithMaxConcurrency(2),
-		dispatch.WithFallbackAgent(&stubAgent{id: "chat"}),
+		dispatches.WithLLM(mock, "test-model"),
+		dispatches.WithMaxConcurrency(2),
+		dispatches.WithFallbackAgent(&stubAgent{id: "chat"}),
 	)
 
 	// Verify interface compliance.
@@ -563,11 +563,11 @@ func TestIntegration_SetupNew_DispatcherPlanExecution(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 1},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 1},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -611,10 +611,10 @@ func TestIntegration_SetupNew_WrapToolRegistry(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 5},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 5},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	wrapCount := atomic.Int32{}
@@ -669,10 +669,10 @@ func TestIntegration_SetupNew_PersistentMemory(t *testing.T) {
 	}
 
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, persistentMem, nil)
@@ -700,7 +700,7 @@ func TestIntegration_SetupNew_PersistentMemory(t *testing.T) {
 func TestIntegration_SetupNew_ConfigBackwardCompatibility(t *testing.T) {
 	t.Run("memory.max_concurrency is used as fallback", func(t *testing.T) {
 		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.yaml")
+		configPath := filepath.Join(dir, "configs.yaml")
 		configContent := `
 llm:
   provider: "openai"
@@ -713,16 +713,16 @@ memory:
 			t.Fatal(err)
 		}
 
-		cfg, err := config.Load(configPath, true)
+		cfg, err := configs.Load(configPath, true)
 		if err != nil {
-			t.Fatalf("config.Load: %v", err)
+			t.Fatalf("configs.Load: %v", err)
 		}
 
 		if cfg.Memory.MaxConcurrency != 4 {
 			t.Errorf("Memory.MaxConcurrency = %d, want 4", cfg.Memory.MaxConcurrency)
 		}
 
-		// Verify setup.New() succeeds with this config.
+		// Verify setup.New() succeeds with this configs.
 		mock := &mockChatCompleter{}
 		result, err := setup.New(cfg, mock, nil, nil, nil)
 		if err != nil {
@@ -735,7 +735,7 @@ memory:
 
 	t.Run("orchestrate.max_concurrency overrides memory", func(t *testing.T) {
 		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.yaml")
+		configPath := filepath.Join(dir, "configs.yaml")
 		configContent := `
 llm:
   provider: "openai"
@@ -750,9 +750,9 @@ orchestrate:
 			t.Fatal(err)
 		}
 
-		cfg, err := config.Load(configPath, true)
+		cfg, err := configs.Load(configPath, true)
 		if err != nil {
-			t.Fatalf("config.Load: %v", err)
+			t.Fatalf("configs.Load: %v", err)
 		}
 
 		if cfg.Orchestrate.MaxConcurrency != 8 {
@@ -778,15 +778,15 @@ orchestrate:
 //   - Each agent has a quoted ID and description
 //   - Agent IDs match: coder, researcher, reviewer, chat
 func TestIntegration_SetupNew_PlannerPromptAutoGeneration(t *testing.T) {
-	reg := registry.New()
+	reg := registries.New()
 
 	// Register all agents as setup.New() does.
 	// We import agents package functions indirectly via the registration.
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	// Use setup.New to get a fully wired result, then check planner prompt content.
@@ -798,9 +798,9 @@ func TestIntegration_SetupNew_PlannerPromptAutoGeneration(t *testing.T) {
 	// Separately build a registry and generate the planner agent list to verify format.
 	_ = reg // use a fresh one for isolated testing
 
-	// The key test: verify PlannerAgentList output from a fully populated registry.
-	fullReg := registry.New()
-	for _, desc := range []registry.AgentDescriptor{
+	// The key test: verify PlannerAgentList output from a fully populated registries.
+	fullReg := registries.New()
+	for _, desc := range []registries.AgentDescriptor{
 		{ID: "chat", DisplayName: "Chat", Description: "General conversation, questions, explanations", Dispatchable: true},
 		{ID: "coder", DisplayName: "Coder", Description: "Reads, writes, edits files, runs commands", Dispatchable: true},
 		{ID: "researcher", DisplayName: "Researcher", Description: "Explores codebases, reads documentation", Dispatchable: true},
@@ -860,10 +860,10 @@ func TestIntegration_SetupNew_LifecycleHooksIntegration(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 5},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 5},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -886,7 +886,7 @@ func TestIntegration_SetupNew_LifecycleHooksIntegration(t *testing.T) {
 }
 
 // --- Test: Lifecycle hooks chain correctly (unit-level within integration) ---
-// Verifies that lifecycle.Chain correctly orders hook calls.
+// Verifies that hooks.Chain correctly orders hook calls.
 // Test cases:
 //   - OnBeforeRun hooks are called in forward order
 //   - OnAfterRun hooks are called in reverse order
@@ -896,7 +896,7 @@ func TestIntegration_LifecycleHooksChain(t *testing.T) {
 	hook1 := &recordingHook{id: "h1", order: &order}
 	hook2 := &recordingHook{id: "h2", order: &order}
 
-	chain := lifecycle.Chain(hook1, hook2)
+	chain := hooks.Chain(hook1, hook2)
 
 	ctx := context.Background()
 	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("test")}}
@@ -927,17 +927,17 @@ func TestIntegration_LifecycleHooksChain(t *testing.T) {
 //   - ProfileReview produces 4 tools
 //   - ProfileNone produces 0 tools
 func TestIntegration_ToolProfileBuildRegistryCounts(t *testing.T) {
-	toolsCfg := config.ToolsConfig{BashTimeout: 10}
+	toolsCfg := configs.ToolsConfig{BashTimeout: 10}
 
 	tests := []struct {
 		name    string
-		profile registry.ToolProfile
+		profile registries.ToolProfile
 		want    int
 	}{
-		{"full", registry.ProfileFull, 6},
-		{"read-only", registry.ProfileReadOnly, 3},
-		{"review", registry.ProfileReview, 4},
-		{"none", registry.ProfileNone, 0},
+		{"full", registries.ProfileFull, 6},
+		{"read-only", registries.ProfileReadOnly, 3},
+		{"review", registries.ProfileReview, 4},
+		{"none", registries.ProfileNone, 0},
 	}
 
 	for _, tt := range tests {
@@ -974,10 +974,10 @@ func TestIntegration_SetupNew_DispatcherFallback(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 5},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 5},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -998,14 +998,14 @@ func TestIntegration_SetupNew_DispatcherFallback(t *testing.T) {
 	}
 }
 
-// --- Test: dispatch.Dispatcher compile-time interface check ---
-// Verifies that dispatch.Dispatcher satisfies agent.Agent and agent.StreamAgent.
+// --- Test: dispatches.Dispatcher compile-time interface check ---
+// Verifies that dispatches.Dispatcher satisfies agent.Agent and agent.StreamAgent.
 // Test cases:
-//   - dispatch.Dispatcher implements agent.Agent
-//   - dispatch.Dispatcher implements agent.StreamAgent
+//   - dispatches.Dispatcher implements agent.Agent
+//   - dispatches.Dispatcher implements agent.StreamAgent
 func TestIntegration_DispatcherInterfaceCompliance(t *testing.T) {
-	var _ agent.Agent = (*dispatch.Dispatcher)(nil)
-	var _ agent.StreamAgent = (*dispatch.Dispatcher)(nil)
+	var _ agent.Agent = (*dispatches.Dispatcher)(nil)
+	var _ agent.StreamAgent = (*dispatches.Dispatcher)(nil)
 }
 
 // =============================================================================

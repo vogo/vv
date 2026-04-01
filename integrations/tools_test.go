@@ -3,12 +3,12 @@ package integrations
 import (
 	"testing"
 
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/tools"
 )
 
 func TestIntegration_Tools_AllRegistered(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestIntegration_Tools_AllRegistered(t *testing.T) {
 }
 
 func TestIntegration_Tools_BashOptions(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{
+	reg, err := tools.Register(configs.ToolsConfig{
 		BashTimeout:    120,
 		BashWorkingDir: "/tmp",
 	})
@@ -57,7 +57,7 @@ func TestIntegration_Tools_BashOptions(t *testing.T) {
 }
 
 func TestIntegration_Tools_ZeroConfig(t *testing.T) {
-	reg, err := tools.Register(config.ToolsConfig{})
+	reg, err := tools.Register(configs.ToolsConfig{})
 	if err != nil {
 		t.Fatalf("tools.Register with zero config: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestIntegration_Tools_ZeroConfig(t *testing.T) {
 
 // --- Test: RegisterReadOnly creates a registry with exactly 3 read-only tools ---
 func TestIntegration_Tools_RegisterReadOnly(t *testing.T) {
-	reg, err := tools.RegisterReadOnly(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.RegisterReadOnly(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReadOnly: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestIntegration_Tools_RegisterReadOnly(t *testing.T) {
 
 // --- Test: RegisterReviewTools creates a registry with exactly 4 tools (read + bash) ---
 func TestIntegration_Tools_RegisterReviewTools(t *testing.T) {
-	reg, err := tools.RegisterReviewTools(config.ToolsConfig{BashTimeout: 30})
+	reg, err := tools.RegisterReviewTools(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.RegisterReviewTools: %v", err)
 	}

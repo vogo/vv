@@ -3,11 +3,11 @@ package tools
 import (
 	"testing"
 
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 )
 
 func TestRegister_AllRegistered(t *testing.T) {
-	reg, err := Register(config.ToolsConfig{
+	reg, err := Register(configs.ToolsConfig{
 		BashTimeout:    30,
 		BashWorkingDir: "",
 	})
@@ -45,7 +45,7 @@ func TestRegister_AllRegistered(t *testing.T) {
 }
 
 func TestRegister_CustomBashOptions(t *testing.T) {
-	reg, err := Register(config.ToolsConfig{
+	reg, err := Register(configs.ToolsConfig{
 		BashTimeout:    120,
 		BashWorkingDir: "/tmp",
 	})
@@ -54,12 +54,12 @@ func TestRegister_CustomBashOptions(t *testing.T) {
 	}
 
 	if _, ok := reg.Get("bash"); !ok {
-		t.Error("bash tool not found in registry")
+		t.Error("bash tool not found in registries")
 	}
 }
 
 func TestRegister_DefaultConfig(t *testing.T) {
-	reg, err := Register(config.ToolsConfig{})
+	reg, err := Register(configs.ToolsConfig{})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}

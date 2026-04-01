@@ -1,9 +1,9 @@
-package registry
+package registries
 
 import (
 	"testing"
 
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 )
 
 func TestToolProfile_Has(t *testing.T) {
@@ -63,7 +63,7 @@ func TestProfileByName(t *testing.T) {
 }
 
 func TestToolProfile_BuildRegistry_Full(t *testing.T) {
-	reg, err := ProfileFull.BuildRegistry(config.ToolsConfig{BashTimeout: 10})
+	reg, err := ProfileFull.BuildRegistry(configs.ToolsConfig{BashTimeout: 10})
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestToolProfile_BuildRegistry_Full(t *testing.T) {
 }
 
 func TestToolProfile_BuildRegistry_ReadOnly(t *testing.T) {
-	reg, err := ProfileReadOnly.BuildRegistry(config.ToolsConfig{BashTimeout: 10})
+	reg, err := ProfileReadOnly.BuildRegistry(configs.ToolsConfig{BashTimeout: 10})
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestToolProfile_BuildRegistry_ReadOnly(t *testing.T) {
 }
 
 func TestToolProfile_BuildRegistry_Review(t *testing.T) {
-	reg, err := ProfileReview.BuildRegistry(config.ToolsConfig{BashTimeout: 10})
+	reg, err := ProfileReview.BuildRegistry(configs.ToolsConfig{BashTimeout: 10})
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestToolProfile_BuildRegistry_Review(t *testing.T) {
 }
 
 func TestToolProfile_BuildRegistry_None(t *testing.T) {
-	reg, err := ProfileNone.BuildRegistry(config.ToolsConfig{BashTimeout: 10})
+	reg, err := ProfileNone.BuildRegistry(configs.ToolsConfig{BashTimeout: 10})
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestToolProfile_BuildRegistry_None(t *testing.T) {
 }
 
 func TestToolProfile_BuildRegistry_WithWorkingDir(t *testing.T) {
-	reg, err := ProfileFull.BuildRegistry(config.ToolsConfig{
+	reg, err := ProfileFull.BuildRegistry(configs.ToolsConfig{
 		BashTimeout:    10,
 		BashWorkingDir: "/tmp/test",
 	})

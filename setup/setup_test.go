@@ -6,7 +6,7 @@ import (
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 )
 
 // mockChatCompleter is a simple mock for testing.
@@ -29,11 +29,11 @@ func (m *mockChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.C
 
 func TestNew_AllAgentsCreated(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := New(cfg, mock, nil, nil, nil)
@@ -62,11 +62,11 @@ func TestNew_AllAgentsCreated(t *testing.T) {
 
 func TestNew_AgentNames(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := New(cfg, mock, nil, nil, nil)
@@ -97,11 +97,11 @@ func TestNew_AgentNames(t *testing.T) {
 
 func TestNew_AgentsReturnsAllDispatchable(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := New(cfg, mock, nil, nil, nil)
@@ -117,11 +117,11 @@ func TestNew_AgentsReturnsAllDispatchable(t *testing.T) {
 
 func TestNew_DispatcherName(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := New(cfg, mock, nil, nil, nil)
@@ -136,11 +136,11 @@ func TestNew_DispatcherName(t *testing.T) {
 
 func TestNew_WithWrapToolRegistry(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	wrapCalled := false
@@ -166,11 +166,11 @@ func TestNew_WithWrapToolRegistry(t *testing.T) {
 
 func TestNew_AgentNotFound(t *testing.T) {
 	mock := &mockChatCompleter{}
-	cfg := &config.Config{
-		LLM:    config.LLMConfig{Model: "test-model"},
-		Agents: config.AgentsConfig{MaxIterations: 10},
-		Memory: config.MemoryConfig{MaxConcurrency: 2},
-		Tools:  config.ToolsConfig{BashTimeout: 10},
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+		Memory: configs.MemoryConfig{MaxConcurrency: 2},
+		Tools:  configs.ToolsConfig{BashTimeout: 10},
 	}
 
 	result, err := New(cfg, mock, nil, nil, nil)

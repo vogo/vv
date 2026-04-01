@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/vv/config"
+	"github.com/vogo/vv/configs"
 )
 
 func TestIntegration_Config_ValidYAML(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -33,9 +33,9 @@ agents:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load failed: %v", err)
+		t.Fatalf("configs.Load failed: %v", err)
 	}
 
 	checks := []struct {
@@ -63,7 +63,7 @@ agents:
 
 func TestIntegration_Config_EnvVarOverrides(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -84,9 +84,9 @@ server:
 	t.Setenv("VAGA_LLM_PROVIDER", "anthropic")
 	t.Setenv("VAGA_SERVER_ADDR", ":2222")
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load failed: %v", err)
+		t.Fatalf("configs.Load failed: %v", err)
 	}
 
 	if cfg.LLM.APIKey != "env-key-override" {
@@ -113,9 +113,9 @@ func TestIntegration_Config_Defaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load failed: %v", err)
+		t.Fatalf("configs.Load failed: %v", err)
 	}
 
 	if cfg.Server.Addr != ":8080" {
@@ -133,9 +133,9 @@ func TestIntegration_Config_Defaults(t *testing.T) {
 }
 
 func TestIntegration_Config_MissingFileDefaultPath(t *testing.T) {
-	cfg, err := config.Load("/nonexistent/definitely-not-here/vaga.yaml", false)
+	cfg, err := configs.Load("/nonexistent/definitely-not-here/vaga.yaml", false)
 	if err != nil {
-		t.Fatalf("config.Load should succeed for missing default path: %v", err)
+		t.Fatalf("configs.Load should succeed for missing default path: %v", err)
 	}
 
 	if cfg.Server.Addr != ":8080" {
@@ -150,7 +150,7 @@ func TestIntegration_Config_MissingFileDefaultPath(t *testing.T) {
 }
 
 func TestIntegration_Config_MissingFileExplicitPath(t *testing.T) {
-	_, err := config.Load("/nonexistent/definitely-not-here/config.yaml", true)
+	_, err := configs.Load("/nonexistent/definitely-not-here/configs.yaml", true)
 	if err == nil {
 		t.Fatal("expected error when explicit config file is missing")
 	}
@@ -166,9 +166,9 @@ func TestIntegration_Config_ProviderDefaults(t *testing.T) {
 	if err := os.WriteFile(openaiPath, []byte("llm:\n  provider: openai\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(openaiPath, true)
+	cfg, err := configs.Load(openaiPath, true)
 	if err != nil {
-		t.Fatalf("config.Load openai: %v", err)
+		t.Fatalf("configs.Load openai: %v", err)
 	}
 	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
 		t.Errorf("openai BaseURL = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
@@ -178,9 +178,9 @@ func TestIntegration_Config_ProviderDefaults(t *testing.T) {
 	if err := os.WriteFile(emptyPath, []byte("llm:\n  model: gpt-4o\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err = config.Load(emptyPath, true)
+	cfg, err = configs.Load(emptyPath, true)
 	if err != nil {
-		t.Fatalf("config.Load empty provider: %v", err)
+		t.Fatalf("configs.Load empty provider: %v", err)
 	}
 	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
 		t.Errorf("empty provider BaseURL = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
@@ -190,9 +190,9 @@ func TestIntegration_Config_ProviderDefaults(t *testing.T) {
 	if err := os.WriteFile(anthropicPath, []byte("llm:\n  provider: anthropic\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err = config.Load(anthropicPath, true)
+	cfg, err = configs.Load(anthropicPath, true)
 	if err != nil {
-		t.Fatalf("config.Load anthropic: %v", err)
+		t.Fatalf("configs.Load anthropic: %v", err)
 	}
 	if cfg.LLM.BaseURL != "" {
 		t.Errorf("anthropic BaseURL = %q, want empty", cfg.LLM.BaseURL)
@@ -200,7 +200,7 @@ func TestIntegration_Config_ProviderDefaults(t *testing.T) {
 }
 
 func TestIntegration_Config_UnknownProvider(t *testing.T) {
-	_, err := config.NewLLMClient(config.LLMConfig{
+	_, err := configs.NewLLMClient(configs.LLMConfig{
 		Provider: "unknown-provider",
 		Model:    "test-model",
 		APIKey:   "test-key",
@@ -222,9 +222,9 @@ func TestIntegration_Config_MemoryDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if cfg.Memory.SessionWindow != 50 {
@@ -248,7 +248,7 @@ func TestIntegration_Config_MemoryDefaults(t *testing.T) {
 // Verifies that explicit memory config values are loaded from YAML.
 func TestIntegration_Config_MemoryFromYAML(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, "configs.yaml")
 
 	content := `
 llm:
@@ -265,9 +265,9 @@ memory:
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Load(path, true)
+	cfg, err := configs.Load(path, true)
 	if err != nil {
-		t.Fatalf("config.Load: %v", err)
+		t.Fatalf("configs.Load: %v", err)
 	}
 
 	if cfg.Memory.Dir != "/tmp/test-memory" {
