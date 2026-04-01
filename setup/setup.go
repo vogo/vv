@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 
 	"github.com/vogo/aimodel"
@@ -15,6 +16,7 @@ import (
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/dispatches"
 	"github.com/vogo/vv/hooks"
+	"github.com/vogo/vv/memories"
 	"github.com/vogo/vv/registries"
 )
 
@@ -187,4 +189,83 @@ func New(
 		registry:   reg,
 		subAgents:  subAgents,
 	}, nil
+}
+
+// InitResult holds all components initialized by Init.
+type InitResult struct {
+	Config        *configs.Config
+	LLMClient     *aimodel.Client
+	MemoryManager *memory.Manager
+	PersistentMem memory.Memory
+	SetupResult   *Result
+}
+
+// Init creates the LLM client, memory subsystem, and all agents from a
+// pre-loaded Config. The caller is responsible for loading the config
+// (including interactive prompts, flag overrides, etc.) before calling Init.
+func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
+	// Capture working directory.
+	if cfg.Tools.BashWorkingDir == "" {
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			wd = "."
+		}
+
+		cfg.Tools.BashWorkingDir = wd
+	}
+
+	// Create LLM client.
+	llmClient, err := configs.NewLLMClient(cfg.LLM)
+	if err != nil {
+		return nil, fmt.Errorf("create LLM client: %w", err)
+	}
+
+	// Create persistent memory with FileStore backend.
+	fileStore, err := memories.NewFileStore(cfg.Memory.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("create file store: %w", err)
+	}
+
+	persistentMem := memory.NewPersistentMemoryWithStore(fileStore)
+
+	// Create memory manager.
+	memMgr := memory.NewManager(
+		memory.WithStore(persistentMem),
+		memory.WithPromoter(memory.PromoteAll()),
+		memory.WithCompressor(memory.NewSlidingWindowCompressor(cfg.Memory.SessionWindow)),
+	)
+
+	// Set up all agents.
+	result, err := New(cfg, llmClient, memMgr, persistentMem, opts)
+	if err != nil {
+		return nil, fmt.Errorf("setup agents: %w", err)
+	}
+
+	return &InitResult{
+		Config:        cfg,
+		LLMClient:     llmClient,
+		MemoryManager: memMgr,
+		PersistentMem: persistentMem,
+		SetupResult:   result,
+	}, nil
+}
+
+// InitFromFile is a convenience wrapper that loads config from a YAML file
+// and then calls Init. If configPath is empty, the default path is used.
+// explicit controls whether a missing config file is an error.
+func InitFromFile(configPath string, explicit bool, opts *Options) (*InitResult, error) {
+	if configPath == "" {
+		configPath = configs.DefaultPath()
+	}
+
+	cfg, err := configs.Load(configPath, explicit)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+
+	if configs.NeedsSetup(cfg) {
+		return nil, fmt.Errorf("config at %s requires setup: LLM API key is missing", configPath)
+	}
+
+	return Init(cfg, opts)
 }

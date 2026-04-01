@@ -2,24 +2,18 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/vogo/vage/memory"
-	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
-	"github.com/vogo/vv/memories"
+	"github.com/vogo/vv/httpapis"
 	"github.com/vogo/vv/setup"
-	"github.com/vogo/vv/tools"
 )
 
 func main() {
@@ -78,56 +72,15 @@ func main() {
 		cfg.Server.Addr = *listenAddr
 	}
 
-	// Capture working directory at startup.
-	if cfg.Tools.BashWorkingDir == "" {
-		workingDir, wdErr := os.Getwd()
-		if wdErr != nil {
-			workingDir = "."
-		}
-		cfg.Tools.BashWorkingDir = workingDir
-	}
-
-	// Create LLM client.
-	llmClient, err := configs.NewLLMClient(cfg.LLM)
-	if err != nil {
-		slog.Error("vv: create LLM client", "error", err)
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	// Register tools (full registry for HTTP service).
-	toolRegistry, err := tools.Register(cfg.Tools)
-	if err != nil {
-		slog.Error("vv: register tools", "error", err)
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	// Create persistent memory with FileStore backend.
-	fileStore, err := memories.NewFileStore(cfg.Memory.Dir)
-	if err != nil {
-		slog.Error("vv: create file store", "error", err)
-		os.Exit(1)
-	}
-
-	persistentMem := memory.NewPersistentMemoryWithStore(fileStore)
-
-	// Create memory manager.
-	memMgr := memory.NewManager(
-		memory.WithStore(persistentMem),
-		memory.WithPromoter(memory.PromoteAll()),
-		memory.WithCompressor(memory.NewSlidingWindowCompressor(cfg.Memory.SessionWindow)),
-	)
-
-	// Set up all agents via setup package.
+	// Initialize LLM client, memory, and agents via setup package.
 	confirmTools := cfg.CLI.ConfirmTools
-	result, err := setup.New(cfg, llmClient, memMgr, persistentMem, &setup.Options{
+	initResult, err := setup.Init(cfg, &setup.Options{
 		WrapToolRegistry: func(r *tool.Registry) tool.ToolRegistry {
 			return cli.WrapRegistry(r, confirmTools)
 		},
 	})
 	if err != nil {
-		slog.Error("vv: setup agents", "error", err)
+		slog.Error("vv: init", "error", err)
 		os.Exit(1)
 	}
 
@@ -137,187 +90,16 @@ func main() {
 
 	switch cfg.Mode {
 	case "http":
-		// Create and start HTTP service.
-		svc := service.New(
-			service.Config{Addr: cfg.Server.Addr},
-			service.WithToolRegistry(toolRegistry),
-		)
-		svc.RegisterAgent(result.Dispatcher)
-		for _, a := range result.Agents() {
-			svc.RegisterAgent(a)
-		}
-
-		// Build a custom mux that wraps the service handler with memory endpoints.
-		svcHandler := svc.Handler()
-		mux := http.NewServeMux()
-		mux.Handle("/", svcHandler)
-		mux.HandleFunc("GET /v1/memory", handleListMemory(persistentMem))
-		mux.HandleFunc("GET /v1/memory/{namespace}/{key}", handleGetMemory(persistentMem))
-		mux.HandleFunc("PUT /v1/memory/{namespace}/{key}", handleSetMemory(persistentMem))
-		mux.HandleFunc("DELETE /v1/memory/{namespace}/{key}", handleDeleteMemory(persistentMem))
-
-		slog.Info("vv: starting HTTP server", "addr", cfg.Server.Addr)
-
-		ln, err := net.Listen("tcp", cfg.Server.Addr)
-		if err != nil {
-			slog.Error("vv: listen", "error", err)
+		if err := httpapis.Serve(ctx, cfg, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem); err != nil {
+			slog.Error("vv: HTTP server error", "error", err)
 			os.Exit(1)
 		}
-
-		server := &http.Server{Handler: mux}
-
-		// Shut down when context is canceled.
-		go func() {
-			<-ctx.Done()
-			_ = server.Shutdown(context.Background())
-		}()
-
-		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
-			slog.Error("vv: server error", "error", err)
-			os.Exit(1)
-		}
-
-		slog.Info("vv: shutdown complete")
 
 	default: // "cli" or any other value defaults to CLI mode.
-		app := cli.New(result.Dispatcher, cfg, persistentMem)
+		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vv: CLI error", "error", err)
 			os.Exit(1)
 		}
 	}
-}
-
-// HTTP Memory Endpoints
-
-type memorySetRequest struct {
-	Content string `json:"content"`
-}
-
-type memoryListResponse struct {
-	Entries []memoryEntryResponse `json:"entries"`
-}
-
-type memoryEntryResponse struct {
-	Namespace string `json:"namespace"`
-	Key       string `json:"key"`
-	Content   string `json:"content"`
-	CreatedAt string `json:"created_at,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-}
-
-func handleListMemory(mem memory.Memory) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ns := r.URL.Query().Get("namespace")
-		prefix := ns
-		entries, err := mem.List(r.Context(), prefix)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
-			return
-		}
-
-		resp := memoryListResponse{Entries: make([]memoryEntryResponse, len(entries))}
-		for i, e := range entries {
-			eNs, eKey := splitKey(e.Key)
-			resp.Entries[i] = memoryEntryResponse{
-				Namespace: eNs,
-				Key:       eKey,
-				Content:   fmt.Sprintf("%v", e.Value),
-				CreatedAt: e.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			}
-		}
-
-		writeJSON(w, http.StatusOK, resp)
-	}
-}
-
-func handleGetMemory(mem memory.Memory) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ns := r.PathValue("namespace")
-		key := r.PathValue("key")
-		fullKey := ns + ":" + key
-
-		val, err := mem.Get(r.Context(), fullKey)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
-			return
-		}
-
-		if val == nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"code": "not_found", "message": "memory entry not found"})
-			return
-		}
-
-		writeJSON(w, http.StatusOK, memoryEntryResponse{
-			Namespace: ns,
-			Key:       key,
-			Content:   fmt.Sprintf("%v", val),
-		})
-	}
-}
-
-func handleSetMemory(mem memory.Memory) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ns := r.PathValue("namespace")
-		key := r.PathValue("key")
-		fullKey := ns + ":" + key
-
-		var req memorySetRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"code": "bad_request", "message": "invalid request body"})
-			return
-		}
-
-		if err := mem.Set(r.Context(), fullKey, req.Content, 0); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
-			return
-		}
-
-		writeJSON(w, http.StatusOK, memoryEntryResponse{
-			Namespace: ns,
-			Key:       key,
-			Content:   req.Content,
-		})
-	}
-}
-
-func handleDeleteMemory(mem memory.Memory) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ns := r.PathValue("namespace")
-		key := r.PathValue("key")
-		fullKey := ns + ":" + key
-
-		// Check existence first.
-		val, err := mem.Get(r.Context(), fullKey)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
-			return
-		}
-		if val == nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"code": "not_found", "message": "memory entry not found"})
-			return
-		}
-
-		if err := mem.Delete(r.Context(), fullKey); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func splitKey(key string) (string, string) {
-	for i, c := range key {
-		if c == ':' {
-			return key[:i], key[i+1:]
-		}
-	}
-	return "default", key
 }
