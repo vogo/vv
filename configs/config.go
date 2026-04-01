@@ -14,7 +14,7 @@ import (
 
 // MemoryConfig holds memory configuration.
 type MemoryConfig struct {
-	Dir            string `yaml:"dir"`             // default ~/.vaga/memory/
+	Dir            string `yaml:"dir"`             // default ~/.vv/memory/
 	SessionWindow  int    `yaml:"session_window"`  // sliding window size, default 50
 	PersistentLoad bool   `yaml:"persistent_load"` // load at startup, default true
 	MaxConcurrency int    `yaml:"max_concurrency"` // Deprecated: use orchestrate.max_concurrency
@@ -25,22 +25,22 @@ type OrchestrateConfig struct {
 	MaxConcurrency int `yaml:"max_concurrency"` // DAG concurrency, default 2
 }
 
-// DefaultDir returns the default vaga config directory (~/.vaga).
+// DefaultDir returns the default vv config directory (~/.vv).
 func DefaultDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".", ".vaga")
+		return filepath.Join(".", ".vv")
 	}
 
-	return filepath.Join(home, ".vaga")
+	return filepath.Join(home, ".vv")
 }
 
-// DefaultPath returns the default config file path (~/.vaga/vaga.yaml).
+// DefaultPath returns the default config file path (~/.vv/vv.yaml).
 func DefaultPath() string {
-	return filepath.Join(DefaultDir(), "vaga.yaml")
+	return filepath.Join(DefaultDir(), "vv.yaml")
 }
 
-// Config holds all vaga application configuration.
+// Config holds all vv application configuration.
 type Config struct {
 	LLM         LLMConfig         `yaml:"llm"`
 	Server      ServerConfig      `yaml:"server"`

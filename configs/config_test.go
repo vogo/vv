@@ -10,12 +10,12 @@ import (
 
 func TestDefaultPath_ContainsVaga(t *testing.T) {
 	p := DefaultPath()
-	if !strings.Contains(p, ".vaga") {
-		t.Errorf("DefaultPath() = %q, want it to contain '.vaga'", p)
+	if !strings.Contains(p, ".vv") {
+		t.Errorf("DefaultPath() = %q, want it to contain '.vv'", p)
 	}
 
-	if !strings.HasSuffix(p, "vaga.yaml") {
-		t.Errorf("DefaultPath() = %q, want it to end with 'vaga.yaml'", p)
+	if !strings.HasSuffix(p, "vv.yaml") {
+		t.Errorf("DefaultPath() = %q, want it to end with 'vv.yaml'", p)
 	}
 }
 
@@ -157,7 +157,7 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_MissingFileDefaultPath(t *testing.T) {
-	cfg, err := Load("/nonexistent/path/vaga.yaml", false)
+	cfg, err := Load("/nonexistent/path/vv.yaml", false)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestNeedsSetup_WithAPIKey(t *testing.T) {
 
 func TestPrompt_AllDefaults(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "vaga.yaml")
+	path := filepath.Join(dir, "vv.yaml")
 
 	// Simulate user pressing Enter for all prompts except API key.
 	input := "\n\nsk-my-key\n\n\n"
@@ -301,7 +301,7 @@ func TestPrompt_AllDefaults(t *testing.T) {
 
 func TestPrompt_AnthropicProvider(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "vaga.yaml")
+	path := filepath.Join(dir, "vv.yaml")
 
 	// User types "anthropic", accepts default model, enters API key, accepts addr.
 	input := "anthropic\n\nsk-ant-key\n\n"
@@ -332,7 +332,7 @@ func TestPrompt_AnthropicProvider(t *testing.T) {
 
 func TestPrompt_CustomValues(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "vaga.yaml")
+	path := filepath.Join(dir, "vv.yaml")
 
 	input := "openai\ngpt-4o-mini\nsk-custom\nhttps://custom.api.com/v1\n:9090\n"
 	var out bytes.Buffer
@@ -365,7 +365,7 @@ func TestPrompt_CustomValues(t *testing.T) {
 
 func TestSave_CreatesDirectoryAndFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "sub", "dir", "vaga.yaml")
+	path := filepath.Join(dir, "sub", "dir", "vv.yaml")
 
 	cfg := &Config{
 		LLM: LLMConfig{Provider: "openai", Model: "gpt-4o", APIKey: "sk-test"},

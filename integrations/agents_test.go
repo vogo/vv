@@ -18,7 +18,7 @@ import (
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
-	vagamemory "github.com/vogo/vv/memories"
+	vvmemory "github.com/vogo/vv/memories"
 	"github.com/vogo/vv/tools"
 )
 
@@ -720,7 +720,7 @@ func TestIntegration_Agents_PersistentMemoryInSystemPrompt(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create a FileStore and populate it with test entries.
-	store, err := vagamemory.NewFileStore(dir)
+	store, err := vvmemory.NewFileStore(dir)
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
@@ -761,7 +761,7 @@ func TestIntegration_Agents_PersistentMemoryInSystemPrompt(t *testing.T) {
 func TestIntegration_Agents_PersistentMemoryEmptyStore(t *testing.T) {
 	dir := t.TempDir()
 
-	store, err := vagamemory.NewFileStore(dir)
+	store, err := vvmemory.NewFileStore(dir)
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
@@ -806,7 +806,7 @@ func TestIntegration_Agents_PersistentMemoryNilStore(t *testing.T) {
 //   - Clear removes all entries
 func TestIntegration_Agents_FileStoreCRUDViaPersistentMemory(t *testing.T) {
 	dir := t.TempDir()
-	store, err := vagamemory.NewFileStore(dir)
+	store, err := vvmemory.NewFileStore(dir)
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}

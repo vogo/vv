@@ -59,7 +59,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// Redirect slog to a file to avoid corrupting TUI.
 	logFile, err := os.OpenFile(
-		filepath.Join(configs.DefaultDir(), "vaga.log"),
+		filepath.Join(configs.DefaultDir(), "vv.log"),
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600,
 	)
 	if err != nil {
@@ -109,6 +109,17 @@ type model struct {
 
 	// Sub-agent metrics tracking.
 	toolCallCount int // tool calls in current sub-agent
+
+	// Task-level stats accumulation.
+	taskStart             time.Time
+	totalPromptTokens     int
+	totalCompletionTokens int
+	totalToolCalls        int
+
+	// Sub-agent level stats accumulation (for DAG path where SubAgentEndData
+	// may lack token stats).
+	subAgentPromptTokens     int
+	subAgentCompletionTokens int
 
 	// Confirmation
 	confirmCh   chan bool
@@ -258,7 +269,7 @@ func (m *model) headerView() string {
 	}
 
 	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // dim gray
-	providerModel := fmt.Sprintf("vaga · %s · %s", m.app.cfg.LLM.Provider, m.app.cfg.LLM.Model)
+	providerModel := fmt.Sprintf("vv · %s · %s", m.app.cfg.LLM.Provider, m.app.cfg.LLM.Model)
 	line1 := headerStyle.Render(providerModel)
 	dirStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 	line2 := "  " + dirStyle.Render(dir)
@@ -357,8 +368,12 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	userMsg := schema.NewUserMessage(input)
 	m.app.history = append(m.app.history, userMsg)
 
-	// Reset output builder for this round.
+	// Reset output builder and task-level stats for this round.
 	m.output.Reset()
+	m.taskStart = time.Now()
+	m.totalPromptTokens = 0
+	m.totalCompletionTokens = 0
+	m.totalToolCalls = 0
 
 	// Create a cancellable context for this run.
 	runCtx, cancel := context.WithCancel(m.ctx)
@@ -429,6 +444,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			flushLine := m.flushAgentOutputLine()
 
 			m.toolCallCount++
+			m.totalToolCalls++
 			rendered := renderToolCallStart(data.ToolName, data.Arguments, m.toolDepth())
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      RoleTool,
@@ -484,7 +500,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 	case schema.EventPhaseStart:
 		if data, ok := event.Data.(schema.PhaseStartData); ok {
-			rendered := renderPhaseTransition(data.Phase, true, 0)
+			rendered := renderPhaseTransition(data.Phase, true, execStats{}, 0)
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      RolePhase,
 				Content:   rendered,
@@ -510,7 +526,13 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				lines = append(lines, summary)
 			}
 
-			rendered := renderPhaseTransition(data.Phase, false, 1)
+			stats := execStats{
+				ToolCalls:        data.ToolCalls,
+				DurationMs:       data.Duration,
+				PromptTokens:     data.PromptTokens,
+				CompletionTokens: data.CompletionTokens,
+			}
+			rendered := renderPhaseTransition(data.Phase, false, stats, 1)
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      RolePhase,
 				Content:   rendered,
@@ -526,6 +548,8 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		if data, ok := event.Data.(schema.SubAgentStartData); ok {
 			m.nestingDepth++
 			m.toolCallCount = 0 // reset tool call counter
+			m.subAgentPromptTokens = 0
+			m.subAgentCompletionTokens = 0
 			rendered := renderSubAgentStart(data.AgentName, data.StepID, data.Description, data.StepIndex, data.TotalSteps, m.nestingDepth)
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      RoleSubAgent,
@@ -545,7 +569,24 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			if toolCalls == 0 {
 				toolCalls = m.toolCallCount
 			}
-			rendered := renderSubAgentEnd(data.AgentName, data.StepID, data.Duration, toolCalls, data.TokensUsed, m.nestingDepth)
+
+			promptTokens := data.PromptTokens
+			if promptTokens == 0 {
+				promptTokens = m.subAgentPromptTokens
+			}
+
+			completionTokens := data.CompletionTokens
+			if completionTokens == 0 {
+				completionTokens = m.subAgentCompletionTokens
+			}
+
+			stats := execStats{
+				ToolCalls:        toolCalls,
+				DurationMs:       data.Duration,
+				PromptTokens:     promptTokens,
+				CompletionTokens: completionTokens,
+			}
+			rendered := renderSubAgentEnd(data.AgentName, data.StepID, stats, m.nestingDepth)
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      RoleSubAgent,
 				Content:   rendered,
@@ -553,6 +594,8 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				Rendered:  true,
 			})
 			m.toolCallCount = 0
+			m.subAgentPromptTokens = 0
+			m.subAgentCompletionTokens = 0
 			m.nestingDepth--
 			if m.nestingDepth < 0 {
 				m.nestingDepth = 0
@@ -565,9 +608,16 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Println(rendered)
 		}
 
-	// Suppress LLM call events for cleaner UX.
-	case schema.EventLLMCallStart, schema.EventLLMCallEnd, schema.EventLLMCallError:
+	// Suppress LLM call events for cleaner UX, but accumulate token stats.
+	case schema.EventLLMCallStart, schema.EventLLMCallError:
 		// Intentionally suppressed.
+	case schema.EventLLMCallEnd:
+		if data, ok := event.Data.(schema.LLMCallEndData); ok {
+			m.totalPromptTokens += data.PromptTokens
+			m.totalCompletionTokens += data.CompletionTokens
+			m.subAgentPromptTokens += data.PromptTokens
+			m.subAgentCompletionTokens += data.CompletionTokens
+		}
 	}
 
 	return m, nil
@@ -589,6 +639,18 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 		)
 		m.app.history = append(m.app.history, agentMsg)
 		cmds = append(cmds, m.flushAgentOutput())
+	}
+
+	// Render task completion line.
+	if !m.taskStart.IsZero() {
+		taskDuration := time.Since(m.taskStart).Milliseconds()
+		stats := execStats{
+			DurationMs:       taskDuration,
+			PromptTokens:     m.totalPromptTokens,
+			CompletionTokens: m.totalCompletionTokens,
+		}
+		rendered := renderTaskComplete(stats)
+		cmds = append(cmds, tea.Println(rendered))
 	}
 
 	m.status = statusIdle

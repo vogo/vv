@@ -17,7 +17,7 @@ import (
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/agents"
-	vagacli "github.com/vogo/vv/cli"
+	vvcli "github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/tools"
 )
@@ -247,7 +247,7 @@ func TestIntegration_CLI_AppConstruction(t *testing.T) {
 		CLI:  configs.CLIConfig{ConfirmTools: []string{"bash"}},
 	}
 
-	app := vagacli.New(orchestrator, cfg, nil)
+	app := vvcli.New(orchestrator, cfg, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -261,7 +261,7 @@ func TestIntegration_CLI_WrapRegistryNoConfirmTools(t *testing.T) {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	wrapped := vagacli.WrapRegistry(reg, nil)
+	wrapped := vvcli.WrapRegistry(reg, nil)
 
 	// Should be the exact same pointer.
 	if wrapped != reg {
@@ -269,7 +269,7 @@ func TestIntegration_CLI_WrapRegistryNoConfirmTools(t *testing.T) {
 	}
 
 	// Also test with empty slice.
-	wrapped2 := vagacli.WrapRegistry(reg, []string{})
+	wrapped2 := vvcli.WrapRegistry(reg, []string{})
 	if wrapped2 != reg {
 		t.Error("WrapRegistry with empty confirm_tools should return the original registries")
 	}
@@ -283,7 +283,7 @@ func TestIntegration_CLI_WrapRegistryWithConfirmTools(t *testing.T) {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	wrapped := vagacli.WrapRegistry(reg, []string{"bash", "file_write"})
+	wrapped := vvcli.WrapRegistry(reg, []string{"bash", "file_write"})
 
 	// Should be a different object.
 	if wrapped == reg {
@@ -312,7 +312,7 @@ func TestIntegration_CLI_ConfirmingExecutorApprove(t *testing.T) {
 	}
 
 	// Default WrapRegistry confirmFn allows all, simulating approval.
-	wrapped := vagacli.WrapRegistry(reg, []string{"bash"})
+	wrapped := vvcli.WrapRegistry(reg, []string{"bash"})
 
 	// Execute bash with a simple command.
 	result, err := wrapped.Execute(context.Background(), "bash", `{"command":"echo hello"}`)
@@ -341,7 +341,7 @@ func TestIntegration_CLI_ConfirmingExecutorPassthrough(t *testing.T) {
 	}
 
 	// Only "bash" is in the confirm list.
-	wrapped := vagacli.WrapRegistry(reg, []string{"bash"})
+	wrapped := vvcli.WrapRegistry(reg, []string{"bash"})
 
 	// Execute file_read (not in confirm list) -- should work without confirmation.
 	// Use a temp file to read.
@@ -390,7 +390,7 @@ func TestIntegration_CLI_AgentsCreateWithWrappedRegistry(t *testing.T) {
 	}
 
 	// Wrap registry (as main.go does).
-	wrapped := vagacli.WrapRegistry(reg, cfg.CLI.ConfirmTools)
+	wrapped := vvcli.WrapRegistry(reg, cfg.CLI.ConfirmTools)
 
 	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
 
@@ -464,7 +464,7 @@ tools:
 	}
 
 	// Wrap registry as main.go does.
-	wrapped := vagacli.WrapRegistry(toolRegistry, cfg.CLI.ConfirmTools)
+	wrapped := vvcli.WrapRegistry(toolRegistry, cfg.CLI.ConfirmTools)
 
 	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
 	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
@@ -597,7 +597,7 @@ func TestIntegration_CLI_OrchestratorWiring(t *testing.T) {
 		Agents: configs.AgentsConfig{MaxIterations: 5},
 	}
 
-	app := vagacli.New(orchestrator, cfg, nil)
+	app := vvcli.New(orchestrator, cfg, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -667,7 +667,7 @@ func TestIntegration_CLI_MultiTurnHistory(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
 	cfg := &configs.Config{Mode: "cli"}
-	app := vagacli.New(orchestrator, cfg, nil)
+	app := vvcli.New(orchestrator, cfg, nil)
 
 	// Simulate 3 turns of conversation by verifying message structure.
 	// Turn 1: user message.
@@ -821,7 +821,7 @@ func TestIntegration_CLI_WrapRegistryPreservesExecution(t *testing.T) {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	wrapped := vagacli.WrapRegistry(reg, []string{"bash"})
+	wrapped := vvcli.WrapRegistry(reg, []string{"bash"})
 
 	// Verify all 6 tools are still accessible via Get.
 	for _, name := range []string{"bash", "file_read", "file_write", "file_edit", "glob", "grep"} {

@@ -22,7 +22,7 @@ import (
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/dispatches"
 	"github.com/vogo/vv/hooks"
-	vagamemory "github.com/vogo/vv/memories"
+	vvmemory "github.com/vogo/vv/memories"
 	"github.com/vogo/vv/registries"
 	"github.com/vogo/vv/setup"
 )
@@ -657,7 +657,7 @@ func TestIntegration_SetupNew_WrapToolRegistry(t *testing.T) {
 //   - Coder agent is created and has correct ID
 func TestIntegration_SetupNew_PersistentMemory(t *testing.T) {
 	dir := t.TempDir()
-	store, err := vagamemory.NewFileStore(dir)
+	store, err := vvmemory.NewFileStore(dir)
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}

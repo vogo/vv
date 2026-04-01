@@ -148,29 +148,214 @@ func TestRenderSubAgentStart_Indented(t *testing.T) {
 }
 
 func TestRenderSubAgentEnd_Indented(t *testing.T) {
-	result := renderSubAgentEnd("coder", "step1", 5000, 3, 1500, 1)
+	stats := execStats{
+		ToolCalls:        3,
+		DurationMs:       5000,
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	}
+	result := renderSubAgentEnd("coder", "step1", stats, 1)
 	if !strings.HasPrefix(result, "    ") {
 		t.Errorf("renderSubAgentEnd at depth 1 should start with 4 spaces, got %q", result)
 	}
 	if !strings.Contains(result, "coder") {
 		t.Errorf("renderSubAgentEnd should contain agent name, got %q", result)
 	}
+	if !strings.Contains(result, "complete.") {
+		t.Errorf("renderSubAgentEnd should contain 'complete.', got %q", result)
+	}
 }
 
 func TestRenderPhaseTransition_StartNoIndent(t *testing.T) {
-	result := renderPhaseTransition("explore", true, 0)
+	result := renderPhaseTransition("explore", true, execStats{}, 0)
 	if strings.HasPrefix(result, " ") {
 		t.Errorf("renderPhaseTransition start should not start with spaces, got %q", result)
 	}
 }
 
 func TestRenderPhaseTransition_EndIndented(t *testing.T) {
-	result := renderPhaseTransition("explore", false, 1)
+	result := renderPhaseTransition("explore", false, execStats{DurationMs: 1000}, 1)
 	if !strings.HasPrefix(result, "    ") {
 		t.Errorf("renderPhaseTransition end should be indented 4 spaces, got %q", result)
 	}
-	if !strings.Contains(result, "phase complete") {
-		t.Errorf("renderPhaseTransition end should contain 'phase complete', got %q", result)
+	if !strings.Contains(result, "complete.") {
+		t.Errorf("renderPhaseTransition end should contain 'complete.', got %q", result)
+	}
+}
+
+func TestFormatCompactTokens(t *testing.T) {
+	tests := []struct {
+		input int
+		want  string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1.0k"},
+		{5300, "5.3k"},
+		{1200000, "1.2M"},
+	}
+
+	for _, tt := range tests {
+		got := formatCompactTokens(tt.input)
+		if got != tt.want {
+			t.Errorf("formatCompactTokens(%d) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestBuildStatsLine(t *testing.T) {
+	s := execStats{
+		ToolCalls:        3,
+		DurationMs:       26000,
+		PromptTokens:     5300,
+		CompletionTokens: 10500,
+	}
+	result := buildStatsLine(s)
+	if !strings.Contains(result, "3 tool uses") {
+		t.Errorf("buildStatsLine should contain '3 tool uses', got %q", result)
+	}
+	if !strings.Contains(result, "26s") {
+		t.Errorf("buildStatsLine should contain '26s', got %q", result)
+	}
+	if !strings.Contains(result, "\u2191 5.3k") {
+		t.Errorf("buildStatsLine should contain up arrow with 5.3k, got %q", result)
+	}
+	if !strings.Contains(result, "\u2193 10.5k") {
+		t.Errorf("buildStatsLine should contain down arrow with 10.5k, got %q", result)
+	}
+	if !strings.Contains(result, "\u00b7") {
+		t.Errorf("buildStatsLine should contain middle dot separator, got %q", result)
+	}
+}
+
+func TestBuildStatsLine_DurationOnly(t *testing.T) {
+	s := execStats{DurationMs: 500}
+	result := buildStatsLine(s)
+	if result != "(500ms)" {
+		t.Errorf("buildStatsLine duration only = %q, want %q", result, "(500ms)")
+	}
+}
+
+func TestBuildStatsLine_SingularToolUse(t *testing.T) {
+	s := execStats{ToolCalls: 1, DurationMs: 2000}
+	result := buildStatsLine(s)
+	if !strings.Contains(result, "1 tool use") {
+		t.Errorf("buildStatsLine should contain '1 tool use' (singular), got %q", result)
+	}
+	if strings.Contains(result, "tool uses") {
+		t.Errorf("buildStatsLine should not contain 'tool uses' (plural) for 1, got %q", result)
+	}
+}
+
+func TestBuildStatsLine_ZeroToolCallsOmitted(t *testing.T) {
+	s := execStats{DurationMs: 1000, PromptTokens: 100}
+	result := buildStatsLine(s)
+	if strings.Contains(result, "tool") {
+		t.Errorf("buildStatsLine should not contain 'tool' when ToolCalls=0, got %q", result)
+	}
+}
+
+func TestBuildStatsLine_ZeroTokensOmitted(t *testing.T) {
+	s := execStats{DurationMs: 1000}
+	result := buildStatsLine(s)
+	if strings.Contains(result, "\u2191") || strings.Contains(result, "\u2193") {
+		t.Errorf("buildStatsLine should not contain arrows when tokens=0, got %q", result)
+	}
+}
+
+func TestRenderPhaseTransition_End(t *testing.T) {
+	stats := execStats{
+		ToolCalls:        2,
+		DurationMs:       3000,
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	}
+	result := renderPhaseTransition("dispatch", false, stats, 1)
+	if !strings.Contains(result, "phase Dispatch complete.") {
+		t.Errorf("renderPhaseTransition end should contain 'phase Dispatch complete.', got %q", result)
+	}
+	if !strings.Contains(result, "2 tool uses") {
+		t.Errorf("renderPhaseTransition end should contain tool use stats, got %q", result)
+	}
+}
+
+func TestRenderPhaseTransition_Start(t *testing.T) {
+	stats := execStats{ToolCalls: 5, DurationMs: 999, PromptTokens: 100}
+	result := renderPhaseTransition("explore", true, stats, 0)
+	// Starting mode should show phase name but ignore stats.
+	if !strings.Contains(result, "Explore") {
+		t.Errorf("renderPhaseTransition start should contain 'Explore', got %q", result)
+	}
+	if strings.Contains(result, "tool") {
+		t.Errorf("renderPhaseTransition start should not contain stats, got %q", result)
+	}
+}
+
+func TestRenderSubAgentEnd_WithTokenBreakdown(t *testing.T) {
+	stats := execStats{
+		ToolCalls:        5,
+		DurationMs:       10000,
+		PromptTokens:     2000,
+		CompletionTokens: 800,
+	}
+	result := renderSubAgentEnd("researcher", "", stats, 0)
+	if !strings.Contains(result, "sub-agent") {
+		t.Errorf("renderSubAgentEnd should contain 'sub-agent', got %q", result)
+	}
+	if !strings.Contains(result, "researcher") {
+		t.Errorf("renderSubAgentEnd should contain agent name, got %q", result)
+	}
+	if !strings.Contains(result, "complete.") {
+		t.Errorf("renderSubAgentEnd should contain 'complete.', got %q", result)
+	}
+	if !strings.Contains(result, "\u2191 2.0k") {
+		t.Errorf("renderSubAgentEnd should contain prompt tokens, got %q", result)
+	}
+	if !strings.Contains(result, "\u2193 800") {
+		t.Errorf("renderSubAgentEnd should contain completion tokens, got %q", result)
+	}
+}
+
+func TestRenderSubAgentEnd_DurationOnly(t *testing.T) {
+	stats := execStats{DurationMs: 3000}
+	result := renderSubAgentEnd("chat", "", stats, 0)
+	if !strings.Contains(result, "3s") {
+		t.Errorf("renderSubAgentEnd should contain duration, got %q", result)
+	}
+	if strings.Contains(result, "\u2191") || strings.Contains(result, "\u2193") {
+		t.Errorf("renderSubAgentEnd should not contain token arrows with zero tokens, got %q", result)
+	}
+}
+
+func TestRenderTaskComplete(t *testing.T) {
+	stats := execStats{
+		DurationMs:       5000,
+		PromptTokens:     10000,
+		CompletionTokens: 3000,
+	}
+	result := renderTaskComplete(stats)
+	if !strings.Contains(result, "task complete.") {
+		t.Errorf("renderTaskComplete should contain 'task complete.', got %q", result)
+	}
+	if !strings.Contains(result, "5s") {
+		t.Errorf("renderTaskComplete should contain duration, got %q", result)
+	}
+	if !strings.Contains(result, "\u2191 10.0k") {
+		t.Errorf("renderTaskComplete should contain prompt tokens, got %q", result)
+	}
+}
+
+func TestRenderTaskComplete_NoTokens(t *testing.T) {
+	stats := execStats{DurationMs: 2000}
+	result := renderTaskComplete(stats)
+	if !strings.Contains(result, "task complete.") {
+		t.Errorf("renderTaskComplete should contain 'task complete.', got %q", result)
+	}
+	if !strings.Contains(result, "2s") {
+		t.Errorf("renderTaskComplete should contain duration, got %q", result)
+	}
+	if strings.Contains(result, "\u2191") || strings.Contains(result, "\u2193") {
+		t.Errorf("renderTaskComplete should not contain token arrows with zero tokens, got %q", result)
 	}
 }
 

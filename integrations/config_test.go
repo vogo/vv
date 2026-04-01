@@ -133,7 +133,7 @@ func TestIntegration_Config_Defaults(t *testing.T) {
 }
 
 func TestIntegration_Config_MissingFileDefaultPath(t *testing.T) {
-	cfg, err := configs.Load("/nonexistent/definitely-not-here/vaga.yaml", false)
+	cfg, err := configs.Load("/nonexistent/definitely-not-here/vv.yaml", false)
 	if err != nil {
 		t.Fatalf("configs.Load should succeed for missing default path: %v", err)
 	}

@@ -151,6 +151,10 @@ func (d *Dispatcher) classifyStream(
 				usage.CompletionTokens += data.CompletionTokens
 				usage.TotalTokens += data.TotalTokens
 			}
+
+			if err := send(event); err != nil {
+				slog.Warn("orchestrator: planner stream send error", "error", err)
+			}
 		}
 	}
 

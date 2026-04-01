@@ -129,6 +129,10 @@ func (d *Dispatcher) exploreStream(
 				usage.CompletionTokens += data.CompletionTokens
 				usage.TotalTokens += data.TotalTokens
 			}
+
+			if err := send(event); err != nil {
+				slog.Warn("orchestrator: explorer stream send error", "error", err)
+			}
 		case schema.EventAgentEnd:
 			if data, ok := event.Data.(schema.AgentEndData); ok {
 				if textBuf.Len() == 0 && data.Message != "" {

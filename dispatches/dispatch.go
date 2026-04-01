@@ -15,6 +15,30 @@ import (
 	"github.com/vogo/vv/registries"
 )
 
+// phaseTracker intercepts events to accumulate per-phase execution stats.
+type phaseTracker struct {
+	toolCalls        int
+	promptTokens     int
+	completionTokens int
+}
+
+// wrap returns a send function that intercepts stats events before forwarding.
+func (pt *phaseTracker) wrap(send func(schema.Event) error) func(schema.Event) error {
+	return func(ev schema.Event) error {
+		switch ev.Type {
+		case schema.EventToolCallStart:
+			pt.toolCalls++
+		case schema.EventLLMCallEnd:
+			if data, ok := ev.Data.(schema.LLMCallEndData); ok {
+				pt.promptTokens += data.PromptTokens
+				pt.completionTokens += data.CompletionTokens
+			}
+		}
+
+		return send(ev)
+	}
+}
+
 // Dispatcher is the main orchestration agent. It receives user requests,
 // explores project context, classifies the task, and dispatches to sub-agents.
 // Behavioral equivalent of the former OrchestratorAgent.
@@ -193,10 +217,17 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 			}
 
 			exploreStart := time.Now()
-			contextSummary, exploreUsage = d.exploreStream(ctx, req, send)
 
+			var exploreTracker phaseTracker
+			contextSummary, exploreUsage = d.exploreStream(ctx, req, exploreTracker.wrap(send))
+
+			exploreDuration := time.Since(exploreStart).Milliseconds()
 			if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-				Phase: "explore", Duration: time.Since(exploreStart).Milliseconds(),
+				Phase:            "explore",
+				Duration:         exploreDuration,
+				ToolCalls:        exploreTracker.toolCalls,
+				PromptTokens:     exploreTracker.promptTokens,
+				CompletionTokens: exploreTracker.completionTokens,
 			})); err != nil {
 				return err
 			}
@@ -212,12 +243,20 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 		}
 
 		planStart := time.Now()
-		result, planUsage, planErr := d.classifyStream(ctx, req, contextSummary, send)
+
+		var planTracker phaseTracker
+		result, planUsage, planErr := d.classifyStream(ctx, req, contextSummary, planTracker.wrap(send))
 
 		planSummary := buildPlanSummary(result)
+		planDuration := time.Since(planStart).Milliseconds()
 
 		if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase: "plan", Duration: time.Since(planStart).Milliseconds(), Summary: planSummary,
+			Phase:            "plan",
+			Duration:         planDuration,
+			Summary:          planSummary,
+			ToolCalls:        planTracker.toolCalls,
+			PromptTokens:     planTracker.promptTokens,
+			CompletionTokens: planTracker.completionTokens,
 		})); err != nil {
 			return err
 		}
@@ -242,7 +281,11 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 
 		dispatchStart := time.Now()
 
+		var dispatchTracker phaseTracker
 		var dispatchErr error
+		var dagUsage *aimodel.Usage
+
+		phaseSend := dispatchTracker.wrap(send)
 
 		switch result.Mode {
 		case "direct":
@@ -251,15 +294,26 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 				subAgent = d.fallbackAgent
 			}
 
-			dispatchErr = d.forwardSubAgentStream(ctx, send, subAgent, enrichedReq, result.Agent, "", sessionID)
+			dispatchErr = d.forwardSubAgentStream(ctx, phaseSend, subAgent, enrichedReq, result.Agent, "", sessionID)
 		case "plan":
-			dispatchErr = d.streamPlan(ctx, send, enrichedReq, result.Plan, contextSummary, sessionID)
+			dagUsage, dispatchErr = d.streamPlan(ctx, phaseSend, enrichedReq, result.Plan, contextSummary, sessionID)
 		default:
-			dispatchErr = d.forwardSubAgentStream(ctx, send, d.fallbackAgent, enrichedReq, "chat", "", sessionID)
+			dispatchErr = d.forwardSubAgentStream(ctx, phaseSend, d.fallbackAgent, enrichedReq, "chat", "", sessionID)
 		}
 
+		// Augment dispatch phase stats from DAG result usage (DAG path doesn't emit LLM events).
+		if dagUsage != nil {
+			dispatchTracker.promptTokens += dagUsage.PromptTokens
+			dispatchTracker.completionTokens += dagUsage.CompletionTokens
+		}
+
+		dispatchDuration := time.Since(dispatchStart).Milliseconds()
 		if sendErr := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase: "dispatch", Duration: time.Since(dispatchStart).Milliseconds(),
+			Phase:            "dispatch",
+			Duration:         dispatchDuration,
+			ToolCalls:        dispatchTracker.toolCalls,
+			PromptTokens:     dispatchTracker.promptTokens,
+			CompletionTokens: dispatchTracker.completionTokens,
 		})); sendErr != nil {
 			return sendErr
 		}

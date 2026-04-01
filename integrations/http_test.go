@@ -18,7 +18,7 @@ import (
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/configs"
-	vagamemory "github.com/vogo/vv/memories"
+	vvmemory "github.com/vogo/vv/memories"
 	"github.com/vogo/vv/tools"
 )
 
@@ -508,7 +508,7 @@ func setupMemoryTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
 	dir := t.TempDir()
-	fileStore, err := vagamemory.NewFileStore(dir)
+	fileStore, err := vvmemory.NewFileStore(dir)
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}

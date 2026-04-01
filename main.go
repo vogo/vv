@@ -52,7 +52,7 @@ func main() {
 	// Load configs.
 	cfg, err := configs.Load(*configPath, explicit)
 	if err != nil {
-		slog.Error("vaga: load config", "error", err)
+		slog.Error("vv: load config", "error", err)
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -63,7 +63,7 @@ func main() {
 		fmt.Println()
 
 		if err := configs.Prompt(cfg, *configPath, os.Stdin, os.Stdout); err != nil {
-			slog.Error("vaga: save config", "error", err)
+			slog.Error("vv: save config", "error", err)
 			os.Exit(1)
 		}
 
@@ -90,7 +90,7 @@ func main() {
 	// Create LLM client.
 	llmClient, err := configs.NewLLMClient(cfg.LLM)
 	if err != nil {
-		slog.Error("vaga: create LLM client", "error", err)
+		slog.Error("vv: create LLM client", "error", err)
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -98,7 +98,7 @@ func main() {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
-		slog.Error("vaga: register tools", "error", err)
+		slog.Error("vv: register tools", "error", err)
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -106,7 +106,7 @@ func main() {
 	// Create persistent memory with FileStore backend.
 	fileStore, err := memories.NewFileStore(cfg.Memory.Dir)
 	if err != nil {
-		slog.Error("vaga: create file store", "error", err)
+		slog.Error("vv: create file store", "error", err)
 		os.Exit(1)
 	}
 
@@ -127,7 +127,7 @@ func main() {
 		},
 	})
 	if err != nil {
-		slog.Error("vaga: setup agents", "error", err)
+		slog.Error("vv: setup agents", "error", err)
 		os.Exit(1)
 	}
 
@@ -156,11 +156,11 @@ func main() {
 		mux.HandleFunc("PUT /v1/memory/{namespace}/{key}", handleSetMemory(persistentMem))
 		mux.HandleFunc("DELETE /v1/memory/{namespace}/{key}", handleDeleteMemory(persistentMem))
 
-		slog.Info("vaga: starting HTTP server", "addr", cfg.Server.Addr)
+		slog.Info("vv: starting HTTP server", "addr", cfg.Server.Addr)
 
 		ln, err := net.Listen("tcp", cfg.Server.Addr)
 		if err != nil {
-			slog.Error("vaga: listen", "error", err)
+			slog.Error("vv: listen", "error", err)
 			os.Exit(1)
 		}
 
@@ -173,16 +173,16 @@ func main() {
 		}()
 
 		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
-			slog.Error("vaga: server error", "error", err)
+			slog.Error("vv: server error", "error", err)
 			os.Exit(1)
 		}
 
-		slog.Info("vaga: shutdown complete")
+		slog.Info("vv: shutdown complete")
 
 	default: // "cli" or any other value defaults to CLI mode.
 		app := cli.New(result.Dispatcher, cfg, persistentMem)
 		if err := app.Run(ctx); err != nil {
-			slog.Error("vaga: CLI error", "error", err)
+			slog.Error("vv: CLI error", "error", err)
 			os.Exit(1)
 		}
 	}

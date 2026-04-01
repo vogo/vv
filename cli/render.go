@@ -35,6 +35,14 @@ const (
 	indentUnit = 4 // 4 characters per nesting level
 )
 
+// execStats holds execution statistics for phases, sub-agents, and tasks.
+type execStats struct {
+	ToolCalls        int
+	DurationMs       int64
+	PromptTokens     int
+	CompletionTokens int
+}
+
 // indentBlock prepends `depth * indentUnit` spaces to each line of text.
 func indentBlock(text string, depth int) string {
 	if depth <= 0 {
@@ -172,35 +180,24 @@ func renderSubAgentStart(agentName, stepID, description string, stepIndex, total
 }
 
 // renderSubAgentEnd renders a sub-agent completion summary with stats.
-func renderSubAgentEnd(agentName, stepID string, durationMs int64, toolCalls, tokensUsed int, depth int) string {
+func renderSubAgentEnd(agentName, stepID string, stats execStats, depth int) string {
 	var sb strings.Builder
 	sb.WriteString(subAgentBulletStyle.Render(bullet))
+	sb.WriteString("sub-agent ")
 	sb.WriteString(subAgentStyle.Render(agentName))
 
 	if stepID != "" {
 		sb.WriteString(dimStyle.Render(fmt.Sprintf(" (%s)", stepID)))
 	}
 
-	// Build stats line like: "Done (12 tool uses · 45.2k tokens · 2m 30s)"
-	var stats []string
-
-	if toolCalls > 0 {
-		stats = append(stats, fmt.Sprintf("%d tool uses", toolCalls))
-	}
-
-	if tokensUsed > 0 {
-		stats = append(stats, formatTokens(tokensUsed))
-	}
-
-	stats = append(stats, formatDuration(durationMs))
-
-	sb.WriteString("\n" + "└ " + statsStyle.Render("Done ("+strings.Join(stats, " · ")+")"))
+	sb.WriteString(" complete.  ")
+	sb.WriteString(statsStyle.Render(buildStatsLine(stats)))
 
 	return indentBlock(sb.String(), depth)
 }
 
 // renderPhaseTransition renders a phase start/end transition message.
-func renderPhaseTransition(phase string, starting bool, depth int) string {
+func renderPhaseTransition(phase string, starting bool, stats execStats, depth int) string {
 	var sb strings.Builder
 	phaseName := strings.ToUpper(phase[:1]) + phase[1:]
 
@@ -208,11 +205,22 @@ func renderPhaseTransition(phase string, starting bool, depth int) string {
 		sb.WriteString(phaseBulletStyle.Render(bullet))
 		sb.WriteString(phaseStyle.Render(phaseName))
 	} else {
-		sb.WriteString(dimStyle.Render(bullet))
-		sb.WriteString(dimStyle.Render(fmt.Sprintf("%s phase complete.", phaseName)))
+		sb.WriteString(phaseBulletStyle.Render(bullet))
+		fmt.Fprintf(&sb, "phase %s complete.  ", phaseName)
+		sb.WriteString(statsStyle.Render(buildStatsLine(stats)))
 	}
 
 	return indentBlock(sb.String(), depth)
+}
+
+// renderTaskComplete renders the task-level completion line.
+func renderTaskComplete(stats execStats) string {
+	var sb strings.Builder
+	sb.WriteString(phaseBulletStyle.Render(bullet))
+	sb.WriteString("task complete.  ")
+	sb.WriteString(statsStyle.Render(buildStatsLine(stats)))
+
+	return sb.String()
 }
 
 // renderPhaseSummary renders a phase summary (e.g., plan overview) with dim styling.
@@ -295,17 +303,6 @@ func shortenPath(path string) string {
 	return ".../" + strings.Join(parts[len(parts)-3:], "/")
 }
 
-// formatTokens formats a token count for display (e.g., "45.2k tokens").
-func formatTokens(tokens int) string {
-	if tokens >= 1000000 {
-		return fmt.Sprintf("%.1fM tokens", float64(tokens)/1000000)
-	}
-	if tokens >= 1000 {
-		return fmt.Sprintf("%.1fk tokens", float64(tokens)/1000)
-	}
-	return fmt.Sprintf("%d tokens", tokens)
-}
-
 // formatDuration formats milliseconds into a human-readable duration.
 func formatDuration(ms int64) string {
 	if ms < 1000 {
@@ -325,6 +322,45 @@ func formatDuration(ms int64) string {
 	}
 
 	return fmt.Sprintf("%dm", minutes)
+}
+
+// formatCompactTokens formats a token count without suffix.
+func formatCompactTokens(tokens int) string {
+	if tokens >= 1000000 {
+		return fmt.Sprintf("%.1fM", float64(tokens)/1000000)
+	}
+
+	if tokens >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(tokens)/1000)
+	}
+
+	return fmt.Sprintf("%d", tokens)
+}
+
+// buildStatsLine builds a parenthetical stats string like "(3 tool uses · 26s · ↑ 5.3k · ↓ 10.5k)".
+func buildStatsLine(s execStats) string {
+	var parts []string
+
+	if s.ToolCalls > 0 {
+		noun := "tool use"
+		if s.ToolCalls != 1 {
+			noun = "tool uses"
+		}
+
+		parts = append(parts, fmt.Sprintf("%d %s", s.ToolCalls, noun))
+	}
+
+	parts = append(parts, formatDuration(s.DurationMs))
+
+	if s.PromptTokens > 0 {
+		parts = append(parts, fmt.Sprintf("\u2191 %s", formatCompactTokens(s.PromptTokens)))
+	}
+
+	if s.CompletionTokens > 0 {
+		parts = append(parts, fmt.Sprintf("\u2193 %s", formatCompactTokens(s.CompletionTokens)))
+	}
+
+	return "(" + strings.Join(parts, " \u00b7 ") + ")"
 }
 
 // truncate shortens a string to maxLen, appending "..." if truncated.

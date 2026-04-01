@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/orchestrate"
 	"github.com/vogo/vage/schema"
@@ -38,7 +39,8 @@ func (d *Dispatcher) forwardSubAgentStream(
 
 	start := time.Now()
 	toolCalls := 0
-	tokensUsed := 0
+	promptTokens := 0
+	completionTokens := 0
 
 	// Try streaming first, fall back to non-streaming.
 	sa, isStream := subAgent.(agent.StreamAgent)
@@ -66,7 +68,8 @@ func (d *Dispatcher) forwardSubAgentStream(
 				toolCalls++
 			case schema.EventLLMCallEnd:
 				if data, ok := event.Data.(schema.LLMCallEndData); ok {
-					tokensUsed += data.TotalTokens
+					promptTokens += data.PromptTokens
+					completionTokens += data.CompletionTokens
 				}
 			}
 
@@ -81,7 +84,8 @@ func (d *Dispatcher) forwardSubAgentStream(
 		}
 
 		if resp.Usage != nil {
-			tokensUsed = resp.Usage.TotalTokens
+			promptTokens = resp.Usage.PromptTokens
+			completionTokens = resp.Usage.CompletionTokens
 		}
 
 		// Emit the response text as a single TextDelta + AgentEnd.
@@ -103,15 +107,18 @@ func (d *Dispatcher) forwardSubAgentStream(
 	}
 
 	return send(schema.NewEvent(schema.EventSubAgentEnd, d.ID(), sessionID, schema.SubAgentEndData{
-		AgentName:  agentName,
-		StepID:     stepID,
-		Duration:   time.Since(start).Milliseconds(),
-		ToolCalls:  toolCalls,
-		TokensUsed: tokensUsed,
+		AgentName:        agentName,
+		StepID:           stepID,
+		Duration:         time.Since(start).Milliseconds(),
+		ToolCalls:        toolCalls,
+		TokensUsed:       promptTokens + completionTokens,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
 	}))
 }
 
 // streamPlan executes a plan's steps and emits sub-agent lifecycle events for each step.
+// Returns the DAG result's aggregated usage (may be nil) and any error.
 func (d *Dispatcher) streamPlan(
 	ctx context.Context,
 	send func(schema.Event) error,
@@ -119,12 +126,12 @@ func (d *Dispatcher) streamPlan(
 	plan *Plan,
 	contextSummary string,
 	sessionID string,
-) error {
+) (*aimodel.Usage, error) {
 	nodes, err := d.buildNodes(plan, req, contextSummary)
 	if err != nil {
 		slog.Warn("orchestrator: DAG build failed, falling back to chat stream", "error", err)
 
-		return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+		return nil, d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
 	}
 
 	totalSteps := len(plan.Steps)
@@ -159,7 +166,7 @@ func (d *Dispatcher) streamPlan(
 
 	result, err := orchestrate.ExecuteDAG(ctx, dagCfg, nodes, req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Emit the final aggregated output.
@@ -167,17 +174,17 @@ func (d *Dispatcher) streamPlan(
 		text := result.FinalOutput.Messages[0].Content.Text()
 		if text != "" {
 			if err := send(schema.NewEvent(schema.EventTextDelta, d.ID(), sessionID, schema.TextDeltaData{Delta: text})); err != nil {
-				return err
+				return result.Usage, err
 			}
 
-			return send(schema.NewEvent(schema.EventAgentEnd, d.ID(), sessionID, schema.AgentEndData{
+			return result.Usage, send(schema.NewEvent(schema.EventAgentEnd, d.ID(), sessionID, schema.AgentEndData{
 				Duration: 0,
 				Message:  text,
 			}))
 		}
 	}
 
-	return nil
+	return result.Usage, nil
 }
 
 // streamingDAGHandler implements orchestrate.DAGEventHandler to emit sub-agent events.
