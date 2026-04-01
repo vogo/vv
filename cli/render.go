@@ -26,10 +26,30 @@ var (
 	addStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))            // green for additions
 	removeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))           // red for removals
 	filePathStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // dim for file paths
-	indentStyle   = lipgloss.NewStyle().PaddingLeft(2)                              // indented content
 )
 
-const bullet = "● "
+const (
+	bullet     = "● "
+	indentUnit = 4 // 4 characters per nesting level
+)
+
+// indentBlock prepends `depth * indentUnit` spaces to each line of text.
+func indentBlock(text string, depth int) string {
+	if depth <= 0 {
+		return text
+	}
+
+	prefix := strings.Repeat(" ", depth*indentUnit)
+	lines := strings.Split(text, "\n")
+
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = prefix + line
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
 
 // renderMarkdown renders markdown text using glamour.
 func renderMarkdown(text string, width int) string {
@@ -81,7 +101,7 @@ func renderToolMessage(text string) string {
 
 // renderToolCallStart renders a tool call start with Claude Code-like formatting.
 // Shows: ● ToolName(file_path_or_summary)
-func renderToolCallStart(toolName, arguments string) string {
+func renderToolCallStart(toolName, arguments string, depth int) string {
 	var sb strings.Builder
 	sb.WriteString(bulletStyle.Render(bullet))
 	sb.WriteString(toolNameStyle.Render(toolName))
@@ -94,11 +114,11 @@ func renderToolCallStart(toolName, arguments string) string {
 		sb.WriteString(filePathStyle.Render(")"))
 	}
 
-	return sb.String()
+	return indentBlock(sb.String(), depth)
 }
 
 // renderToolCallResult renders a tool result with compact change summary.
-func renderToolCallResult(toolName, resultText string) string {
+func renderToolCallResult(toolName, resultText string, depth int) string {
 	var sb strings.Builder
 
 	// Show compact change summary for write/edit tools.
@@ -106,7 +126,7 @@ func renderToolCallResult(toolName, resultText string) string {
 	case "write", "edit":
 		summary := extractChangeSummary(resultText)
 		if summary != "" {
-			sb.WriteString(indentStyle.Render("└ " + dimStyle.Render(summary)))
+			sb.WriteString("└ " + dimStyle.Render(summary))
 		}
 	case "bash":
 		// Show truncated output for bash.
@@ -116,19 +136,19 @@ func renderToolCallResult(toolName, resultText string) string {
 			if len(lines) > 1 {
 				preview += dimStyle.Render(fmt.Sprintf(" (+%d lines)", len(lines)-1))
 			}
-			sb.WriteString(indentStyle.Render("└ " + dimStyle.Render(preview)))
+			sb.WriteString("└ " + dimStyle.Render(preview))
 		}
 	default:
 		if resultText != "" {
-			sb.WriteString(indentStyle.Render("└ " + dimStyle.Render(truncate(resultText, 120))))
+			sb.WriteString("└ " + dimStyle.Render(truncate(resultText, 120)))
 		}
 	}
 
-	return sb.String()
+	return indentBlock(sb.String(), depth)
 }
 
 // renderSubAgentStart renders a sub-agent start message.
-func renderSubAgentStart(agentName, stepID, description string, stepIndex, totalSteps int) string {
+func renderSubAgentStart(agentName, stepID, description string, stepIndex, totalSteps int, depth int) string {
 	var sb strings.Builder
 	sb.WriteString(bulletStyle.Render(bullet))
 
@@ -143,15 +163,14 @@ func renderSubAgentStart(agentName, stepID, description string, stepIndex, total
 	}
 
 	if description != "" {
-		sb.WriteString("\n")
-		sb.WriteString(indentStyle.Render(dimStyle.Render(truncate(description, 200))))
+		sb.WriteString("\n" + dimStyle.Render(truncate(description, 200)))
 	}
 
-	return sb.String()
+	return indentBlock(sb.String(), depth)
 }
 
 // renderSubAgentEnd renders a sub-agent completion summary with stats.
-func renderSubAgentEnd(agentName, stepID string, durationMs int64, toolCalls, tokensUsed int) string {
+func renderSubAgentEnd(agentName, stepID string, durationMs int64, toolCalls, tokensUsed int, depth int) string {
 	var sb strings.Builder
 	sb.WriteString(bulletStyle.Render(bullet))
 	sb.WriteString(subAgentStyle.Render(agentName))
@@ -173,10 +192,9 @@ func renderSubAgentEnd(agentName, stepID string, durationMs int64, toolCalls, to
 
 	stats = append(stats, formatDuration(durationMs))
 
-	sb.WriteString("\n")
-	sb.WriteString(indentStyle.Render("└ " + statsStyle.Render("Done ("+strings.Join(stats, " · ")+")")))
+	sb.WriteString("\n" + "└ " + statsStyle.Render("Done ("+strings.Join(stats, " · ")+")"))
 
-	return sb.String()
+	return indentBlock(sb.String(), depth)
 }
 
 // renderPhaseTransition renders a phase start/end transition message.

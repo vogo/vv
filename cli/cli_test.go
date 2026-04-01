@@ -124,6 +124,61 @@ func TestNewApp(t *testing.T) {
 	}
 }
 
+func TestToolDepth_NoSubAgent(t *testing.T) {
+	m := &model{nestingDepth: 0}
+	if got := m.toolDepth(); got != 1 {
+		t.Errorf("toolDepth() with nestingDepth 0 = %d, want 1", got)
+	}
+}
+
+func TestToolDepth_InsideSubAgent(t *testing.T) {
+	m := &model{nestingDepth: 1}
+	if got := m.toolDepth(); got != 2 {
+		t.Errorf("toolDepth() with nestingDepth 1 = %d, want 2", got)
+	}
+}
+
+func TestNestingDepth_SubAgentLifecycle(t *testing.T) {
+	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
+	app := New(orchestrator, &configs.Config{}, nil)
+	m := newModel(app, context.Background())
+
+	// Initially depth is 0.
+	if m.nestingDepth != 0 {
+		t.Fatalf("initial nestingDepth = %d, want 0", m.nestingDepth)
+	}
+
+	// Simulate SubAgentStart event.
+	startEvent := schema.NewEvent(schema.EventSubAgentStart, "test", "sess", schema.SubAgentStartData{
+		AgentName:  "coder",
+		StepID:     "step1",
+		StepIndex:  1,
+		TotalSteps: 1,
+	})
+	m.handleStreamEvent(streamEventMsg{event: startEvent})
+
+	if m.nestingDepth != 1 {
+		t.Errorf("after SubAgentStart nestingDepth = %d, want 1", m.nestingDepth)
+	}
+
+	// Tool depth should be 2 inside sub-agent.
+	if got := m.toolDepth(); got != 2 {
+		t.Errorf("toolDepth() inside sub-agent = %d, want 2", got)
+	}
+
+	// Simulate SubAgentEnd event.
+	endEvent := schema.NewEvent(schema.EventSubAgentEnd, "test", "sess", schema.SubAgentEndData{
+		AgentName: "coder",
+		StepID:    "step1",
+		Duration:  1000,
+	})
+	m.handleStreamEvent(streamEventMsg{event: endEvent})
+
+	if m.nestingDepth != 0 {
+		t.Errorf("after SubAgentEnd nestingDepth = %d, want 0", m.nestingDepth)
+	}
+}
+
 func TestSessionStatus(t *testing.T) {
 	// Verify status constants are distinct.
 	statuses := []sessionStatus{statusIdle, statusProcessing, statusConfirming, statusQuitting}

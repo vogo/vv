@@ -74,6 +74,96 @@ func TestRenderMarkdown_ZeroWidth(t *testing.T) {
 	}
 }
 
+func TestIndentBlock_ZeroDepth(t *testing.T) {
+	result := indentBlock("hello", 0)
+	if result != "hello" {
+		t.Errorf("indentBlock(\"hello\", 0) = %q, want %q", result, "hello")
+	}
+}
+
+func TestIndentBlock_SingleLevel(t *testing.T) {
+	result := indentBlock("hello", 1)
+	want := "    hello"
+	if result != want {
+		t.Errorf("indentBlock(\"hello\", 1) = %q, want %q", result, want)
+	}
+}
+
+func TestIndentBlock_MultiLevel(t *testing.T) {
+	result := indentBlock("hello", 2)
+	want := "        hello"
+	if result != want {
+		t.Errorf("indentBlock(\"hello\", 2) = %q, want %q", result, want)
+	}
+}
+
+func TestIndentBlock_Multiline(t *testing.T) {
+	input := "line1\nline2\n\nline3"
+	result := indentBlock(input, 1)
+	want := "    line1\n    line2\n\n    line3"
+	if result != want {
+		t.Errorf("indentBlock multiline = %q, want %q", result, want)
+	}
+}
+
+func TestIndentBlock_EmptyString(t *testing.T) {
+	result := indentBlock("", 1)
+	if result != "" {
+		t.Errorf("indentBlock(\"\", 1) = %q, want %q", result, "")
+	}
+}
+
+func TestRenderToolCallStart_Indented(t *testing.T) {
+	result := renderToolCallStart("bash", `{"command":"ls"}`, 1)
+	if !strings.HasPrefix(result, "    ") {
+		t.Errorf("renderToolCallStart at depth 1 should start with 4 spaces, got %q", result)
+	}
+	if !strings.Contains(result, "bash") {
+		t.Errorf("renderToolCallStart should contain tool name, got %q", result)
+	}
+}
+
+func TestRenderToolCallStart_Depth2(t *testing.T) {
+	result := renderToolCallStart("bash", `{"command":"ls"}`, 2)
+	if !strings.HasPrefix(result, "        ") {
+		t.Errorf("renderToolCallStart at depth 2 should start with 8 spaces, got %q", result)
+	}
+}
+
+func TestRenderToolCallResult_Indented(t *testing.T) {
+	result := renderToolCallResult("bash", "output text", 1)
+	if !strings.HasPrefix(result, "    ") {
+		t.Errorf("renderToolCallResult at depth 1 should start with 4 spaces, got %q", result)
+	}
+}
+
+func TestRenderSubAgentStart_Indented(t *testing.T) {
+	result := renderSubAgentStart("coder", "step1", "do coding", 1, 3, 1)
+	if !strings.HasPrefix(result, "    ") {
+		t.Errorf("renderSubAgentStart at depth 1 should start with 4 spaces, got %q", result)
+	}
+	if !strings.Contains(result, "coder") {
+		t.Errorf("renderSubAgentStart should contain agent name, got %q", result)
+	}
+}
+
+func TestRenderSubAgentEnd_Indented(t *testing.T) {
+	result := renderSubAgentEnd("coder", "step1", 5000, 3, 1500, 1)
+	if !strings.HasPrefix(result, "    ") {
+		t.Errorf("renderSubAgentEnd at depth 1 should start with 4 spaces, got %q", result)
+	}
+	if !strings.Contains(result, "coder") {
+		t.Errorf("renderSubAgentEnd should contain agent name, got %q", result)
+	}
+}
+
+func TestRenderPhaseTransition_NoIndent(t *testing.T) {
+	result := renderPhaseTransition("explore", 1, 3, true)
+	if strings.HasPrefix(result, " ") {
+		t.Errorf("renderPhaseTransition should not start with spaces, got %q", result)
+	}
+}
+
 func TestIsExitCommand(t *testing.T) {
 	tests := []struct {
 		input string

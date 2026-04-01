@@ -103,6 +103,10 @@ type model struct {
 	status sessionStatus
 	output strings.Builder
 
+	// Nesting depth for indentation. 0 = top-level agent,
+	// 1 = inside a sub-agent, etc.
+	nestingDepth int
+
 	// Sub-agent metrics tracking.
 	toolCallCount int // tool calls in current sub-agent
 
@@ -138,6 +142,13 @@ func newModel(app *App, ctx context.Context) *model {
 	}
 
 	return m
+}
+
+// toolDepth returns the indent depth for tool call output.
+// Tools are always indented at least 1 level, and 1 level deeper than
+// any active sub-agent.
+func (m *model) toolDepth() int {
+	return m.nestingDepth + 1
 }
 
 // escapeSeqRe matches ANSI escape sequences and OSC responses that terminals
@@ -260,8 +271,8 @@ func (m *model) View() string {
 
 	// Show current streaming output above input (live, not yet committed to scrollback).
 	if m.output.Len() > 0 {
-		sb.WriteString(agentStyle.Render("Agent: "))
-		sb.WriteString(m.output.String())
+		line := agentStyle.Render("Agent: ") + m.output.String()
+		sb.WriteString(indentBlock(line, m.nestingDepth))
 		sb.WriteString("\n")
 	}
 
@@ -418,7 +429,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			flushCmd := m.flushAgentOutput()
 
 			m.toolCallCount++
-			rendered := renderToolCallStart(data.ToolName, data.Arguments)
+			rendered := renderToolCallStart(data.ToolName, data.Arguments, m.toolDepth())
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "tool",
 				Content:   rendered,
@@ -441,7 +452,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
-			rendered := renderToolCallResult(data.ToolName, resultText)
+			rendered := renderToolCallResult(data.ToolName, resultText, m.toolDepth())
 			if rendered != "" {
 				m.app.messages = append(m.app.messages, DisplayMessage{
 					Role:      "tool_result",
@@ -494,8 +505,9 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 	case schema.EventSubAgentStart:
 		if data, ok := event.Data.(schema.SubAgentStartData); ok {
+			m.nestingDepth++
 			m.toolCallCount = 0 // reset tool call counter
-			rendered := renderSubAgentStart(data.AgentName, data.StepID, data.Description, data.StepIndex, data.TotalSteps)
+			rendered := renderSubAgentStart(data.AgentName, data.StepID, data.Description, data.StepIndex, data.TotalSteps, m.nestingDepth)
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "subagent",
 				Content:   rendered,
@@ -514,7 +526,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			if toolCalls == 0 {
 				toolCalls = m.toolCallCount
 			}
-			rendered := renderSubAgentEnd(data.AgentName, data.StepID, data.Duration, toolCalls, data.TokensUsed)
+			rendered := renderSubAgentEnd(data.AgentName, data.StepID, data.Duration, toolCalls, data.TokensUsed, m.nestingDepth)
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "subagent",
 				Content:   rendered,
@@ -522,6 +534,10 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				Rendered:  true,
 			})
 			m.toolCallCount = 0
+			m.nestingDepth--
+			if m.nestingDepth < 0 {
+				m.nestingDepth = 0
+			}
 			return m, tea.Batch(flushCmd, tea.Println(rendered))
 		}
 
@@ -614,7 +630,7 @@ func (m *model) flushAgentOutput() tea.Cmd {
 	}
 
 	text := m.output.String()
-	rendered := renderAgentMessage(text, m.width-4)
+	rendered := renderAgentMessage(text, m.width-4-(m.nestingDepth*indentUnit))
 
 	m.app.messages = append(m.app.messages, DisplayMessage{
 		Role:      "agent",
@@ -625,7 +641,9 @@ func (m *model) flushAgentOutput() tea.Cmd {
 
 	m.output.Reset()
 
-	return tea.Println(agentStyle.Render("Agent: ") + rendered)
+	line := agentStyle.Render("Agent: ") + rendered
+
+	return tea.Println(indentBlock(line, m.nestingDepth))
 }
 
 // agentMessage creates an aimodel.Message from agent text.
