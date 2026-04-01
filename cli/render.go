@@ -215,6 +215,11 @@ func renderPhaseTransition(phase string, starting bool, depth int) string {
 	return indentBlock(sb.String(), depth)
 }
 
+// renderPhaseSummary renders a phase summary (e.g., plan overview) with dim styling.
+func renderPhaseSummary(summary string, depth int) string {
+	return indentBlock(dimStyle.Render(summary), depth)
+}
+
 // extractToolSummary extracts a compact summary from tool arguments.
 func extractToolSummary(toolName, arguments string) string {
 	var args map[string]any

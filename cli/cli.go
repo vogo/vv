@@ -350,7 +350,7 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	// Add user message to display and history.
 	m.app.messages = append(m.app.messages, DisplayMessage{
-		Role:      "user",
+		Role:      RoleUser,
 		Content:   input,
 		Timestamp: time.Now(),
 	})
@@ -431,7 +431,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			m.toolCallCount++
 			rendered := renderToolCallStart(data.ToolName, data.Arguments, m.toolDepth())
 			m.app.messages = append(m.app.messages, DisplayMessage{
-				Role:      "tool",
+				Role:      RoleTool,
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
@@ -455,7 +455,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			rendered := renderToolCallResult(data.ToolName, resultText, m.toolDepth())
 			if rendered != "" {
 				m.app.messages = append(m.app.messages, DisplayMessage{
-					Role:      "tool_result",
+					Role:      RoleToolResult,
 					Content:   rendered,
 					Timestamp: time.Now(),
 					Rendered:  true,
@@ -482,7 +482,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		if data, ok := event.Data.(schema.PhaseStartData); ok {
 			rendered := renderPhaseTransition(data.Phase, true, 0)
 			m.app.messages = append(m.app.messages, DisplayMessage{
-				Role:      "phase",
+				Role:      RolePhase,
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
@@ -492,15 +492,30 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 	case schema.EventPhaseEnd:
 		if data, ok := event.Data.(schema.PhaseEndData); ok {
+			var cmds []tea.Cmd
+
+			// Render phase summary if available (e.g., plan overview).
+			if data.Summary != "" {
+				summary := renderPhaseSummary(data.Summary, 1)
+				m.app.messages = append(m.app.messages, DisplayMessage{
+					Role:      RolePhase,
+					Content:   summary,
+					Timestamp: time.Now(),
+					Rendered:  true,
+				})
+				cmds = append(cmds, tea.Println(summary))
+			}
+
 			rendered := renderPhaseTransition(data.Phase, false, 1)
-			_ = data.Duration // available if needed
 			m.app.messages = append(m.app.messages, DisplayMessage{
-				Role:      "phase",
+				Role:      RolePhase,
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
 			})
-			return m, tea.Println(rendered)
+			cmds = append(cmds, tea.Println(rendered))
+
+			return m, tea.Batch(cmds...)
 		}
 
 	case schema.EventSubAgentStart:
@@ -509,7 +524,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			m.toolCallCount = 0 // reset tool call counter
 			rendered := renderSubAgentStart(data.AgentName, data.StepID, data.Description, data.StepIndex, data.TotalSteps, m.nestingDepth)
 			m.app.messages = append(m.app.messages, DisplayMessage{
-				Role:      "subagent",
+				Role:      RoleSubAgent,
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
@@ -528,7 +543,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			}
 			rendered := renderSubAgentEnd(data.AgentName, data.StepID, data.Duration, toolCalls, data.TokensUsed, m.nestingDepth)
 			m.app.messages = append(m.app.messages, DisplayMessage{
-				Role:      "subagent",
+				Role:      RoleSubAgent,
 				Content:   rendered,
 				Timestamp: time.Now(),
 				Rendered:  true,
@@ -605,7 +620,7 @@ func (m *model) handleConfirmRequest(msg confirmRequestMsg) (tea.Model, tea.Cmd)
 // printSystem stores a system message and returns a tea.Cmd to print it to scrollback.
 func (m *model) printSystem(text string) tea.Cmd {
 	m.app.messages = append(m.app.messages, DisplayMessage{
-		Role:      "system",
+		Role:      RoleSystem,
 		Content:   text,
 		Timestamp: time.Now(),
 	})
@@ -615,7 +630,7 @@ func (m *model) printSystem(text string) tea.Cmd {
 // printError stores an error message and returns a tea.Cmd to print it to scrollback.
 func (m *model) printError(text string) tea.Cmd {
 	m.app.messages = append(m.app.messages, DisplayMessage{
-		Role:      "error",
+		Role:      RoleError,
 		Content:   text,
 		Timestamp: time.Now(),
 	})
@@ -633,7 +648,7 @@ func (m *model) flushAgentOutput() tea.Cmd {
 	rendered := renderAgentMessage(text, m.width-4-(m.nestingDepth*indentUnit))
 
 	m.app.messages = append(m.app.messages, DisplayMessage{
-		Role:      "agent",
+		Role:      RoleAgent,
 		Content:   rendered,
 		Timestamp: time.Now(),
 		Rendered:  true,

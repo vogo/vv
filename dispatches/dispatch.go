@@ -2,7 +2,9 @@ package dispatches
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/vogo/aimodel"
@@ -212,8 +214,10 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 		planStart := time.Now()
 		result, planUsage, planErr := d.classifyStream(ctx, req, contextSummary, send)
 
+		planSummary := buildPlanSummary(result)
+
 		if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase: "plan", Duration: time.Since(planStart).Milliseconds(),
+			Phase: "plan", Duration: time.Since(planStart).Milliseconds(), Summary: planSummary,
 		})); err != nil {
 			return err
 		}
@@ -262,6 +266,31 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 
 		return dispatchErr
 	}), nil
+}
+
+// buildPlanSummary builds a human-readable summary of the plan result.
+func buildPlanSummary(result *ClassifyResult) string {
+	if result == nil {
+		return ""
+	}
+
+	if result.Mode == "direct" {
+		return fmt.Sprintf("Direct → %s", result.Agent)
+	}
+
+	if result.Plan == nil || len(result.Plan.Steps) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	sb.WriteString(result.Plan.Goal)
+
+	for i, step := range result.Plan.Steps {
+		fmt.Fprintf(&sb, "\n  %d. [%s] %s", i+1, step.Agent, step.Description)
+	}
+
+	return sb.String()
 }
 
 // Compile-time interface checks.

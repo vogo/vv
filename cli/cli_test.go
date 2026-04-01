@@ -85,11 +85,11 @@ func TestDisplayMessageRendering(t *testing.T) {
 		role    string
 		content string
 	}{
-		{"user", "hello"},
-		{"agent", "response"},
-		{"system", "info"},
-		{"tool", "tool output"},
-		{"error", "something went wrong"},
+		{RoleUser, "hello"},
+		{RoleAgent, "response"},
+		{RoleSystem, "info"},
+		{RoleTool, "tool output"},
+		{RoleError, "something went wrong"},
 	}
 
 	for _, tt := range tests {

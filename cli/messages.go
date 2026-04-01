@@ -32,9 +32,21 @@ const (
 	statusQuitting
 )
 
+// Display message role constants.
+const (
+	RoleUser       = "user"
+	RoleAgent      = "agent"
+	RoleSystem     = "system"
+	RoleTool       = "tool"
+	RoleToolResult = "tool_result"
+	RoleError      = "error"
+	RolePhase      = "phase"
+	RoleSubAgent   = "subagent"
+)
+
 // DisplayMessage represents a rendered message in the conversation history.
 type DisplayMessage struct {
-	Role      string // "user", "agent", "system", "tool", "tool_result", "error", "phase", "subagent"
+	Role      string
 	Content   string // rendered text content
 	Timestamp time.Time
 	Rendered  bool // true if Content is already styled (skip default styling in refreshViewport)
