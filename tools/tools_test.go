@@ -21,12 +21,12 @@ func TestRegister_AllRegistered(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"bash":       false,
-		"file_read":  false,
-		"file_write": false,
-		"file_edit":  false,
-		"glob":       false,
-		"grep":       false,
+		"bash":  false,
+		"read":  false,
+		"write": false,
+		"edit":  false,
+		"glob":  false,
+		"grep":  false,
 	}
 
 	for _, td := range tools {

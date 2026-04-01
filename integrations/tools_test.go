@@ -19,12 +19,12 @@ func TestIntegration_Tools_AllRegistered(t *testing.T) {
 	}
 
 	expectedNames := map[string]bool{
-		"bash":       false,
-		"file_read":  false,
-		"file_write": false,
-		"file_edit":  false,
-		"glob":       false,
-		"grep":       false,
+		"bash":  false,
+		"read":  false,
+		"write": false,
+		"edit":  false,
+		"glob":  false,
+		"grep":  false,
 	}
 
 	for _, td := range toolList {
@@ -84,14 +84,14 @@ func TestIntegration_Tools_RegisterReadOnly(t *testing.T) {
 		names[td.Name] = true
 	}
 
-	for _, want := range []string{"file_read", "glob", "grep"} {
+	for _, want := range []string{"read", "glob", "grep"} {
 		if !names[want] {
 			t.Errorf("read-only registry missing tool %q", want)
 		}
 	}
 
 	// Verify dangerous tools are absent.
-	for _, absent := range []string{"bash", "file_write", "file_edit"} {
+	for _, absent := range []string{"bash", "write", "edit"} {
 		if names[absent] {
 			t.Errorf("read-only registry should not have tool %q", absent)
 		}
@@ -115,14 +115,14 @@ func TestIntegration_Tools_RegisterReviewTools(t *testing.T) {
 		names[td.Name] = true
 	}
 
-	for _, want := range []string{"bash", "file_read", "glob", "grep"} {
+	for _, want := range []string{"bash", "read", "glob", "grep"} {
 		if !names[want] {
 			t.Errorf("review registry missing tool %q", want)
 		}
 	}
 
 	// Verify write/edit tools are absent.
-	for _, absent := range []string{"file_write", "file_edit"} {
+	for _, absent := range []string{"write", "edit"} {
 		if names[absent] {
 			t.Errorf("review registry should not have tool %q", absent)
 		}

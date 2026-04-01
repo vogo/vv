@@ -133,6 +133,8 @@ func renderToolCallResult(toolName, resultText string, depth int) string {
 
 	// Show compact change summary for write/edit tools.
 	switch toolName {
+	case "read":
+		// Suppress file content — the tool call start already shows the file path.
 	case "write", "edit":
 		summary := extractChangeSummary(resultText)
 		if summary != "" {
@@ -236,13 +238,13 @@ func extractToolSummary(toolName, arguments string) string {
 	}
 
 	switch toolName {
-	case "read", "write":
+	case "read":
 		if fp, ok := args["file_path"].(string); ok {
-			return shortenPath(fp)
+			return fp
 		}
-	case "edit":
+	case "write", "edit":
 		if fp, ok := args["file_path"].(string); ok {
-			return shortenPath(fp)
+			return fp
 		}
 	case "glob":
 		if pat, ok := args["pattern"].(string); ok {
@@ -292,15 +294,6 @@ func extractChangeSummary(resultText string) string {
 	}
 
 	return ""
-}
-
-// shortenPath shortens a file path for display by keeping the last few components.
-func shortenPath(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) <= 3 {
-		return path
-	}
-	return ".../" + strings.Join(parts[len(parts)-3:], "/")
 }
 
 // formatDuration formats milliseconds into a human-readable duration.

@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vage/tool/bashtool"
-	"github.com/vogo/vage/tool/edittool"
-	"github.com/vogo/vage/tool/globtool"
-	"github.com/vogo/vage/tool/greptool"
-	"github.com/vogo/vage/tool/readtool"
-	"github.com/vogo/vage/tool/writetool"
+	"github.com/vogo/vage/tool/bash"
+	"github.com/vogo/vage/tool/edit"
+	"github.com/vogo/vage/tool/glob"
+	"github.com/vogo/vage/tool/grep"
+	"github.com/vogo/vage/tool/read"
+	"github.com/vogo/vage/tool/write"
 	"github.com/vogo/vv/configs"
 )
 
@@ -84,40 +84,40 @@ func (p ToolProfile) BuildRegistry(toolsCfg configs.ToolsConfig) (*tool.Registry
 func registerCapabilityTools(reg *tool.Registry, cap ToolCapability, cfg configs.ToolsConfig) error {
 	switch cap {
 	case CapRead:
-		return readtool.Register(reg)
+		return read.Register(reg)
 	case CapWrite:
-		if err := writetool.Register(reg); err != nil {
+		if err := write.Register(reg); err != nil {
 			return err
 		}
 
-		return edittool.Register(reg)
+		return edit.Register(reg)
 	case CapExecute:
-		var bashOpts []bashtool.Option
+		var bashOpts []bash.Option
 		if cfg.BashTimeout > 0 {
-			bashOpts = append(bashOpts, bashtool.WithTimeout(time.Duration(cfg.BashTimeout)*time.Second))
+			bashOpts = append(bashOpts, bash.WithTimeout(time.Duration(cfg.BashTimeout)*time.Second))
 		}
 
 		if cfg.BashWorkingDir != "" {
-			bashOpts = append(bashOpts, bashtool.WithWorkingDir(cfg.BashWorkingDir))
+			bashOpts = append(bashOpts, bash.WithWorkingDir(cfg.BashWorkingDir))
 		}
 
-		return bashtool.Register(reg, bashOpts...)
+		return bash.Register(reg, bashOpts...)
 	case CapSearch:
-		var globOpts []globtool.Option
+		var globOpts []glob.Option
 		if cfg.BashWorkingDir != "" {
-			globOpts = append(globOpts, globtool.WithWorkingDir(cfg.BashWorkingDir))
+			globOpts = append(globOpts, glob.WithWorkingDir(cfg.BashWorkingDir))
 		}
 
-		if err := globtool.Register(reg, globOpts...); err != nil {
+		if err := glob.Register(reg, globOpts...); err != nil {
 			return err
 		}
 
-		var grepOpts []greptool.Option
+		var grepOpts []grep.Option
 		if cfg.BashWorkingDir != "" {
-			grepOpts = append(grepOpts, greptool.WithWorkingDir(cfg.BashWorkingDir))
+			grepOpts = append(grepOpts, grep.WithWorkingDir(cfg.BashWorkingDir))
 		}
 
-		return greptool.Register(reg, grepOpts...)
+		return grep.Register(reg, grepOpts...)
 	default:
 		return fmt.Errorf("unknown capability: %s", cap)
 	}

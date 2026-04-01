@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/vogo/vage/tool"
-	"github.com/vogo/vage/tool/bashtool"
-	"github.com/vogo/vage/tool/edittool"
-	"github.com/vogo/vage/tool/globtool"
-	"github.com/vogo/vage/tool/greptool"
-	"github.com/vogo/vage/tool/readtool"
-	"github.com/vogo/vage/tool/writetool"
+	"github.com/vogo/vage/tool/bash"
+	"github.com/vogo/vage/tool/edit"
+	"github.com/vogo/vage/tool/glob"
+	"github.com/vogo/vage/tool/grep"
+	"github.com/vogo/vage/tool/read"
+	"github.com/vogo/vage/tool/write"
 	"github.com/vogo/vv/configs"
 )
 
@@ -19,51 +19,51 @@ func Register(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	reg := tool.NewRegistry()
 
 	// bash
-	var bashOpts []bashtool.Option
+	var bashOpts []bash.Option
 	if cfg.BashTimeout > 0 {
-		bashOpts = append(bashOpts, bashtool.WithTimeout(time.Duration(cfg.BashTimeout)*time.Second))
+		bashOpts = append(bashOpts, bash.WithTimeout(time.Duration(cfg.BashTimeout)*time.Second))
 	}
 
 	if cfg.BashWorkingDir != "" {
-		bashOpts = append(bashOpts, bashtool.WithWorkingDir(cfg.BashWorkingDir))
+		bashOpts = append(bashOpts, bash.WithWorkingDir(cfg.BashWorkingDir))
 	}
 
-	if err := bashtool.Register(reg, bashOpts...); err != nil {
+	if err := bash.Register(reg, bashOpts...); err != nil {
 		return nil, fmt.Errorf("register bash tool: %w", err)
 	}
 
 	// read
-	if err := readtool.Register(reg); err != nil {
+	if err := read.Register(reg); err != nil {
 		return nil, fmt.Errorf("register read tool: %w", err)
 	}
 
 	// write
-	if err := writetool.Register(reg); err != nil {
+	if err := write.Register(reg); err != nil {
 		return nil, fmt.Errorf("register write tool: %w", err)
 	}
 
 	// edit
-	if err := edittool.Register(reg); err != nil {
+	if err := edit.Register(reg); err != nil {
 		return nil, fmt.Errorf("register edit tool: %w", err)
 	}
 
 	// glob
-	var globOpts []globtool.Option
+	var globOpts []glob.Option
 	if cfg.BashWorkingDir != "" {
-		globOpts = append(globOpts, globtool.WithWorkingDir(cfg.BashWorkingDir))
+		globOpts = append(globOpts, glob.WithWorkingDir(cfg.BashWorkingDir))
 	}
 
-	if err := globtool.Register(reg, globOpts...); err != nil {
+	if err := glob.Register(reg, globOpts...); err != nil {
 		return nil, fmt.Errorf("register glob tool: %w", err)
 	}
 
 	// grep
-	var grepOpts []greptool.Option
+	var grepOpts []grep.Option
 	if cfg.BashWorkingDir != "" {
-		grepOpts = append(grepOpts, greptool.WithWorkingDir(cfg.BashWorkingDir))
+		grepOpts = append(grepOpts, grep.WithWorkingDir(cfg.BashWorkingDir))
 	}
 
-	if err := greptool.Register(reg, grepOpts...); err != nil {
+	if err := grep.Register(reg, grepOpts...); err != nil {
 		return nil, fmt.Errorf("register grep tool: %w", err)
 	}
 
@@ -75,27 +75,27 @@ func RegisterReadOnly(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	reg := tool.NewRegistry()
 
 	// read
-	if err := readtool.Register(reg); err != nil {
+	if err := read.Register(reg); err != nil {
 		return nil, fmt.Errorf("register read tool: %w", err)
 	}
 
 	// glob
-	var globOpts []globtool.Option
+	var globOpts []glob.Option
 	if cfg.BashWorkingDir != "" {
-		globOpts = append(globOpts, globtool.WithWorkingDir(cfg.BashWorkingDir))
+		globOpts = append(globOpts, glob.WithWorkingDir(cfg.BashWorkingDir))
 	}
 
-	if err := globtool.Register(reg, globOpts...); err != nil {
+	if err := glob.Register(reg, globOpts...); err != nil {
 		return nil, fmt.Errorf("register glob tool: %w", err)
 	}
 
 	// grep
-	var grepOpts []greptool.Option
+	var grepOpts []grep.Option
 	if cfg.BashWorkingDir != "" {
-		grepOpts = append(grepOpts, greptool.WithWorkingDir(cfg.BashWorkingDir))
+		grepOpts = append(grepOpts, grep.WithWorkingDir(cfg.BashWorkingDir))
 	}
 
-	if err := greptool.Register(reg, grepOpts...); err != nil {
+	if err := grep.Register(reg, grepOpts...); err != nil {
 		return nil, fmt.Errorf("register grep tool: %w", err)
 	}
 
@@ -107,41 +107,41 @@ func RegisterReviewTools(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	reg := tool.NewRegistry()
 
 	// bash
-	var bashOpts []bashtool.Option
+	var bashOpts []bash.Option
 	if cfg.BashTimeout > 0 {
-		bashOpts = append(bashOpts, bashtool.WithTimeout(time.Duration(cfg.BashTimeout)*time.Second))
+		bashOpts = append(bashOpts, bash.WithTimeout(time.Duration(cfg.BashTimeout)*time.Second))
 	}
 
 	if cfg.BashWorkingDir != "" {
-		bashOpts = append(bashOpts, bashtool.WithWorkingDir(cfg.BashWorkingDir))
+		bashOpts = append(bashOpts, bash.WithWorkingDir(cfg.BashWorkingDir))
 	}
 
-	if err := bashtool.Register(reg, bashOpts...); err != nil {
+	if err := bash.Register(reg, bashOpts...); err != nil {
 		return nil, fmt.Errorf("register bash tool: %w", err)
 	}
 
 	// read
-	if err := readtool.Register(reg); err != nil {
+	if err := read.Register(reg); err != nil {
 		return nil, fmt.Errorf("register read tool: %w", err)
 	}
 
 	// glob
-	var globOpts []globtool.Option
+	var globOpts []glob.Option
 	if cfg.BashWorkingDir != "" {
-		globOpts = append(globOpts, globtool.WithWorkingDir(cfg.BashWorkingDir))
+		globOpts = append(globOpts, glob.WithWorkingDir(cfg.BashWorkingDir))
 	}
 
-	if err := globtool.Register(reg, globOpts...); err != nil {
+	if err := glob.Register(reg, globOpts...); err != nil {
 		return nil, fmt.Errorf("register glob tool: %w", err)
 	}
 
 	// grep
-	var grepOpts []greptool.Option
+	var grepOpts []grep.Option
 	if cfg.BashWorkingDir != "" {
-		grepOpts = append(grepOpts, greptool.WithWorkingDir(cfg.BashWorkingDir))
+		grepOpts = append(grepOpts, grep.WithWorkingDir(cfg.BashWorkingDir))
 	}
 
-	if err := greptool.Register(reg, grepOpts...); err != nil {
+	if err := grep.Register(reg, grepOpts...); err != nil {
 		return nil, fmt.Errorf("register grep tool: %w", err)
 	}
 

@@ -22,10 +22,10 @@ import (
 	"github.com/vogo/vv/tools"
 )
 
-// --- Test 1a: Coder has all 6 tools (bash, file_read, file_write, file_edit, glob, grep) ---
+// --- Test 1a: Coder has all 6 tools (bash, read, write, edit, glob, grep) ---
 // Test cases:
 //   - Coder agent has exactly 6 tools registered
-//   - All expected tool names are present: bash, file_read, file_write, file_edit, glob, grep
+//   - All expected tool names are present: bash, read, write, edit, glob, grep
 func TestIntegration_Agents_CoderHasTools(t *testing.T) {
 	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestIntegration_Agents_CoderHasTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"bash", "file_read", "file_write", "file_edit", "glob", "grep"} {
+	for _, name := range []string{"bash", "read", "write", "edit", "glob", "grep"} {
 		if !toolNames[name] {
 			t.Errorf("coder missing tool %q", name)
 		}
@@ -102,10 +102,10 @@ func TestIntegration_Agents_ChatHasNoTools(t *testing.T) {
 	}
 }
 
-// --- Test 2: Researcher agent has exactly read-only tools (file_read, glob, grep) and no write/edit/bash ---
+// --- Test 2: Researcher agent has exactly read-only tools (read, glob, grep) and no write/edit/bash ---
 // Test cases:
 //   - Researcher agent has exactly 3 tools
-//   - All expected tools present: file_read, glob, grep
+//   - All expected tools present: read, glob, grep
 //   - Write/edit/bash tools are NOT present
 func TestIntegration_Agents_ResearcherHasReadOnlyTools(t *testing.T) {
 	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
@@ -142,24 +142,24 @@ func TestIntegration_Agents_ResearcherHasReadOnlyTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"file_read", "glob", "grep"} {
+	for _, name := range []string{"read", "glob", "grep"} {
 		if !toolNames[name] {
 			t.Errorf("researcher missing tool %q", name)
 		}
 	}
 
 	// Verify researcher does NOT have write/edit/bash.
-	for _, name := range []string{"bash", "file_write", "file_edit"} {
+	for _, name := range []string{"bash", "write", "edit"} {
 		if toolNames[name] {
 			t.Errorf("researcher should not have tool %q", name)
 		}
 	}
 }
 
-// --- Test 3: Reviewer agent has read + bash tools (file_read, glob, grep, bash) but not write/edit ---
+// --- Test 3: Reviewer agent has read + bash tools (read, glob, grep, bash) but not write/edit ---
 // Test cases:
 //   - Reviewer agent has exactly 4 tools
-//   - All expected tools present: bash, file_read, glob, grep
+//   - All expected tools present: bash, read, glob, grep
 //   - Write/edit tools are NOT present
 func TestIntegration_Agents_ReviewerHasCorrectTools(t *testing.T) {
 	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
@@ -196,14 +196,14 @@ func TestIntegration_Agents_ReviewerHasCorrectTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"bash", "file_read", "glob", "grep"} {
+	for _, name := range []string{"bash", "read", "glob", "grep"} {
 		if !toolNames[name] {
 			t.Errorf("reviewer missing tool %q", name)
 		}
 	}
 
 	// Verify reviewer does NOT have write/edit.
-	for _, name := range []string{"file_write", "file_edit"} {
+	for _, name := range []string{"write", "edit"} {
 		if toolNames[name] {
 			t.Errorf("reviewer should not have tool %q", name)
 		}
@@ -1858,8 +1858,8 @@ func TestIntegration_DynamicAgents_ValidationFailures(t *testing.T) {
 // --- Design Test 5: Tool access level correctness ---
 // Verifies that dynamic agents with different tool access levels get correct registries.
 // Test cases:
-//   - Dynamic agent with tool_access "full" gets all 6 tools (bash, file_read, file_write, file_edit, glob, grep)
-//   - Dynamic agent with tool_access "read-only" gets 3 tools (file_read, glob, grep)
+//   - Dynamic agent with tool_access "full" gets all 6 tools (bash, read, write, edit, glob, grep)
+//   - Dynamic agent with tool_access "read-only" gets 3 tools (read, glob, grep)
 //   - Dynamic agent with tool_access "none" gets 0 tools
 //   - Base type "researcher" default gets read-only tools
 //   - Base type "chat" default gets no tools

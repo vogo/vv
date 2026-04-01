@@ -186,8 +186,8 @@ llm:
 cli:
   confirm_tools:
     - bash
-    - file_write
-    - file_edit
+    - write
+    - edit
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ cli:
 		t.Fatalf("confirm_tools len = %d, want 3", len(cfg.CLI.ConfirmTools))
 	}
 
-	expected := []string{"bash", "file_write", "file_edit"}
+	expected := []string{"bash", "write", "edit"}
 	for i, want := range expected {
 		if cfg.CLI.ConfirmTools[i] != want {
 			t.Errorf("confirm_tools[%d] = %q, want %q", i, cfg.CLI.ConfirmTools[i], want)
@@ -283,7 +283,7 @@ func TestIntegration_CLI_WrapRegistryWithConfirmTools(t *testing.T) {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	wrapped := vvcli.WrapRegistry(reg, []string{"bash", "file_write"})
+	wrapped := vvcli.WrapRegistry(reg, []string{"bash", "write"})
 
 	// Should be a different object.
 	if wrapped == reg {
@@ -343,16 +343,16 @@ func TestIntegration_CLI_ConfirmingExecutorPassthrough(t *testing.T) {
 	// Only "bash" is in the confirm list.
 	wrapped := vvcli.WrapRegistry(reg, []string{"bash"})
 
-	// Execute file_read (not in confirm list) -- should work without confirmation.
+	// Execute read (not in confirm list) -- should work without confirmation.
 	// Use a temp file to read.
 	tmpFile := filepath.Join(t.TempDir(), "test.txt")
 	if err := os.WriteFile(tmpFile, []byte("test content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := wrapped.Execute(context.Background(), "file_read", fmt.Sprintf(`{"file_path":%q}`, tmpFile))
+	result, err := wrapped.Execute(context.Background(), "read", fmt.Sprintf(`{"file_path":%q}`, tmpFile))
 	if err != nil {
-		t.Fatalf("Execute file_read: %v", err)
+		t.Fatalf("Execute read: %v", err)
 	}
 
 	if result.IsError {
@@ -386,7 +386,7 @@ func TestIntegration_CLI_AgentsCreateWithWrappedRegistry(t *testing.T) {
 	cfg := &configs.Config{
 		LLM:    configs.LLMConfig{Model: "test-model"},
 		Agents: configs.AgentsConfig{MaxIterations: 10},
-		CLI:    configs.CLIConfig{ConfirmTools: []string{"bash", "file_write"}},
+		CLI:    configs.CLIConfig{ConfirmTools: []string{"bash", "write"}},
 	}
 
 	// Wrap registry (as main.go does).
@@ -431,7 +431,7 @@ mode: "cli"
 cli:
   confirm_tools:
     - bash
-    - file_write
+    - write
 agents:
   max_iterations: 5
 tools:
@@ -776,8 +776,8 @@ mode: "cli"
 cli:
   confirm_tools:
     - bash
-    - file_write
-    - file_edit
+    - write
+    - edit
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -824,25 +824,25 @@ func TestIntegration_CLI_WrapRegistryPreservesExecution(t *testing.T) {
 	wrapped := vvcli.WrapRegistry(reg, []string{"bash"})
 
 	// Verify all 6 tools are still accessible via Get.
-	for _, name := range []string{"bash", "file_read", "file_write", "file_edit", "glob", "grep"} {
+	for _, name := range []string{"bash", "read", "write", "edit", "glob", "grep"} {
 		if _, ok := wrapped.Get(name); !ok {
 			t.Errorf("wrapped registry missing tool %q", name)
 		}
 	}
 
-	// Execute a non-confirmed tool (file_read) -- should work directly.
+	// Execute a non-confirmed tool (read) -- should work directly.
 	tmpFile := filepath.Join(t.TempDir(), "test.txt")
 	if err := os.WriteFile(tmpFile, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := wrapped.Execute(context.Background(), "file_read", fmt.Sprintf(`{"file_path":%q}`, tmpFile))
+	result, err := wrapped.Execute(context.Background(), "read", fmt.Sprintf(`{"file_path":%q}`, tmpFile))
 	if err != nil {
-		t.Fatalf("Execute file_read: %v", err)
+		t.Fatalf("Execute read: %v", err)
 	}
 
 	if result.IsError {
-		t.Error("file_read should succeed without confirmation")
+		t.Error("read should succeed without confirmation")
 	}
 }
 

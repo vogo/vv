@@ -90,7 +90,7 @@ func TestIntegration_SetupNew_AllAgentsCreated(t *testing.T) {
 // Verifies that the coder agent built through setup.New() has all 6 tools from ProfileFull.
 // Test cases:
 //   - Coder agent has exactly 6 tools
-//   - All expected tool names are present: bash, file_read, file_write, file_edit, glob, grep
+//   - All expected tool names are present: bash, read, write, edit, glob, grep
 func TestIntegration_SetupNew_CoderHasFullTools(t *testing.T) {
 	mock := &mockChatCompleter{}
 	cfg := &configs.Config{
@@ -124,7 +124,7 @@ func TestIntegration_SetupNew_CoderHasFullTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"bash", "file_read", "file_write", "file_edit", "glob", "grep"} {
+	for _, name := range []string{"bash", "read", "write", "edit", "glob", "grep"} {
 		if !toolNames[name] {
 			t.Errorf("coder missing tool %q", name)
 		}
@@ -134,7 +134,7 @@ func TestIntegration_SetupNew_CoderHasFullTools(t *testing.T) {
 // --- Test: setup.New() researcher has read-only tools (3 tools via ProfileReadOnly) ---
 // Test cases:
 //   - Researcher agent has exactly 3 tools
-//   - Expected tools: file_read, glob, grep
+//   - Expected tools: read, glob, grep
 //   - Write/edit/bash tools are NOT present
 func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 	mock := &mockChatCompleter{}
@@ -169,13 +169,13 @@ func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"file_read", "glob", "grep"} {
+	for _, name := range []string{"read", "glob", "grep"} {
 		if !toolNames[name] {
 			t.Errorf("researcher missing tool %q", name)
 		}
 	}
 
-	for _, name := range []string{"bash", "file_write", "file_edit"} {
+	for _, name := range []string{"bash", "write", "edit"} {
 		if toolNames[name] {
 			t.Errorf("researcher should not have tool %q", name)
 		}
@@ -185,7 +185,7 @@ func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 // --- Test: setup.New() reviewer has review tools (4 tools via ProfileReview) ---
 // Test cases:
 //   - Reviewer agent has exactly 4 tools
-//   - Expected tools: bash, file_read, glob, grep
+//   - Expected tools: bash, read, glob, grep
 //   - Write/edit tools are NOT present
 func TestIntegration_SetupNew_ReviewerHasReviewTools(t *testing.T) {
 	mock := &mockChatCompleter{}
@@ -220,13 +220,13 @@ func TestIntegration_SetupNew_ReviewerHasReviewTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"bash", "file_read", "glob", "grep"} {
+	for _, name := range []string{"bash", "read", "glob", "grep"} {
 		if !toolNames[name] {
 			t.Errorf("reviewer missing tool %q", name)
 		}
 	}
 
-	for _, name := range []string{"file_write", "file_edit"} {
+	for _, name := range []string{"write", "edit"} {
 		if toolNames[name] {
 			t.Errorf("reviewer should not have tool %q", name)
 		}
