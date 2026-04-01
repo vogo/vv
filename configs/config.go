@@ -61,8 +61,8 @@ type CLIConfig struct {
 type LLMConfig struct {
 	Provider string `yaml:"provider"` // "openai" or "anthropic"
 	Model    string `yaml:"model"`    // e.g. "gpt-4o", "claude-sonnet-4"
-	APIKey   string `yaml:"api_key"`  // overridden by VAGA_LLM_API_KEY; never log this value
-	BaseURL  string `yaml:"base_url"` // overridden by VAGA_LLM_BASE_URL
+	APIKey   string `yaml:"api_key"`  // overridden by VV_LLM_API_KEY; never log this value
+	BaseURL  string `yaml:"base_url"` // overridden by VV_LLM_BASE_URL
 }
 
 // ServerConfig holds HTTP server configuration.
@@ -102,27 +102,27 @@ func Load(path string, explicit bool) (*Config, error) {
 	}
 
 	// Apply environment variable overrides.
-	if v := os.Getenv("VAGA_LLM_API_KEY"); v != "" {
+	if v := os.Getenv("VV_LLM_API_KEY"); v != "" {
 		cfg.LLM.APIKey = v
 	}
 
-	if v := os.Getenv("VAGA_LLM_BASE_URL"); v != "" {
+	if v := os.Getenv("VV_LLM_BASE_URL"); v != "" {
 		cfg.LLM.BaseURL = v
 	}
 
-	if v := os.Getenv("VAGA_LLM_MODEL"); v != "" {
+	if v := os.Getenv("VV_LLM_MODEL"); v != "" {
 		cfg.LLM.Model = v
 	}
 
-	if v := os.Getenv("VAGA_LLM_PROVIDER"); v != "" {
+	if v := os.Getenv("VV_LLM_PROVIDER"); v != "" {
 		cfg.LLM.Provider = v
 	}
 
-	if v := os.Getenv("VAGA_SERVER_ADDR"); v != "" {
+	if v := os.Getenv("VV_SERVER_ADDR"); v != "" {
 		cfg.Server.Addr = v
 	}
 
-	if v := os.Getenv("VAGA_MODE"); v != "" {
+	if v := os.Getenv("VV_MODE"); v != "" {
 		cfg.Mode = v
 	}
 
@@ -269,7 +269,7 @@ func NewLLMClient(cfg LLMConfig) (*aimodel.Client, error) {
 		aimodel.WithDefaultModel(cfg.Model),
 	}
 
-	// Only set API key if explicitly configured (via YAML or VAGA_LLM_API_KEY).
+	// Only set API key if explicitly configured (via YAML or VV_LLM_API_KEY).
 	// Otherwise, let aimodel.NewClient fall back to its own env var reading
 	// (AI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY).
 	if cfg.APIKey != "" {

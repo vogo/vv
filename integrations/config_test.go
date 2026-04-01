@@ -78,11 +78,11 @@ server:
 		t.Fatal(err)
 	}
 
-	t.Setenv("VAGA_LLM_API_KEY", "env-key-override")
-	t.Setenv("VAGA_LLM_BASE_URL", "https://env.example.com")
-	t.Setenv("VAGA_LLM_MODEL", "env-model-override")
-	t.Setenv("VAGA_LLM_PROVIDER", "anthropic")
-	t.Setenv("VAGA_SERVER_ADDR", ":2222")
+	t.Setenv("VV_LLM_API_KEY", "env-key-override")
+	t.Setenv("VV_LLM_BASE_URL", "https://env.example.com")
+	t.Setenv("VV_LLM_MODEL", "env-model-override")
+	t.Setenv("VV_LLM_PROVIDER", "anthropic")
+	t.Setenv("VV_SERVER_ADDR", ":2222")
 
 	cfg, err := configs.Load(path, true)
 	if err != nil {

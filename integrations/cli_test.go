@@ -143,8 +143,8 @@ mode: "cli"
 	}
 }
 
-// --- Test: VAGA_MODE environment variable override ---
-// Verifies that VAGA_MODE env var overrides YAML mode setting.
+// --- Test: VV_MODE environment variable override ---
+// Verifies that VV_MODE env var overrides YAML mode setting.
 func TestIntegration_CLI_ConfigModeEnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "configs.yaml")
@@ -160,7 +160,7 @@ mode: "cli"
 		t.Fatal(err)
 	}
 
-	t.Setenv("VAGA_MODE", "http")
+	t.Setenv("VV_MODE", "http")
 
 	cfg, err := configs.Load(path, true)
 	if err != nil {
@@ -168,7 +168,7 @@ mode: "cli"
 	}
 
 	if cfg.Mode != "http" {
-		t.Errorf("mode = %q, want %q after VAGA_MODE override", cfg.Mode, "http")
+		t.Errorf("mode = %q, want %q after VV_MODE override", cfg.Mode, "http")
 	}
 }
 
@@ -872,13 +872,13 @@ func TestIntegration_CLI_ModeSelectionBranching(t *testing.T) {
 			wantMode: "http",
 		},
 		{
-			name:     "VAGA_MODE overrides YAML",
+			name:     "VV_MODE overrides YAML",
 			yaml:     "mode: cli",
 			envMode:  "http",
 			wantMode: "http",
 		},
 		{
-			name:     "VAGA_MODE sets mode when absent from YAML",
+			name:     "VV_MODE sets mode when absent from YAML",
 			yaml:     "",
 			envMode:  "http",
 			wantMode: "http",
@@ -895,7 +895,7 @@ func TestIntegration_CLI_ModeSelectionBranching(t *testing.T) {
 			}
 
 			if tt.envMode != "" {
-				t.Setenv("VAGA_MODE", tt.envMode)
+				t.Setenv("VV_MODE", tt.envMode)
 			}
 
 			cfg, err := configs.Load(path, true)

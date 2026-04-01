@@ -98,11 +98,11 @@ llm:
 		t.Fatal(err)
 	}
 
-	t.Setenv("VAGA_LLM_API_KEY", "env-key")
-	t.Setenv("VAGA_LLM_MODEL", "env-model")
-	t.Setenv("VAGA_LLM_PROVIDER", "anthropic")
-	t.Setenv("VAGA_LLM_BASE_URL", "https://env.api.com")
-	t.Setenv("VAGA_SERVER_ADDR", ":7070")
+	t.Setenv("VV_LLM_API_KEY", "env-key")
+	t.Setenv("VV_LLM_MODEL", "env-model")
+	t.Setenv("VV_LLM_PROVIDER", "anthropic")
+	t.Setenv("VV_LLM_BASE_URL", "https://env.api.com")
+	t.Setenv("VV_SERVER_ADDR", ":7070")
 
 	cfg, err := Load(path, true)
 	if err != nil {
@@ -436,7 +436,7 @@ mode: "cli"
 		t.Fatal(err)
 	}
 
-	t.Setenv("VAGA_MODE", "http")
+	t.Setenv("VV_MODE", "http")
 
 	cfg, err := Load(path, true)
 	if err != nil {
