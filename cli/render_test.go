@@ -157,10 +157,20 @@ func TestRenderSubAgentEnd_Indented(t *testing.T) {
 	}
 }
 
-func TestRenderPhaseTransition_NoIndent(t *testing.T) {
-	result := renderPhaseTransition("explore", 1, 3, true)
+func TestRenderPhaseTransition_StartNoIndent(t *testing.T) {
+	result := renderPhaseTransition("explore", true, 0)
 	if strings.HasPrefix(result, " ") {
-		t.Errorf("renderPhaseTransition should not start with spaces, got %q", result)
+		t.Errorf("renderPhaseTransition start should not start with spaces, got %q", result)
+	}
+}
+
+func TestRenderPhaseTransition_EndIndented(t *testing.T) {
+	result := renderPhaseTransition("explore", false, 1)
+	if !strings.HasPrefix(result, "    ") {
+		t.Errorf("renderPhaseTransition end should be indented 4 spaces, got %q", result)
+	}
+	if !strings.Contains(result, "phase complete") {
+		t.Errorf("renderPhaseTransition end should contain 'phase complete', got %q", result)
 	}
 }
 

@@ -17,15 +17,17 @@ var (
 	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))           // red
 
 	// Enhanced styles for Claude Code-like display.
-	bulletStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true) // green bullet
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // dim gray
-	toolNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true) // blue bold for tool names
-	phaseStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true) // yellow bold for phases
-	subAgentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true) // cyan bold for sub-agents
-	statsStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // dim for stats
-	addStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))            // green for additions
-	removeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))           // red for removals
-	filePathStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // dim for file paths
+	phaseBulletStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true) // yellow bullet for phases
+	toolBulletStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // gray bullet for tools
+	subAgentBulletStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true) // green bullet for sub-agents
+	dimStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // dim gray
+	toolNameStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true) // blue bold for tool names
+	phaseStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true) // yellow bold for phases
+	subAgentStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true) // cyan bold for sub-agents
+	statsStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // dim for stats
+	addStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))            // green for additions
+	removeStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))           // red for removals
+	filePathStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // dim for file paths
 )
 
 const (
@@ -96,14 +98,14 @@ func renderSystemMessage(text string) string {
 
 // renderToolMessage renders a tool-related message with bullet indicator.
 func renderToolMessage(text string) string {
-	return bulletStyle.Render(bullet) + toolStyle.Render(text)
+	return toolBulletStyle.Render(bullet) + toolStyle.Render(text)
 }
 
 // renderToolCallStart renders a tool call start with Claude Code-like formatting.
 // Shows: ● ToolName(file_path_or_summary)
 func renderToolCallStart(toolName, arguments string, depth int) string {
 	var sb strings.Builder
-	sb.WriteString(bulletStyle.Render(bullet))
+	sb.WriteString(toolBulletStyle.Render(bullet))
 	sb.WriteString(toolNameStyle.Render(toolName))
 
 	// Extract key info from arguments for compact display.
@@ -150,7 +152,7 @@ func renderToolCallResult(toolName, resultText string, depth int) string {
 // renderSubAgentStart renders a sub-agent start message.
 func renderSubAgentStart(agentName, stepID, description string, stepIndex, totalSteps int, depth int) string {
 	var sb strings.Builder
-	sb.WriteString(bulletStyle.Render(bullet))
+	sb.WriteString(subAgentBulletStyle.Render(bullet))
 
 	if stepIndex > 0 && totalSteps > 0 {
 		sb.WriteString(phaseStyle.Render(fmt.Sprintf("Step %d/%d: ", stepIndex, totalSteps)))
@@ -172,7 +174,7 @@ func renderSubAgentStart(agentName, stepID, description string, stepIndex, total
 // renderSubAgentEnd renders a sub-agent completion summary with stats.
 func renderSubAgentEnd(agentName, stepID string, durationMs int64, toolCalls, tokensUsed int, depth int) string {
 	var sb strings.Builder
-	sb.WriteString(bulletStyle.Render(bullet))
+	sb.WriteString(subAgentBulletStyle.Render(bullet))
 	sb.WriteString(subAgentStyle.Render(agentName))
 
 	if stepID != "" {
@@ -198,19 +200,19 @@ func renderSubAgentEnd(agentName, stepID string, durationMs int64, toolCalls, to
 }
 
 // renderPhaseTransition renders a phase start/end transition message.
-func renderPhaseTransition(phase string, phaseIndex, totalPhases int, starting bool) string {
+func renderPhaseTransition(phase string, starting bool, depth int) string {
 	var sb strings.Builder
-	sb.WriteString(bulletStyle.Render(bullet))
-
 	phaseName := strings.ToUpper(phase[:1]) + phase[1:]
 
 	if starting {
-		sb.WriteString(phaseStyle.Render(fmt.Sprintf("Phase %d/%d: %s", phaseIndex, totalPhases, phaseName)))
+		sb.WriteString(phaseBulletStyle.Render(bullet))
+		sb.WriteString(phaseStyle.Render(phaseName))
 	} else {
+		sb.WriteString(dimStyle.Render(bullet))
 		sb.WriteString(dimStyle.Render(fmt.Sprintf("%s phase complete.", phaseName)))
 	}
 
-	return sb.String()
+	return indentBlock(sb.String(), depth)
 }
 
 // extractToolSummary extracts a compact summary from tool arguments.

@@ -480,7 +480,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 	case schema.EventPhaseStart:
 		if data, ok := event.Data.(schema.PhaseStartData); ok {
-			rendered := renderPhaseTransition(data.Phase, data.PhaseIndex, data.TotalPhase, true)
+			rendered := renderPhaseTransition(data.Phase, true, 0)
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "phase",
 				Content:   rendered,
@@ -492,7 +492,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 	case schema.EventPhaseEnd:
 		if data, ok := event.Data.(schema.PhaseEndData); ok {
-			rendered := renderPhaseTransition(data.Phase, 0, 0, false)
+			rendered := renderPhaseTransition(data.Phase, false, 1)
 			_ = data.Duration // available if needed
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      "phase",
