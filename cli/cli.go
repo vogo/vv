@@ -426,7 +426,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case schema.EventToolCallStart:
 		if data, ok := event.Data.(schema.ToolCallStartData); ok {
 			// Flush any accumulated LLM text before showing the tool call.
-			flushCmd := m.flushAgentOutput()
+			flushLine := m.flushAgentOutputLine()
 
 			m.toolCallCount++
 			rendered := renderToolCallStart(data.ToolName, data.Arguments, m.toolDepth())
@@ -437,7 +437,11 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				Rendered:  true,
 			})
 
-			return m, tea.Batch(flushCmd, tea.Println(rendered))
+			if flushLine != "" {
+				return m, tea.Println(flushLine + "\n" + rendered)
+			}
+
+			return m, tea.Println(rendered)
 		}
 
 	case schema.EventToolCallEnd:
@@ -492,7 +496,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 	case schema.EventPhaseEnd:
 		if data, ok := event.Data.(schema.PhaseEndData); ok {
-			var cmds []tea.Cmd
+			var lines []string
 
 			// Render phase summary if available (e.g., plan overview).
 			if data.Summary != "" {
@@ -503,7 +507,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 					Timestamp: time.Now(),
 					Rendered:  true,
 				})
-				cmds = append(cmds, tea.Println(summary))
+				lines = append(lines, summary)
 			}
 
 			rendered := renderPhaseTransition(data.Phase, false, 1)
@@ -513,9 +517,9 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				Timestamp: time.Now(),
 				Rendered:  true,
 			})
-			cmds = append(cmds, tea.Println(rendered))
+			lines = append(lines, rendered)
 
-			return m, tea.Batch(cmds...)
+			return m, tea.Println(strings.Join(lines, "\n"))
 		}
 
 	case schema.EventSubAgentStart:
@@ -535,7 +539,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case schema.EventSubAgentEnd:
 		if data, ok := event.Data.(schema.SubAgentEndData); ok {
 			// Flush any remaining text from the sub-agent before showing its summary.
-			flushCmd := m.flushAgentOutput()
+			flushLine := m.flushAgentOutputLine()
 
 			toolCalls := data.ToolCalls
 			if toolCalls == 0 {
@@ -553,7 +557,12 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			if m.nestingDepth < 0 {
 				m.nestingDepth = 0
 			}
-			return m, tea.Batch(flushCmd, tea.Println(rendered))
+
+			if flushLine != "" {
+				return m, tea.Println(flushLine + "\n" + rendered)
+			}
+
+			return m, tea.Println(rendered)
 		}
 
 	// Suppress LLM call events for cleaner UX.
@@ -639,9 +648,11 @@ func (m *model) printError(text string) tea.Cmd {
 
 // flushAgentOutput finalizes any accumulated LLM text, returns a tea.Cmd to
 // print it to the terminal scrollback, and resets the output buffer.
-func (m *model) flushAgentOutput() tea.Cmd {
+// flushAgentOutputLine flushes accumulated agent text and returns the rendered line.
+// Returns empty string if there is nothing to flush.
+func (m *model) flushAgentOutputLine() string {
 	if m.output.Len() == 0 {
-		return nil
+		return ""
 	}
 
 	text := m.output.String()
@@ -658,7 +669,17 @@ func (m *model) flushAgentOutput() tea.Cmd {
 
 	line := agentStyle.Render("Agent: ") + rendered
 
-	return tea.Println(indentBlock(line, m.nestingDepth))
+	return indentBlock(line, m.nestingDepth)
+}
+
+// flushAgentOutput flushes accumulated agent text as a tea.Println command.
+func (m *model) flushAgentOutput() tea.Cmd {
+	line := m.flushAgentOutputLine()
+	if line == "" {
+		return nil
+	}
+
+	return tea.Println(line)
 }
 
 // agentMessage creates an aimodel.Message from agent text.
