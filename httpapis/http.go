@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
@@ -17,7 +18,7 @@ import (
 
 // Serve starts the HTTP server with agent and memory endpoints.
 // It blocks until the context is canceled or a fatal error occurs.
-func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory) error {
+func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore) error {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
@@ -42,6 +43,10 @@ func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, age
 	mux.HandleFunc("GET /v1/memory/{namespace}/{key}", handleGetMemory(persistentMem))
 	mux.HandleFunc("PUT /v1/memory/{namespace}/{key}", handleSetMemory(persistentMem))
 	mux.HandleFunc("DELETE /v1/memory/{namespace}/{key}", handleDeleteMemory(persistentMem))
+
+	if interactionStore != nil {
+		mux.HandleFunc("POST /v1/interactions/{interactionID}/respond", handleInteractionRespond(interactionStore))
+	}
 
 	slog.Info("vv: starting HTTP server", "addr", cfg.Server.Addr)
 
@@ -183,6 +188,37 @@ func handleDeleteMemory(mem memory.Memory) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	}
+}
+
+type interactionRespondRequest struct {
+	Response string `json:"response"`
+}
+
+func handleInteractionRespond(store *InteractionStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		interactionID := r.PathValue("interactionID")
+
+		var req interactionRespondRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"code": "bad_request", "message": "invalid request body"})
+			return
+		}
+
+		if err := store.Respond(interactionID, req.Response); err != nil {
+			// Distinguish between not found and already responded using the error
+			// message directly, avoiding a second store lookup that could race with
+			// the cleanup goroutine.
+			if strings.Contains(err.Error(), "already responded") {
+				writeJSON(w, http.StatusConflict, map[string]string{"code": "conflict", "message": err.Error()})
+			} else {
+				writeJSON(w, http.StatusNotFound, map[string]string{"code": "not_found", "message": err.Error()})
+			}
+
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
 	}
 }
 

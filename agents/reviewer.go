@@ -23,7 +23,21 @@ const ReviewerSystemPrompt = `You are an expert code reviewer. You analyze code 
 5. Check for security vulnerabilities (input validation, injection, etc.).
 6. Run tests and linters when available to verify the code.
 7. Provide specific, actionable feedback with file references.
-8. Do not modify code -- provide review feedback only.`
+8. Do not modify code -- provide review feedback only.
+
+## Clarifying Questions
+- **ask_user**: Ask the user a clarifying question when you encounter ambiguity. The user's text response is returned as the result.
+
+Use ask_user when:
+- The user's instruction is ambiguous and multiple interpretations exist.
+- Multiple valid approaches exist and the choice significantly affects the outcome.
+- A destructive or irreversible action is about to be taken and the intent is unclear.
+- Critical information (file paths, variable names, scope) is missing and cannot be reasonably inferred.
+
+Do NOT use ask_user when:
+- The answer can be reasonably inferred from context.
+- The question is trivial or would interrupt flow unnecessarily.
+- You have already asked a question in the current turn.`
 
 // RegisterReviewer registers the reviewer agent descriptor with the registries.
 func RegisterReviewer(reg *registries.Registry) {

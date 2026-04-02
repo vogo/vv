@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
@@ -12,6 +13,7 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/tool"
+	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/dispatches"
@@ -50,6 +52,8 @@ func (r *Result) Agent(id string) agent.Agent {
 // Options configures the setup process.
 type Options struct {
 	WrapToolRegistry func(*tool.Registry) tool.ToolRegistry // optional: wraps tool registries (e.g., CLI confirmation)
+	UserInteractor   askuser.UserInteractor                 // optional: interactor for ask_user tool
+	AskUserTimeout   time.Duration                          // optional: timeout for ask_user responses
 }
 
 // New reads config, registers all agents, and constructs the Dispatcher.
@@ -76,6 +80,13 @@ func New(
 		toolReg, err := desc.ToolProfile.BuildRegistry(cfg.Tools)
 		if err != nil {
 			return nil, fmt.Errorf("build tool registry for %q: %w", desc.ID, err)
+		}
+
+		// Register ask_user for agents that should have it.
+		// Skip chat (direct conversation; no need for ask_user tool).
+		if opts != nil && opts.UserInteractor != nil && desc.ID != "chat" {
+			askuserTool := askuser.New(opts.UserInteractor, askuser.WithTimeout(opts.AskUserTimeout))
+			_ = toolReg.RegisterIfAbsent(askuserTool.ToolDef(), askuserTool.Handler())
 		}
 
 		// Apply optional tool registry wrapping (e.g., CLI confirmation).

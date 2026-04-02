@@ -556,6 +556,45 @@ func TestNewLLMClient_EmptyProviderDefaultsToOpenAI(t *testing.T) {
 	}
 }
 
+func TestLoad_AskUserTimeout_Default(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Agents.AskUserTimeout != 300 {
+		t.Errorf("AskUserTimeout = %d, want 300", cfg.Agents.AskUserTimeout)
+	}
+}
+
+func TestLoad_AskUserTimeout_Custom(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+agents:
+  ask_user_timeout: 600
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Agents.AskUserTimeout != 600 {
+		t.Errorf("AskUserTimeout = %d, want 600", cfg.Agents.AskUserTimeout)
+	}
+}
+
 func TestLoad_OrchestrateConfig_Default(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

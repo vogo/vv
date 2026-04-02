@@ -9,8 +9,10 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/vogo/vage/tool"
+	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/httpapis"
@@ -101,7 +103,10 @@ func main() {
 			os.Exit(1)
 		}
 
-		initResult, initErr := setup.Init(cfg, &setup.Options{})
+		initResult, initErr := setup.Init(cfg, &setup.Options{
+			UserInteractor: askuser.NonInteractiveInteractor{},
+			AskUserTimeout: time.Duration(cfg.Agents.AskUserTimeout) * time.Second,
+		})
 		if initErr != nil {
 			slog.Error("vv: init", "error", initErr)
 			os.Exit(1)
@@ -120,10 +125,22 @@ func main() {
 
 	// Initialize LLM client, memory, and agents via setup package.
 	confirmTools := cfg.CLI.ConfirmTools
+	askUserTimeout := time.Duration(cfg.Agents.AskUserTimeout) * time.Second
+	cliInteractor := cli.NewCLIInteractor()
+
+	// Determine interactor based on run mode.
+	var interactor askuser.UserInteractor = cliInteractor
+
+	if cfg.Mode == "http" {
+		interactor = askuser.NonInteractiveInteractor{}
+	}
+
 	initResult, err := setup.Init(cfg, &setup.Options{
 		WrapToolRegistry: func(r *tool.Registry) tool.ToolRegistry {
 			return cli.WrapRegistry(r, confirmTools)
 		},
+		UserInteractor: interactor,
+		AskUserTimeout: askUserTimeout,
 	})
 	if err != nil {
 		slog.Error("vv: init", "error", err)
@@ -136,13 +153,14 @@ func main() {
 
 	switch cfg.Mode {
 	case "http":
-		if err := httpapis.Serve(ctx, cfg, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem); err != nil {
+		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
+		if err := httpapis.Serve(ctx, cfg, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
 			os.Exit(1)
 		}
 
 	default: // "cli" or any other value defaults to CLI mode.
-		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem)
+		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem, cliInteractor)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vv: CLI error", "error", err)
 			os.Exit(1)

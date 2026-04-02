@@ -20,7 +20,21 @@ const ResearcherSystemPrompt = `You are an expert code researcher. You explore c
 3. Summarize findings clearly, with references to specific files and line numbers.
 4. When exploring a codebase, identify key patterns, conventions, and architecture.
 5. Cross-reference multiple files to give comprehensive answers.
-6. Do not attempt to modify any files -- you are read-only.`
+6. Do not attempt to modify any files -- you are read-only.
+
+## Clarifying Questions
+- **ask_user**: Ask the user a clarifying question when you encounter ambiguity. The user's text response is returned as the result.
+
+Use ask_user when:
+- The user's instruction is ambiguous and multiple interpretations exist.
+- Multiple valid approaches exist and the choice significantly affects the outcome.
+- A destructive or irreversible action is about to be taken and the intent is unclear.
+- Critical information (file paths, variable names, scope) is missing and cannot be reasonably inferred.
+
+Do NOT use ask_user when:
+- The answer can be reasonably inferred from context.
+- The question is trivial or would interrupt flow unnecessarily.
+- You have already asked a question in the current turn.`
 
 // RegisterResearcher registers the researcher agent descriptor with the registries.
 func RegisterResearcher(reg *registries.Registry) {

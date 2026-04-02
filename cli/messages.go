@@ -29,6 +29,7 @@ const (
 	statusIdle sessionStatus = iota
 	statusProcessing
 	statusConfirming
+	statusAskingUser
 	statusQuitting
 )
 

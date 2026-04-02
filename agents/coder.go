@@ -23,7 +23,21 @@ const CoderSystemPrompt = `You are an expert software engineer. You have access 
 3. Prefer minimal, targeted edits over full file rewrites.
 4. Verify your changes by reading the file after editing or running relevant tests.
 5. Explain your reasoning and what you changed.
-6. When running commands, check the output for errors.`
+6. When running commands, check the output for errors.
+
+## Clarifying Questions
+- **ask_user**: Ask the user a clarifying question when you encounter ambiguity. The user's text response is returned as the result.
+
+Use ask_user when:
+- The user's instruction is ambiguous and multiple interpretations exist.
+- Multiple valid approaches exist and the choice significantly affects the outcome.
+- A destructive or irreversible action is about to be taken and the intent is unclear.
+- Critical information (file paths, variable names, scope) is missing and cannot be reasonably inferred.
+
+Do NOT use ask_user when:
+- The answer can be reasonably inferred from context.
+- The question is trivial or would interrupt flow unnecessarily.
+- You have already asked a question in the current turn.`
 
 // RegisterCoder registers the coder agent descriptor with the registries.
 func RegisterCoder(reg *registries.Registry) {

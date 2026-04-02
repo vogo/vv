@@ -265,7 +265,7 @@ func TestIntegration_CLI_AppConstruction(t *testing.T) {
 		CLI:  configs.CLIConfig{ConfirmTools: []string{"bash"}},
 	}
 
-	app := vvcli.New(orchestrator, cfg, nil)
+	app := vvcli.New(orchestrator, cfg, nil, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -615,7 +615,7 @@ func TestIntegration_CLI_OrchestratorWiring(t *testing.T) {
 		Agents: configs.AgentsConfig{MaxIterations: 5},
 	}
 
-	app := vvcli.New(orchestrator, cfg, nil)
+	app := vvcli.New(orchestrator, cfg, nil, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
 	}
@@ -685,7 +685,7 @@ func TestIntegration_CLI_MultiTurnHistory(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
 	cfg := &configs.Config{Mode: "cli"}
-	app := vvcli.New(orchestrator, cfg, nil)
+	app := vvcli.New(orchestrator, cfg, nil, nil)
 
 	// Simulate 3 turns of conversation by verifying message structure.
 	// Turn 1: user message.

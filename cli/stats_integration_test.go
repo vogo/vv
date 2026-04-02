@@ -14,7 +14,7 @@ import (
 // task-level stats from EventLLMCallEnd events across the lifetime of a request.
 func TestModelAccumulatesTaskStats(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "ok"}
-	app := New(orchestrator, &configs.Config{}, nil)
+	app := New(orchestrator, &configs.Config{}, nil, nil)
 	m := newModel(app, context.Background())
 
 	// Simulate task start.
@@ -49,7 +49,7 @@ func TestModelAccumulatesTaskStats(t *testing.T) {
 // the sub-agent and task level.
 func TestModelAccumulatesToolCalls(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "ok"}
-	app := New(orchestrator, &configs.Config{}, nil)
+	app := New(orchestrator, &configs.Config{}, nil, nil)
 	m := newModel(app, context.Background())
 
 	m.taskStart = time.Now()
@@ -79,7 +79,7 @@ func TestModelAccumulatesToolCalls(t *testing.T) {
 // are reset when a new sub-agent starts and after a sub-agent ends.
 func TestModelSubAgentStatsReset(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "ok"}
-	app := New(orchestrator, &configs.Config{}, nil)
+	app := New(orchestrator, &configs.Config{}, nil, nil)
 	m := newModel(app, context.Background())
 
 	m.taskStart = time.Now()
@@ -138,7 +138,7 @@ func TestModelSubAgentStatsReset(t *testing.T) {
 // locally tracked stats when SubAgentEndData has zero values (DAG path).
 func TestModelSubAgentFallbackStats(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "ok"}
-	app := New(orchestrator, &configs.Config{}, nil)
+	app := New(orchestrator, &configs.Config{}, nil, nil)
 	m := newModel(app, context.Background())
 
 	m.taskStart = time.Now()
@@ -323,7 +323,7 @@ func TestTaskCompleteRendering(t *testing.T) {
 // correctly across multiple sequential sub-agents.
 func TestMultiSubAgentAccumulation(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "ok"}
-	app := New(orchestrator, &configs.Config{}, nil)
+	app := New(orchestrator, &configs.Config{}, nil, nil)
 	m := newModel(app, context.Background())
 
 	m.taskStart = time.Now()

@@ -94,6 +94,7 @@ type ToolsConfig struct {
 type AgentsConfig struct {
 	MaxIterations  int `yaml:"max_iterations"`   // default 10
 	RunTokenBudget int `yaml:"run_token_budget"` // default 0 (unlimited)
+	AskUserTimeout int `yaml:"ask_user_timeout"` // seconds, default 300 (5 minutes)
 }
 
 // Load loads configuration from a YAML file with environment variable overrides.
@@ -223,6 +224,10 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.Tools.BashTimeout == 0 {
 		cfg.Tools.BashTimeout = 30
+	}
+
+	if cfg.Agents.AskUserTimeout == 0 {
+		cfg.Agents.AskUserTimeout = 300
 	}
 
 	// Provider-specific defaults.

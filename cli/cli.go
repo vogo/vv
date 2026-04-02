@@ -35,6 +35,7 @@ type App struct {
 	messages      []DisplayMessage
 	program       *tea.Program
 	persistentMem memory.Memory // for /memory commands
+	interactor    *CLIInteractor
 }
 
 // New creates a new CLI App.
@@ -42,11 +43,13 @@ func New(
 	orchestrator agent.StreamAgent,
 	cfg *configs.Config,
 	persistentMem memory.Memory,
+	interactor *CLIInteractor,
 ) *App {
 	return &App{
 		orchestrator:  orchestrator,
 		cfg:           cfg,
 		persistentMem: persistentMem,
+		interactor:    interactor,
 	}
 }
 
@@ -77,6 +80,11 @@ func (a *App) Run(ctx context.Context) error {
 	// Inline mode: no WithAltScreen so output stays in terminal scrollback.
 	p := tea.NewProgram(m)
 	a.program = p
+
+	// Wire the CLIInteractor's program reference for ask_user support.
+	if a.interactor != nil {
+		a.interactor.SetProgram(p)
+	}
 
 	_, err = p.Run()
 
@@ -125,6 +133,11 @@ type model struct {
 	confirmCh   chan bool
 	confirmForm *huh.Form
 	pendingTC   *schema.ToolCallStartData
+
+	// Ask user
+	askUserCh       chan string
+	askUserForm     *huh.Form
+	askUserQuestion string
 
 	// Track whether we have a running cancel function for current processing.
 	runCancel context.CancelFunc
@@ -218,6 +231,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case confirmRequestMsg:
 		return m.handleConfirmRequest(msg)
 
+	case askUserRequestMsg:
+		return m.handleAskUserRequest(msg)
+
 	case spinner.TickMsg:
 		if m.status == statusProcessing {
 			var cmd tea.Cmd
@@ -238,6 +254,23 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = statusProcessing
 				m.confirmForm = nil
 				m.pendingTC = nil
+			}
+		}
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// Handle ask_user form updates.
+	if m.status == statusAskingUser && m.askUserForm != nil {
+		form, cmd := m.askUserForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.askUserForm = f
+			if f.State == huh.StateCompleted {
+				response := f.GetString("response")
+				m.askUserCh <- response
+				m.status = statusProcessing
+				m.askUserForm = nil
+				m.askUserQuestion = ""
 			}
 		}
 		cmds = append(cmds, cmd)
@@ -298,6 +331,11 @@ func (m *model) View() string {
 			sb.WriteString(m.confirmForm.View())
 			sb.WriteString("\n")
 		}
+	case statusAskingUser:
+		if m.askUserForm != nil {
+			sb.WriteString(m.askUserForm.View())
+			sb.WriteString("\n")
+		}
 	default:
 		sb.WriteString("\n")
 	}
@@ -332,6 +370,16 @@ func (m *model) handleCtrlC() (tea.Model, tea.Cmd) {
 		m.pendingTC = nil
 		m.textarea.Focus()
 		return m, m.printSystem("Confirmation cancelled.")
+	case statusAskingUser:
+		// Cancel the ask_user interaction.
+		if m.runCancel != nil {
+			m.runCancel()
+		}
+		m.status = statusIdle
+		m.askUserForm = nil
+		m.askUserQuestion = ""
+		m.textarea.Focus()
+		return m, m.printSystem("User question cancelled.")
 	default:
 		m.status = statusQuitting
 		return m, tea.Quit
@@ -686,6 +734,30 @@ func (m *model) handleConfirmRequest(msg confirmRequestMsg) (tea.Model, tea.Cmd)
 	).WithShowHelp(false)
 
 	return m, m.confirmForm.Init()
+}
+
+// handleAskUserRequest shows a text input dialog for the agent's question.
+func (m *model) handleAskUserRequest(msg askUserRequestMsg) (tea.Model, tea.Cmd) {
+	m.status = statusAskingUser
+	m.askUserQuestion = msg.question
+
+	// Wire the response channel from the CLIInteractor.
+	if m.app.interactor != nil {
+		m.askUserCh = m.app.interactor.respCh
+	}
+
+	var response string
+
+	m.askUserForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewText().
+				Key("response").
+				Title("Agent asks: " + msg.question).
+				Value(&response),
+		),
+	).WithShowHelp(false)
+
+	return m, m.askUserForm.Init()
 }
 
 // printSystem stores a system message and returns a tea.Cmd to print it to scrollback.
