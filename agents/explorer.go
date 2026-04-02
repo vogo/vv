@@ -44,6 +44,8 @@ func RegisterExplorer(reg *registries.Registry) {
 		SystemPrompt: ExplorerSystemPrompt,
 		Dispatchable: false, // infrastructure agent, not a dispatch target
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
+			sysPrompt := AppendProjectInstructions(ExplorerSystemPrompt, opts.ProjectInstructions)
+
 			maxIter := min(opts.MaxIterations,
 				// cap exploration iterations
 				15)
@@ -53,7 +55,7 @@ func RegisterExplorer(reg *registries.Registry) {
 			taskOpts = append(taskOpts,
 				taskagent.WithChatCompleter(opts.LLM),
 				taskagent.WithModel(opts.Model),
-				taskagent.WithSystemPrompt(prompt.StringPrompt(ExplorerSystemPrompt)),
+				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(maxIter),
 			)
 

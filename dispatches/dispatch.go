@@ -58,6 +58,8 @@ type Dispatcher struct {
 	runTokenBudget     int
 	intentSystemPrompt string // used for direct LLM intent recognition
 
+	projectInstructions string // content from VV.md for intent recognition and dynamic agents
+
 	// New fields for adaptive decision loop.
 	summaryPolicy     SummaryPolicy
 	replanPolicy      ReplanPolicy
@@ -195,6 +197,14 @@ func WithMaxRecursionDepth(n int) Option {
 func WithSummarizer(a agent.Agent) Option {
 	return func(d *Dispatcher) {
 		d.summarizer = a
+	}
+}
+
+// WithProjectInstructions sets the project instructions for intent recognition
+// and dynamic agent creation.
+func WithProjectInstructions(instructions string) Option {
+	return func(d *Dispatcher) {
+		d.projectInstructions = instructions
 	}
 }
 

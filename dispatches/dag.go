@@ -186,6 +186,9 @@ func (d *Dispatcher) buildDynamicAgent(stepID string, spec *DynamicAgentSpec) (*
 		systemPrompt = desc.SystemPrompt
 	}
 
+	// Append project instructions to dynamic agent prompts.
+	systemPrompt = appendProjectInstructions(systemPrompt, d.projectInstructions)
+
 	// Determine model.
 	model := spec.Model
 	if model == "" {

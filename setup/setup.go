@@ -86,13 +86,14 @@ func New(
 		}
 
 		factoryOpts := registries.FactoryOptions{
-			LLM:              llm,
-			Model:            cfg.LLM.Model,
-			ToolRegistry:     finalToolReg,
-			MaxIterations:    cfg.Agents.MaxIterations,
-			RunTokenBudget:   cfg.Agents.RunTokenBudget,
-			Memory:           memMgr,
-			PersistentMemory: persistentMem,
+			LLM:                 llm,
+			Model:               cfg.LLM.Model,
+			ToolRegistry:        finalToolReg,
+			MaxIterations:       cfg.Agents.MaxIterations,
+			RunTokenBudget:      cfg.Agents.RunTokenBudget,
+			Memory:              memMgr,
+			PersistentMemory:    persistentMem,
+			ProjectInstructions: cfg.ProjectInstructions,
 		}
 
 		a, err := desc.Factory(factoryOpts)
@@ -115,10 +116,11 @@ func New(
 	}
 
 	explorer, err := explorerDesc.Factory(registries.FactoryOptions{
-		LLM:           llm,
-		Model:         cfg.LLM.Model,
-		ToolRegistry:  explorerToolReg,
-		MaxIterations: min(cfg.Agents.MaxIterations, 15),
+		LLM:                 llm,
+		Model:               cfg.LLM.Model,
+		ToolRegistry:        explorerToolReg,
+		MaxIterations:       min(cfg.Agents.MaxIterations, 15),
+		ProjectInstructions: cfg.ProjectInstructions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create explorer agent: %w", err)
@@ -131,9 +133,10 @@ func New(
 	}
 
 	planner, err := plannerDesc.Factory(registries.FactoryOptions{
-		LLM:           llm,
-		Model:         cfg.LLM.Model,
-		MaxIterations: 1,
+		LLM:                 llm,
+		Model:               cfg.LLM.Model,
+		MaxIterations:       1,
+		ProjectInstructions: cfg.ProjectInstructions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create planner agent: %w", err)
@@ -206,6 +209,7 @@ func New(
 		dispatches.WithSummaryPolicy(summaryPolicy),
 		dispatches.WithReplanPolicy(replanPolicy),
 		dispatches.WithMaxRecursionDepth(maxRecursionDepth),
+		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
 	)
 
 	return &Result{
@@ -236,6 +240,11 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		}
 
 		cfg.Tools.BashWorkingDir = wd
+	}
+
+	// Load project instructions from VV.md.
+	if cfg.ProjectInstructions == "" {
+		cfg.ProjectInstructions = configs.LoadProjectInstructions(cfg.Tools.BashWorkingDir)
 	}
 
 	// Create LLM client.

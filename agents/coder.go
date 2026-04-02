@@ -35,12 +35,14 @@ func RegisterCoder(reg *registries.Registry) {
 		SystemPrompt: CoderSystemPrompt,
 		Dispatchable: true,
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
+			basePrompt := AppendProjectInstructions(CoderSystemPrompt, opts.ProjectInstructions)
+
 			// Build system prompt: use persistent memory prompt if available.
 			var sysPrompt prompt.PromptTemplate
 			if opts.PersistentMemory != nil {
-				sysPrompt = NewPersistentMemoryPrompt(CoderSystemPrompt, opts.PersistentMemory)
+				sysPrompt = NewPersistentMemoryPrompt(basePrompt, opts.PersistentMemory)
 			} else {
-				sysPrompt = prompt.StringPrompt(CoderSystemPrompt)
+				sysPrompt = prompt.StringPrompt(basePrompt)
 			}
 
 			var taskOpts []taskagent.Option

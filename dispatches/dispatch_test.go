@@ -1100,3 +1100,65 @@ func (s *stubStreamAgent) RunStream(ctx context.Context, req *schema.RunRequest)
 		}))
 	}), nil
 }
+
+func TestWithProjectInstructions(t *testing.T) {
+	reg := registries.New()
+	instructions := "Test project instructions content"
+
+	d := New(
+		reg,
+		nil,
+		nil,
+		nil,
+		nil,
+		WithProjectInstructions(instructions),
+	)
+
+	if d.projectInstructions != instructions {
+		t.Errorf("projectInstructions = %q, want %q", d.projectInstructions, instructions)
+	}
+}
+
+func TestWithProjectInstructions_Empty(t *testing.T) {
+	reg := registries.New()
+
+	d := New(
+		reg,
+		nil,
+		nil,
+		nil,
+		nil,
+		WithProjectInstructions(""),
+	)
+
+	if d.projectInstructions != "" {
+		t.Errorf("projectInstructions = %q, want empty", d.projectInstructions)
+	}
+}
+
+func TestAppendProjectInstructions_Dispatches(t *testing.T) {
+	base := "You are a task planner."
+	instructions := "Always prefer Go."
+	got := appendProjectInstructions(base, instructions)
+
+	if !strings.Contains(got, base) {
+		t.Error("result should contain the base prompt")
+	}
+
+	if !strings.Contains(got, "# Project Instructions") {
+		t.Error("result should contain the project instructions header")
+	}
+
+	if !strings.Contains(got, instructions) {
+		t.Error("result should contain the instructions content")
+	}
+}
+
+func TestAppendProjectInstructions_Dispatches_Empty(t *testing.T) {
+	base := "You are a task planner."
+	got := appendProjectInstructions(base, "")
+
+	if got != base {
+		t.Errorf("appendProjectInstructions(base, \"\") = %q, want %q", got, base)
+	}
+}

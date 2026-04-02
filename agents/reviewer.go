@@ -35,12 +35,14 @@ func RegisterReviewer(reg *registries.Registry) {
 		SystemPrompt: ReviewerSystemPrompt,
 		Dispatchable: true,
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
+			sysPrompt := AppendProjectInstructions(ReviewerSystemPrompt, opts.ProjectInstructions)
+
 			var taskOpts []taskagent.Option
 
 			taskOpts = append(taskOpts,
 				taskagent.WithChatCompleter(opts.LLM),
 				taskagent.WithModel(opts.Model),
-				taskagent.WithSystemPrompt(prompt.StringPrompt(ReviewerSystemPrompt)),
+				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(opts.MaxIterations),
 			)
 

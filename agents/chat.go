@@ -25,6 +25,8 @@ func RegisterChat(reg *registries.Registry) {
 		SystemPrompt: ChatSystemPrompt,
 		Dispatchable: true,
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
+			sysPrompt := AppendProjectInstructions(ChatSystemPrompt, opts.ProjectInstructions)
+
 			return taskagent.New(
 				agent.Config{
 					ID:          "chat",
@@ -33,7 +35,7 @@ func RegisterChat(reg *registries.Registry) {
 				},
 				taskagent.WithChatCompleter(opts.LLM),
 				taskagent.WithModel(opts.Model),
-				taskagent.WithSystemPrompt(prompt.StringPrompt(ChatSystemPrompt)),
+				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(1), // hardcoded to 1, preserving current behavior
 			), nil
 		},

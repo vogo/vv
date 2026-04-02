@@ -105,6 +105,9 @@ func (d *Dispatcher) recognizeIntentDirect(ctx context.Context, req *schema.RunR
 		systemPrompt = "You are a task planner. Respond with JSON: {\"needs_exploration\": false, \"mode\": \"direct\", \"agent\": \"chat\"}"
 	}
 
+	// Append project instructions to intent recognition prompt.
+	systemPrompt = appendProjectInstructions(systemPrompt, d.projectInstructions)
+
 	systemPrompt = strings.Replace(systemPrompt, "{{.WorkingDir}}", d.workingDir, 1)
 
 	msgs := make([]aimodel.Message, 0, len(req.Messages)+1)
@@ -174,6 +177,9 @@ func (d *Dispatcher) reassessIntent(ctx context.Context, req *schema.RunRequest,
 	if systemPrompt == "" {
 		systemPrompt = "You are a task planner. Respond with JSON: {\"needs_exploration\": false, \"mode\": \"direct\", \"agent\": \"chat\"}"
 	}
+
+	// Append project instructions to re-assessment prompt.
+	systemPrompt = appendProjectInstructions(systemPrompt, d.projectInstructions)
 
 	systemPrompt = strings.Replace(systemPrompt, "{{.WorkingDir}}", d.workingDir, 1)
 
@@ -634,6 +640,9 @@ func (d *Dispatcher) classifyDirect(ctx context.Context, req *schema.RunRequest)
 	if systemPrompt == "" {
 		systemPrompt = "You are a task planner. Respond with JSON: {\"mode\": \"direct\", \"agent\": \"chat\"}"
 	}
+
+	// Append project instructions to classification prompt.
+	systemPrompt = appendProjectInstructions(systemPrompt, d.projectInstructions)
 
 	systemPrompt = strings.Replace(systemPrompt, "{{.WorkingDir}}", d.workingDir, 1)
 

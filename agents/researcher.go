@@ -32,12 +32,14 @@ func RegisterResearcher(reg *registries.Registry) {
 		SystemPrompt: ResearcherSystemPrompt,
 		Dispatchable: true,
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
+			sysPrompt := AppendProjectInstructions(ResearcherSystemPrompt, opts.ProjectInstructions)
+
 			var taskOpts []taskagent.Option
 
 			taskOpts = append(taskOpts,
 				taskagent.WithChatCompleter(opts.LLM),
 				taskagent.WithModel(opts.Model),
-				taskagent.WithSystemPrompt(prompt.StringPrompt(ResearcherSystemPrompt)),
+				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(opts.MaxIterations),
 			)
 

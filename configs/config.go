@@ -60,6 +60,10 @@ type Config struct {
 	CLI         CLIConfig         `yaml:"cli"`
 	Memory      MemoryConfig      `yaml:"memory"`
 	Orchestrate OrchestrateConfig `yaml:"orchestrate"`
+
+	// ProjectInstructions holds content loaded from VV.md in the working directory.
+	// Runtime-only; not persisted to vv.yaml.
+	ProjectInstructions string `yaml:"-"`
 }
 
 // CLIConfig holds CLI-specific configuration.

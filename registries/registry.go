@@ -28,13 +28,14 @@ type AgentFactory func(opts FactoryOptions) (agent.Agent, error)
 
 // FactoryOptions holds the dependencies needed to create an agent.
 type FactoryOptions struct {
-	LLM              aimodel.ChatCompleter
-	Model            string
-	ToolRegistry     tool.ToolRegistry // filtered by ToolProfile
-	MaxIterations    int
-	RunTokenBudget   int
-	Memory           *memory.Manager
-	PersistentMemory memory.Memory // for coder's persistent memory prompt; nil if not available
+	LLM                 aimodel.ChatCompleter
+	Model               string
+	ToolRegistry        tool.ToolRegistry // filtered by ToolProfile
+	MaxIterations       int
+	RunTokenBudget      int
+	Memory              *memory.Manager
+	PersistentMemory    memory.Memory // for coder's persistent memory prompt; nil if not available
+	ProjectInstructions string        // content from VV.md; empty if no file
 }
 
 // Registry is a thread-safe agent descriptor store.
