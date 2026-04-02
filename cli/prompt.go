@@ -69,6 +69,7 @@ func RunPrompt(ctx context.Context, orchestrator agent.StreamAgent, prompt strin
 					PromptTokens:     totalPromptTokens,
 					CompletionTokens: totalCompletionTokens,
 				}
+				_, _ = fmt.Fprintln(stderr)
 				_, _ = fmt.Fprintf(stderr, "[done] %s\n", buildStatsLine(stats))
 
 				return nil
@@ -133,6 +134,7 @@ func RunPrompt(ctx context.Context, orchestrator agent.StreamAgent, prompt strin
 					PromptTokens:     data.PromptTokens,
 					CompletionTokens: data.CompletionTokens,
 				}
+				_, _ = fmt.Fprintln(stderr)
 				_, _ = fmt.Fprintf(stderr, "[phase] %s complete %s\n", capitalizeFirst(data.Phase), buildStatsLine(stats))
 			}
 
@@ -171,6 +173,7 @@ func RunPrompt(ctx context.Context, orchestrator agent.StreamAgent, prompt strin
 					CompletionTokens: ct,
 				}
 				indent := strings.Repeat("  ", nestingDepth)
+				_, _ = fmt.Fprintln(stderr)
 				_, _ = fmt.Fprintf(stderr, "%s[agent] %s complete %s\n", indent, data.AgentName, buildStatsLine(stats))
 				toolCallCount = 0
 				subAgentPromptTokens = 0
