@@ -1,4 +1,4 @@
-package integrations
+package http_tests
 
 import (
 	"bufio"

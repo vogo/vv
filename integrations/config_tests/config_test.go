@@ -1,4 +1,4 @@
-package integrations
+package config_tests
 
 import (
 	"fmt"

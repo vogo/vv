@@ -2,9 +2,7 @@ package dispatches
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/vogo/aimodel"
@@ -40,25 +38,31 @@ func (pt *phaseTracker) wrap(send func(schema.Event) error) func(schema.Event) e
 }
 
 // Dispatcher is the main orchestration agent. It receives user requests,
-// explores project context, classifies the task, and dispatches to sub-agents.
+// performs intent recognition, and dispatches to sub-agents.
 // Behavioral equivalent of the former OrchestratorAgent.
 type Dispatcher struct {
 	agent.Base
-	llm                 aimodel.ChatCompleter
-	model               string
-	registry            *registries.Registry
-	subAgents           map[string]agent.Agent // built from registry, keyed by descriptor ID
-	planGen             agent.Agent            // agent.Agent interface, not *taskagent.Agent
-	maxConcurrency      int
-	fallbackAgent       agent.Agent
-	workingDir          string
-	explorerAgent       agent.Agent
-	plannerAgent        agent.Agent
-	toolsCfg            configs.ToolsConfig // for dynamic agent tool registry construction
-	hooks               []hooks.Hook
-	maxIterations       int
-	runTokenBudget      int
-	plannerSystemPrompt string // used for classifyDirect fallback
+	llm                aimodel.ChatCompleter
+	model              string
+	registry           *registries.Registry
+	subAgents          map[string]agent.Agent // built from registry, keyed by descriptor ID
+	planGen            agent.Agent            // agent.Agent interface, not *taskagent.Agent
+	maxConcurrency     int
+	fallbackAgent      agent.Agent
+	workingDir         string
+	explorerAgent      agent.Agent
+	plannerAgent       agent.Agent
+	toolsCfg           configs.ToolsConfig // for dynamic agent tool registry construction
+	hooks              []hooks.Hook
+	maxIterations      int
+	runTokenBudget     int
+	intentSystemPrompt string // used for direct LLM intent recognition
+
+	// New fields for adaptive decision loop.
+	summaryPolicy     SummaryPolicy
+	replanPolicy      ReplanPolicy
+	maxRecursionDepth int
+	summarizer        agent.Agent // agent for generating summaries (reuses planGen if nil)
 }
 
 // Option configures a Dispatcher.
@@ -77,13 +81,16 @@ func New(
 		Base: agent.NewBase(agent.Config{
 			ID:          "orchestrator",
 			Name:        "Orchestrator Agent",
-			Description: "Orchestrates user requests: explores context, plans tasks, dispatches to agents",
+			Description: "Orchestrates user requests: recognizes intent, dispatches to agents",
 		}),
-		registry:      reg,
-		subAgents:     subAgents,
-		explorerAgent: explorerAgent,
-		plannerAgent:  plannerAgent,
-		planGen:       planGen,
+		registry:          reg,
+		subAgents:         subAgents,
+		explorerAgent:     explorerAgent,
+		plannerAgent:      plannerAgent,
+		planGen:           planGen,
+		summaryPolicy:     SummaryAuto,
+		replanPolicy:      DefaultReplanPolicy(),
+		maxRecursionDepth: 2,
 	}
 
 	for _, opt := range opts {
@@ -150,41 +157,86 @@ func WithRunTokenBudget(n int) Option {
 	}
 }
 
-// WithPlannerSystemPrompt sets the system prompt for classifyDirect fallback.
-func WithPlannerSystemPrompt(p string) Option {
+// WithIntentSystemPrompt sets the system prompt for intent recognition.
+func WithIntentSystemPrompt(p string) Option {
 	return func(d *Dispatcher) {
-		d.plannerSystemPrompt = p
+		d.intentSystemPrompt = p
 	}
 }
 
-// Run implements agent.Agent. Orchestrates: explore -> classify -> dispatch.
+// WithPlannerSystemPrompt sets the system prompt for intent recognition.
+// Deprecated: Use WithIntentSystemPrompt. Kept for backward compatibility.
+func WithPlannerSystemPrompt(p string) Option {
+	return WithIntentSystemPrompt(p)
+}
+
+// WithSummaryPolicy sets the summary policy.
+func WithSummaryPolicy(p SummaryPolicy) Option {
+	return func(d *Dispatcher) {
+		d.summaryPolicy = p
+	}
+}
+
+// WithReplanPolicy sets the replan policy.
+func WithReplanPolicy(p ReplanPolicy) Option {
+	return func(d *Dispatcher) {
+		d.replanPolicy = p
+	}
+}
+
+// WithMaxRecursionDepth sets the max recursion depth.
+func WithMaxRecursionDepth(n int) Option {
+	return func(d *Dispatcher) {
+		d.maxRecursionDepth = n
+	}
+}
+
+// WithSummarizer sets the agent used for generating summaries.
+func WithSummarizer(a agent.Agent) Option {
+	return func(d *Dispatcher) {
+		d.summarizer = a
+	}
+}
+
+// Run implements agent.Agent. Orchestrates: intent recognition -> execution -> optional summarization.
 func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
-	// Phase 1: Explore project context.
-	contextSummary, exploreUsage := d.explore(ctx, req)
+	depth := DepthFrom(ctx)
 
-	// Phase 2: Plan/classify the task.
-	result, planUsage, err := d.classify(ctx, req, contextSummary)
+	// Fast path: at max depth, execute directly with fallback agent.
+	if depth >= d.maxRecursionDepth {
+		return d.fallbackRun(ctx, req, nil)
+	}
+
+	// Phase 1: Intent Recognition (may invoke explorer on-demand).
+	intent, contextSummary, intentUsage, err := d.recognizeIntent(ctx, req)
 	if err != nil {
-		slog.Warn("orchestrator: planning failed, falling back to chat", "error", err)
+		slog.Warn("orchestrator: intent recognition failed, falling back to chat", "error", err)
 
-		return d.fallbackRun(ctx, req, aggregateUsage(exploreUsage, nil))
+		return d.fallbackRun(ctx, req, nil)
 	}
 
-	totalUsage := aggregateUsage(exploreUsage, planUsage)
-
-	// Phase 3: Dispatch.
+	// Phase 2: Execute.
 	enrichedReq := d.enrichRequest(req, contextSummary)
+	childCtx := IncrementDepth(ctx)
 
-	switch result.Mode {
-	case "direct":
-		return d.runDirect(ctx, enrichedReq, result, totalUsage)
-	case "plan":
-		return d.runPlan(ctx, enrichedReq, result.Plan, totalUsage, contextSummary)
-	default:
-		slog.Warn("orchestrator: unknown mode, falling back to chat", "mode", result.Mode)
-
-		return d.fallbackRun(ctx, enrichedReq, totalUsage)
+	resp, execUsage, err := d.executeTask(childCtx, enrichedReq, intent, contextSummary)
+	if err != nil {
+		return nil, err
 	}
+
+	totalUsage := aggregateUsage(intentUsage, execUsage)
+	resp.Usage = totalUsage
+
+	// Phase 3: Summarize (optional).
+	if d.shouldSummarize(req) && len(resp.Messages) > 0 {
+		summaryResp, summaryErr := d.summarize(ctx, req, []*schema.RunResponse{resp})
+		if summaryErr == nil {
+			summaryResp.Usage = aggregateUsage(totalUsage, summaryResp.Usage)
+			resp = summaryResp
+		}
+	}
+
+	return resp, nil
 }
 
 // RunStream implements agent.StreamAgent. Same flow as Run but with streaming events.
@@ -192,159 +244,116 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 	return schema.NewRunStream(ctx, agent.DefaultStreamBufferSize, func(ctx context.Context, send func(schema.Event) error) error {
 		agentID := d.ID()
 		sessionID := req.SessionID
+		depth := DepthFrom(ctx)
 
-		// Determine total phases (explore is optional).
-		totalPhases := 2 // plan + dispatch
-
-		if d.explorerAgent != nil {
-			totalPhases = 3
+		// Fast path: at max depth, execute directly.
+		if depth >= d.maxRecursionDepth {
+			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
 		}
 
-		phaseIdx := 0
-
-		// Phase 1: Explore project context.
-		var contextSummary string
-
-		var exploreUsage *aimodel.Usage
-
-		if d.explorerAgent != nil {
-			phaseIdx++
-
-			if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-				Phase: "explore", PhaseIndex: phaseIdx, TotalPhase: totalPhases,
-			})); err != nil {
-				return err
-			}
-
-			exploreStart := time.Now()
-
-			var exploreTracker phaseTracker
-			contextSummary, exploreUsage = d.exploreStream(ctx, req, exploreTracker.wrap(send))
-
-			exploreDuration := time.Since(exploreStart).Milliseconds()
-			if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-				Phase:            "explore",
-				Duration:         exploreDuration,
-				ToolCalls:        exploreTracker.toolCalls,
-				PromptTokens:     exploreTracker.promptTokens,
-				CompletionTokens: exploreTracker.completionTokens,
-			})); err != nil {
-				return err
-			}
-		}
-
-		// Phase 2: Plan/classify the task.
-		phaseIdx++
-
+		// Phase 1: Intent Recognition.
 		if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-			Phase: "plan", PhaseIndex: phaseIdx, TotalPhase: totalPhases,
+			Phase: "intent", PhaseIndex: 1, TotalPhase: 0,
 		})); err != nil {
 			return err
 		}
 
-		planStart := time.Now()
+		intentStart := time.Now()
 
-		var planTracker phaseTracker
-		result, planUsage, planErr := d.classifyStream(ctx, req, contextSummary, planTracker.wrap(send))
+		var intentTracker phaseTracker
+		intent, contextSummary, _, intentErr := d.recognizeIntentStream(ctx, req, intentTracker.wrap(send))
 
-		planSummary := buildPlanSummary(result)
-		planDuration := time.Since(planStart).Milliseconds()
+		intentSummary := buildIntentSummary(intent)
+		intentDuration := time.Since(intentStart).Milliseconds()
 
 		if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase:            "plan",
-			Duration:         planDuration,
-			Summary:          planSummary,
-			ToolCalls:        planTracker.toolCalls,
-			PromptTokens:     planTracker.promptTokens,
-			CompletionTokens: planTracker.completionTokens,
+			Phase:            "intent",
+			Duration:         intentDuration,
+			Summary:          intentSummary,
+			ToolCalls:        intentTracker.toolCalls,
+			PromptTokens:     intentTracker.promptTokens,
+			CompletionTokens: intentTracker.completionTokens,
 		})); err != nil {
 			return err
 		}
 
-		if planErr != nil {
-			slog.Warn("orchestrator: planning failed, falling back to chat stream", "error", planErr)
+		if intentErr != nil {
+			slog.Warn("orchestrator: intent recognition failed, falling back to chat stream", "error", intentErr)
 
 			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
 		}
 
 		enrichedReq := d.enrichRequest(req, contextSummary)
-		_ = aggregateUsage(exploreUsage, planUsage) // tracked internally
+		childCtx := IncrementDepth(ctx)
 
-		// Phase 3: Dispatch.
-		phaseIdx++
-
+		// Phase 2: Execute.
 		if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-			Phase: "dispatch", PhaseIndex: phaseIdx, TotalPhase: totalPhases,
+			Phase: "execute", PhaseIndex: 2, TotalPhase: 0,
 		})); err != nil {
 			return err
 		}
 
-		dispatchStart := time.Now()
+		executeStart := time.Now()
 
-		var dispatchTracker phaseTracker
-		var dispatchErr error
-		var dagUsage *aimodel.Usage
+		var executeTracker phaseTracker
+		dagUsage, executeErr := d.executeTaskStream(childCtx, enrichedReq, intent, contextSummary, executeTracker.wrap(send))
 
-		phaseSend := dispatchTracker.wrap(send)
-
-		switch result.Mode {
-		case "direct":
-			subAgent, ok := d.subAgents[result.Agent]
-			if !ok {
-				subAgent = d.fallbackAgent
-			}
-
-			dispatchErr = d.forwardSubAgentStream(ctx, phaseSend, subAgent, enrichedReq, result.Agent, "", sessionID)
-		case "plan":
-			dagUsage, dispatchErr = d.streamPlan(ctx, phaseSend, enrichedReq, result.Plan, contextSummary, sessionID)
-		default:
-			dispatchErr = d.forwardSubAgentStream(ctx, phaseSend, d.fallbackAgent, enrichedReq, "chat", "", sessionID)
-		}
-
-		// Augment dispatch phase stats from DAG result usage (DAG path doesn't emit LLM events).
+		// Augment execute phase stats from DAG result usage.
 		if dagUsage != nil {
-			dispatchTracker.promptTokens += dagUsage.PromptTokens
-			dispatchTracker.completionTokens += dagUsage.CompletionTokens
+			executeTracker.promptTokens += dagUsage.PromptTokens
+			executeTracker.completionTokens += dagUsage.CompletionTokens
 		}
 
-		dispatchDuration := time.Since(dispatchStart).Milliseconds()
+		executeDuration := time.Since(executeStart).Milliseconds()
+
 		if sendErr := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase:            "dispatch",
-			Duration:         dispatchDuration,
-			ToolCalls:        dispatchTracker.toolCalls,
-			PromptTokens:     dispatchTracker.promptTokens,
-			CompletionTokens: dispatchTracker.completionTokens,
+			Phase:            "execute",
+			Duration:         executeDuration,
+			ToolCalls:        executeTracker.toolCalls,
+			PromptTokens:     executeTracker.promptTokens,
+			CompletionTokens: executeTracker.completionTokens,
 		})); sendErr != nil {
 			return sendErr
 		}
 
-		return dispatchErr
+		if executeErr != nil {
+			return executeErr
+		}
+
+		// Phase 3: Summarize (optional).
+		if d.shouldSummarize(req) {
+			if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
+				Phase: "summarize", PhaseIndex: 3, TotalPhase: 0,
+			})); err != nil {
+				return err
+			}
+
+			summarizeStart := time.Now()
+
+			summarizer := d.summarizer
+			if summarizer == nil {
+				summarizer = d.planGen
+			}
+
+			if summarizer != nil {
+				err := d.forwardSubAgentStream(ctx, send, summarizer, req, "summarizer", "", sessionID)
+				if err != nil {
+					slog.Warn("orchestrator: summarization stream failed", "error", err)
+				}
+			}
+
+			summarizeDuration := time.Since(summarizeStart).Milliseconds()
+
+			if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
+				Phase:    "summarize",
+				Duration: summarizeDuration,
+			})); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}), nil
-}
-
-// buildPlanSummary builds a human-readable summary of the plan result.
-func buildPlanSummary(result *ClassifyResult) string {
-	if result == nil {
-		return ""
-	}
-
-	if result.Mode == "direct" {
-		return fmt.Sprintf("Direct → %s", result.Agent)
-	}
-
-	if result.Plan == nil || len(result.Plan.Steps) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-
-	sb.WriteString(result.Plan.Goal)
-
-	for i, step := range result.Plan.Steps {
-		fmt.Fprintf(&sb, "\n  %d. [%s] %s", i+1, step.Agent, step.Description)
-	}
-
-	return sb.String()
 }
 
 // Compile-time interface checks.

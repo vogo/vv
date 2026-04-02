@@ -1,4 +1,4 @@
-package integrations
+package shutdown_tests
 
 import (
 	"context"

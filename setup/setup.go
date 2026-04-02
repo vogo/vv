@@ -163,10 +163,31 @@ func New(
 		maxConcurrency = 2
 	}
 
-	// 8. Build planner system prompt from registries.
-	plannerPrompt := agents.BuildPlannerSystemPrompt(reg)
+	// 8. Build intent system prompt from registries.
+	intentPrompt := agents.BuildPlannerSystemPrompt(reg)
 
-	// 9. Construct dispatcher.
+	// 9. Resolve new config options.
+	maxRecursionDepth := cfg.Orchestrate.MaxRecursionDepth
+	if maxRecursionDepth == 0 {
+		maxRecursionDepth = 2
+	}
+
+	summaryPolicy := dispatches.SummaryPolicy(cfg.Orchestrate.SummaryPolicy)
+	if summaryPolicy == "" {
+		summaryPolicy = dispatches.SummaryAuto
+	}
+
+	replanPolicy := dispatches.ReplanPolicy{
+		TriggerOnFailure:   cfg.Orchestrate.Replan.TriggerOnFailure,
+		TriggerOnDeviation: cfg.Orchestrate.Replan.TriggerOnDeviation,
+		MaxReplans:         cfg.Orchestrate.Replan.MaxReplans,
+	}
+
+	if replanPolicy.MaxReplans == 0 {
+		replanPolicy.MaxReplans = 2
+	}
+
+	// 10. Construct dispatcher.
 	dispatcher := dispatches.New(
 		reg,
 		subAgents,
@@ -181,7 +202,10 @@ func New(
 		dispatches.WithHooks(hooks),
 		dispatches.WithMaxIterations(cfg.Agents.MaxIterations),
 		dispatches.WithRunTokenBudget(cfg.Agents.RunTokenBudget),
-		dispatches.WithPlannerSystemPrompt(plannerPrompt),
+		dispatches.WithIntentSystemPrompt(intentPrompt),
+		dispatches.WithSummaryPolicy(summaryPolicy),
+		dispatches.WithReplanPolicy(replanPolicy),
+		dispatches.WithMaxRecursionDepth(maxRecursionDepth),
 	)
 
 	return &Result{

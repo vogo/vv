@@ -1,4 +1,4 @@
-package integrations
+package prompt_tests
 
 import (
 	"bytes"
@@ -10,11 +10,52 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vogo/aimodel"
+	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 	vvcli "github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/setup"
 )
+
+// stubStreamAgent implements agent.StreamAgent for testing.
+type stubStreamAgent struct {
+	id       string
+	response string
+}
+
+var _ agent.StreamAgent = (*stubStreamAgent)(nil)
+
+func (s *stubStreamAgent) ID() string          { return s.id }
+func (s *stubStreamAgent) Name() string        { return s.id }
+func (s *stubStreamAgent) Description() string { return s.id }
+
+func (s *stubStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
+	return &schema.RunResponse{
+		Messages: []schema.Message{
+			schema.NewAssistantMessage(aimodel.Message{
+				Role:    aimodel.RoleAssistant,
+				Content: aimodel.NewTextContent(s.response),
+			}, s.id),
+		},
+	}, nil
+}
+
+func (s *stubStreamAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
+	return schema.NewRunStream(ctx, 8, func(_ context.Context, send func(schema.Event) error) error {
+		if err := send(schema.NewEvent(schema.EventAgentStart, s.id, req.SessionID, schema.AgentStartData{})); err != nil {
+			return err
+		}
+
+		if err := send(schema.NewEvent(schema.EventTextDelta, s.id, req.SessionID, schema.TextDeltaData{Delta: s.response})); err != nil {
+			return err
+		}
+
+		return send(schema.NewEvent(schema.EventAgentEnd, s.id, req.SessionID, schema.AgentEndData{
+			Message: s.response,
+		}))
+	}), nil
+}
 
 // --- Test: RunPrompt with stubStreamAgent produces correct stdout/stderr ---
 // Verifies that cli.RunPrompt writes text deltas to stdout only and diagnostic

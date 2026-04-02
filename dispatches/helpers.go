@@ -2,7 +2,9 @@ package dispatches
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/vogo/aimodel"
@@ -86,6 +88,11 @@ func aggregateUsage(a, b *aimodel.Usage) *aimodel.Usage {
 	}
 
 	return result
+}
+
+// isEOF checks if an error is io.EOF.
+func isEOF(err error) bool {
+	return errors.Is(err, io.EOF)
 }
 
 // enrichRequest prepends working directory and exploration context to a request for sub-agent dispatch.

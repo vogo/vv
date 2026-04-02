@@ -1,4 +1,4 @@
-package integrations
+package vv_tests
 
 import (
 	"context"

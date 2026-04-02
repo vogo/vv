@@ -63,19 +63,100 @@ func (cr *ClassifyResult) validate(reg *registries.Registry, subAgents map[strin
 	return nil
 }
 
+// IntentType classifies the complexity of a user request.
+type IntentType string
+
+const (
+	IntentSimple  IntentType = "simple"  // single agent, no planning
+	IntentComplex IntentType = "complex" // multi-step, needs planning
+)
+
+// IntentResult is the output of the intent recognition phase.
+// Mode uses string values "direct" (maps to IntentSimple) and "plan" (maps to IntentComplex)
+// for JSON compatibility with the LLM response format.
+type IntentResult struct {
+	NeedsExploration bool   `json:"needs_exploration"`
+	Mode             string `json:"mode"`            // "direct" or "plan"
+	Agent            string `json:"agent,omitempty"` // for direct mode
+	Plan             *Plan  `json:"plan,omitempty"`  // for plan mode
+}
+
+// validate checks that the intent result references valid agents.
+func (ir *IntentResult) validate(reg *registries.Registry, subAgents map[string]agent.Agent) error {
+	switch ir.Mode {
+	case "direct":
+		if _, ok := subAgents[ir.Agent]; !ok {
+			return fmt.Errorf("unknown agent %q in direct dispatch", ir.Agent)
+		}
+	case "plan":
+		if ir.Plan == nil || len(ir.Plan.Steps) == 0 {
+			return fmt.Errorf("plan mode but no steps provided")
+		}
+
+		for _, step := range ir.Plan.Steps {
+			if step.DynamicSpec != nil {
+				if err := step.DynamicSpec.validate(reg); err != nil {
+					return fmt.Errorf("plan step %q: %w", step.ID, err)
+				}
+
+				if step.Agent != step.DynamicSpec.BaseType {
+					return fmt.Errorf("plan step %q: agent %q must match dynamic_spec base_type %q", step.ID, step.Agent, step.DynamicSpec.BaseType)
+				}
+			} else {
+				if _, ok := subAgents[step.Agent]; !ok {
+					return fmt.Errorf("unknown agent %q in plan step %q", step.Agent, step.ID)
+				}
+			}
+		}
+	default:
+		return fmt.Errorf("unknown intent mode %q", ir.Mode)
+	}
+
+	return nil
+}
+
+// ReplanPolicy controls dynamic replanning behavior.
+type ReplanPolicy struct {
+	TriggerOnFailure   bool `yaml:"trigger_on_failure"`
+	TriggerOnDeviation bool `yaml:"trigger_on_deviation"` // reserved for future use; not implemented
+	MaxReplans         int  `yaml:"max_replans"`
+}
+
+// DefaultReplanPolicy returns a ReplanPolicy with sensible defaults.
+// All triggers are disabled for backward compatibility.
+func DefaultReplanPolicy() ReplanPolicy {
+	return ReplanPolicy{
+		TriggerOnFailure:   false,
+		TriggerOnDeviation: false,
+		MaxReplans:         2,
+	}
+}
+
+// SummaryPolicy controls when summarization occurs.
+type SummaryPolicy string
+
+const (
+	SummaryAuto   SummaryPolicy = "auto" // HTTP=yes, CLI=no
+	SummaryAlways SummaryPolicy = "always"
+	SummaryNever  SummaryPolicy = "never"
+)
+
 // Plan represents a parsed execution plan.
 type Plan struct {
-	Goal  string     `json:"goal"`
-	Steps []PlanStep `json:"steps"`
+	Goal        string     `json:"goal"`
+	Steps       []PlanStep `json:"steps"`
+	ReplanCount int        `json:"replan_count,omitempty"` // how many times replanned
+	MaxReplans  int        `json:"max_replans,omitempty"`  // from ReplanPolicy
 }
 
 // PlanStep represents a single step in the plan.
 type PlanStep struct {
-	ID          string            `json:"id"`
-	Description string            `json:"description"`
-	Agent       string            `json:"agent"`
-	DependsOn   []string          `json:"depends_on"`
-	DynamicSpec *DynamicAgentSpec `json:"dynamic_spec,omitempty"`
+	ID               string            `json:"id"`
+	Description      string            `json:"description"`
+	Agent            string            `json:"agent"`
+	DependsOn        []string          `json:"depends_on"`
+	DynamicSpec      *DynamicAgentSpec `json:"dynamic_spec,omitempty"`
+	ReplanGeneration int               `json:"replan_generation,omitempty"` // 0=original, 1=first replan, etc.
 }
 
 // DynamicAgentSpec defines configuration for a dynamically created sub-agent.

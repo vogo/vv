@@ -282,6 +282,31 @@ func (h *hookedAgent) Run(ctx context.Context, req *schema.RunRequest) (*schema.
 	return resp, err
 }
 
+// RunStream implements agent.StreamAgent for hookedAgent, enabling streaming through hooked agents.
+func (h *hookedAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
+	for _, hook := range h.hooks {
+		if err := hook.OnBeforeRun(ctx, h.agentID, req); err != nil {
+			return nil, fmt.Errorf("hook aborted run for %q: %w", h.agentID, err)
+		}
+	}
+
+	sa, ok := h.inner.(agent.StreamAgent)
+	if !ok {
+		return agent.RunToStream(ctx, h.inner, req), nil
+	}
+
+	stream, err := sa.RunStream(ctx, req)
+	if err != nil {
+		for i := len(h.hooks) - 1; i >= 0; i-- {
+			h.hooks[i].OnAfterRun(ctx, h.agentID, nil, err)
+		}
+
+		return nil, err
+	}
+
+	return stream, nil
+}
+
 func (h *hookedAgent) ID() string          { return h.inner.ID() }
 func (h *hookedAgent) Name() string        { return h.inner.Name() }
 func (h *hookedAgent) Description() string { return h.inner.Description() }

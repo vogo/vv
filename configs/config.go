@@ -22,7 +22,17 @@ type MemoryConfig struct {
 
 // OrchestrateConfig holds orchestration configuration.
 type OrchestrateConfig struct {
-	MaxConcurrency int `yaml:"max_concurrency"` // DAG concurrency, default 2
+	MaxConcurrency    int          `yaml:"max_concurrency"`     // DAG concurrency, default 2
+	MaxRecursionDepth int          `yaml:"max_recursion_depth"` // max nesting depth, default 2
+	SummaryPolicy     string       `yaml:"summary_policy"`      // auto/always/never
+	Replan            ReplanConfig `yaml:"replan"`
+}
+
+// ReplanConfig holds replanning configuration.
+type ReplanConfig struct {
+	TriggerOnFailure   bool `yaml:"trigger_on_failure"`
+	TriggerOnDeviation bool `yaml:"trigger_on_deviation"` // reserved for future use
+	MaxReplans         int  `yaml:"max_replans"`
 }
 
 // DefaultDir returns the default vv config directory (~/.vv).
@@ -235,6 +245,18 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Orchestrate.MaxConcurrency == 0 {
 		cfg.Orchestrate.MaxConcurrency = 2
+	}
+
+	if cfg.Orchestrate.MaxRecursionDepth == 0 {
+		cfg.Orchestrate.MaxRecursionDepth = 2
+	}
+
+	if cfg.Orchestrate.SummaryPolicy == "" {
+		cfg.Orchestrate.SummaryPolicy = "auto"
+	}
+
+	if cfg.Orchestrate.Replan.MaxReplans == 0 {
+		cfg.Orchestrate.Replan.MaxReplans = 2
 	}
 }
 
