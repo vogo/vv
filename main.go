@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/vogo/vage/tool"
@@ -21,6 +22,7 @@ func main() {
 	configPath := flag.String("config", configs.DefaultPath(), "config file path")
 	listenAddr := flag.String("addr", "", "listen address (overrides config)")
 	modeFlag := flag.String("mode", "", "run mode: cli or http (default: cli)")
+	promptFlag := flag.String("p", "", "run a single prompt non-interactively and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\nOptions:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -31,15 +33,23 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  VV_LLM_PROVIDER     LLM provider (openai, anthropic)\n")
 		fmt.Fprintf(os.Stderr, "  VV_SERVER_ADDR      Server listen address\n")
 		fmt.Fprintf(os.Stderr, "  VV_MODE             Run mode (cli or http)\n")
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  vv                                          # interactive TUI mode\n")
+		fmt.Fprintf(os.Stderr, "  vv -p \"explain the main.go file\"             # single prompt, exit after response\n")
+		fmt.Fprintf(os.Stderr, "  vv -p \"fix the bug in auth.go\" 2>/dev/null   # suppress diagnostics\n")
 		fmt.Fprintf(os.Stderr, "\nConfig file: %s\n", configs.DefaultPath())
 	}
 	flag.Parse()
 
-	// Determine whether the config path was explicitly set by the user.
+	// Determine whether flags were explicitly set by the user.
 	explicit := false
+	promptSet := false
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "config" {
+		switch f.Name {
+		case "config":
 			explicit = true
+		case "p":
+			promptSet = true
 		}
 	})
 
@@ -51,8 +61,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// If required config is missing, prompt the user interactively.
+	// If required config is missing, prompt the user interactively or fail fast for -p mode.
 	if configs.NeedsSetup(cfg) {
+		if promptSet {
+			fmt.Fprintf(os.Stderr, "vv: configuration incomplete (missing API key); "+
+				"run `vv` interactively to set up, or set VV_LLM_API_KEY\n")
+			os.Exit(1)
+		}
+
 		fmt.Println("No configuration found. Please provide the following values:")
 		fmt.Println()
 
@@ -70,6 +86,36 @@ func main() {
 
 	if *listenAddr != "" {
 		cfg.Server.Addr = *listenAddr
+	}
+
+	// Single-prompt mode: run the prompt non-interactively and exit.
+	if promptSet {
+		trimmed := strings.TrimSpace(*promptFlag)
+		if trimmed == "" {
+			fmt.Fprintf(os.Stderr, "vv: -p flag requires a non-empty prompt\n")
+			os.Exit(1)
+		}
+
+		if cfg.Mode == "http" {
+			fmt.Fprintf(os.Stderr, "vv: -p flag is incompatible with HTTP mode\n")
+			os.Exit(1)
+		}
+
+		initResult, initErr := setup.Init(cfg, &setup.Options{})
+		if initErr != nil {
+			slog.Error("vv: init", "error", initErr)
+			os.Exit(1)
+		}
+
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
+		if runErr := cli.RunPrompt(ctx, initResult.SetupResult.Dispatcher, trimmed, os.Stdout, os.Stderr); runErr != nil {
+			fmt.Fprintf(os.Stderr, "vv: %s\n", runErr)
+			os.Exit(1)
+		}
+
+		os.Exit(0)
 	}
 
 	// Initialize LLM client, memory, and agents via setup package.
