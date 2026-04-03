@@ -51,13 +51,13 @@ Tools are named: `bash`, `read`, `write`, `edit`, `glob`, `grep`. These are regi
 
 Bubble Tea TUI with:
 - `model` struct tracking session state (idle, processing, confirmation)
-- Tool confirmation via `WrapRegistry()` + `confirmForm` (huh.Form) for tools in `cli.confirm_tools`
+- Permission-based tool control via `WrapRegistryWithPermission()` + `PermissionState` with four modes (default, accept-edits, auto, plan) and three-option confirmation dialog (Allow/Allow Always/Deny)
 - Markdown rendering via glamour; incremental streaming output
 - `cli/prompt.go` handles non-interactive `-p` mode with streaming to stdout/stderr
 
 ### Configuration (`configs/`)
 
-YAML at `~/.vv/vv.yaml`. Key sections: `llm` (provider, model, api_key, base_url), `server` (addr), `tools` (bash_timeout, bash_working_dir), `agents` (max_iterations), `cli` (confirm_tools list), `memory`, `orchestrate` (max_concurrency, max_recursion_depth, summary_policy, replan). Environment overrides: `VV_LLM_API_KEY`, `VV_LLM_BASE_URL`, `VV_LLM_MODEL`, `VV_LLM_PROVIDER`, `VV_MODE`, `VV_SERVER_ADDR`.
+YAML at `~/.vv/vv.yaml`. Key sections: `llm` (provider, model, api_key, base_url), `server` (addr), `tools` (bash_timeout, bash_working_dir), `agents` (max_iterations), `cli` (permission_mode, deprecated confirm_tools), `memory`, `orchestrate` (max_concurrency, max_recursion_depth, summary_policy, replan). Environment overrides: `VV_LLM_API_KEY`, `VV_LLM_BASE_URL`, `VV_LLM_MODEL`, `VV_LLM_PROVIDER`, `VV_MODE`, `VV_SERVER_ADDR`, `VV_PERMISSION_MODE`. CLI flag: `--permission-mode`.
 
 ## Conventions
 

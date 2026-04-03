@@ -25,6 +25,7 @@ func main() {
 	listenAddr := flag.String("addr", "", "listen address (overrides config)")
 	modeFlag := flag.String("mode", "", "run mode: cli or http (default: cli)")
 	promptFlag := flag.String("p", "", "run a single prompt non-interactively and exit")
+	permissionModeFlag := flag.String("permission-mode", "", "tool permission mode: default, accept-edits, auto, plan")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\nOptions:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -124,7 +125,6 @@ func main() {
 	}
 
 	// Initialize LLM client, memory, and agents via setup package.
-	confirmTools := cfg.CLI.ConfirmTools
 	askUserTimeout := time.Duration(cfg.Agents.AskUserTimeout) * time.Second
 	cliInteractor := cli.NewCLIInteractor()
 
@@ -135,9 +135,21 @@ func main() {
 		interactor = askuser.NonInteractiveInteractor{}
 	}
 
+	// Permission mode: flag > env > yaml > default.
+	permissionMode := cfg.CLI.PermissionMode
+	if *permissionModeFlag != "" {
+		permissionMode = configs.PermissionMode(*permissionModeFlag)
+		if !configs.IsValidPermissionMode(permissionMode) {
+			slog.Error("vv: invalid --permission-mode", "value", *permissionModeFlag)
+			os.Exit(1)
+		}
+	}
+
+	permissionState := cli.NewPermissionState(permissionMode)
+
 	initResult, err := setup.Init(cfg, &setup.Options{
 		WrapToolRegistry: func(r *tool.Registry) tool.ToolRegistry {
-			return cli.WrapRegistry(r, confirmTools)
+			return cli.WrapRegistryWithPermission(r, permissionState)
 		},
 		UserInteractor: interactor,
 		AskUserTimeout: askUserTimeout,
@@ -160,7 +172,8 @@ func main() {
 		}
 
 	default: // "cli" or any other value defaults to CLI mode.
-		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem, cliInteractor, initResult.Compactor)
+		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem, cliInteractor, initResult.Compactor,
+			cli.WithPermissionState(permissionState))
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vv: CLI error", "error", err)
 			os.Exit(1)

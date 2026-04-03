@@ -271,41 +271,21 @@ func TestIntegration_CLI_AppConstruction(t *testing.T) {
 	}
 }
 
-// --- Test: WrapRegistry with no confirm tools returns original registry ---
-// Verifies that WrapRegistry is a no-op when confirm_tools is empty.
-func TestIntegration_CLI_WrapRegistryNoConfirmTools(t *testing.T) {
+// --- Test: WrapRegistryWithPermission wraps the registry ---
+// Verifies that WrapRegistryWithPermission returns a wrapped registry that
+// preserves tool listing and Get delegation.
+func TestIntegration_CLI_WrapRegistryWithPermission(t *testing.T) {
 	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	wrapped := vvcli.WrapRegistry(reg, nil)
-
-	// Should be the exact same pointer.
-	if wrapped != reg {
-		t.Error("WrapRegistry with nil confirm_tools should return the original registries")
-	}
-
-	// Also test with empty slice.
-	wrapped2 := vvcli.WrapRegistry(reg, []string{})
-	if wrapped2 != reg {
-		t.Error("WrapRegistry with empty confirm_tools should return the original registries")
-	}
-}
-
-// --- Test: WrapRegistry with confirm tools wraps the registry ---
-// Verifies that WrapRegistry returns a confirming executor when confirm_tools is provided.
-func TestIntegration_CLI_WrapRegistryWithConfirmTools(t *testing.T) {
-	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
-	if err != nil {
-		t.Fatalf("tools.Register: %v", err)
-	}
-
-	wrapped := vvcli.WrapRegistry(reg, []string{"bash", "write"})
+	ps := vvcli.NewPermissionState(configs.PermissionModeDefault)
+	wrapped := vvcli.WrapRegistryWithPermission(reg, ps)
 
 	// Should be a different object.
 	if wrapped == reg {
-		t.Error("WrapRegistry with confirm_tools should return a new wrapped registries")
+		t.Error("WrapRegistryWithPermission should return a new wrapped registry")
 	}
 
 	// The wrapped registry should still expose the same tools.
@@ -321,18 +301,19 @@ func TestIntegration_CLI_WrapRegistryWithConfirmTools(t *testing.T) {
 	}
 }
 
-// --- Test: ConfirmingExecutor approve flow ---
-// Verifies that when confirmFn returns true, the tool executes normally.
-func TestIntegration_CLI_ConfirmingExecutorApprove(t *testing.T) {
+// --- Test: Permission executor approve flow ---
+// Verifies that in default mode, the default confirmFn allows all (until wired to TUI).
+func TestIntegration_CLI_PermissionExecutorApprove(t *testing.T) {
 	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 5})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	// Default WrapRegistry confirmFn allows all, simulating approval.
-	wrapped := vvcli.WrapRegistry(reg, []string{"bash"})
+	// Default WrapRegistryWithPermission confirmFn allows all, simulating approval.
+	ps := vvcli.NewPermissionState(configs.PermissionModeDefault)
+	wrapped := vvcli.WrapRegistryWithPermission(reg, ps)
 
-	// Execute bash with a simple command.
+	// Execute bash with a simple command -- default confirmFn approves.
 	result, err := wrapped.Execute(context.Background(), "bash", `{"command":"echo hello"}`)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -350,19 +331,18 @@ func TestIntegration_CLI_ConfirmingExecutorApprove(t *testing.T) {
 	}
 }
 
-// --- Test: ConfirmingExecutor passthrough for non-confirmed tool ---
-// Verifies that tools NOT in the confirm list execute without invoking confirmFn.
-func TestIntegration_CLI_ConfirmingExecutorPassthrough(t *testing.T) {
+// --- Test: Permission executor auto-approves read-only tools ---
+// Verifies that read-only tools execute without confirmation in default mode.
+func TestIntegration_CLI_PermissionExecutorReadOnlyPassthrough(t *testing.T) {
 	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 5})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	// Only "bash" is in the confirm list.
-	wrapped := vvcli.WrapRegistry(reg, []string{"bash"})
+	ps := vvcli.NewPermissionState(configs.PermissionModeDefault)
+	wrapped := vvcli.WrapRegistryWithPermission(reg, ps)
 
-	// Execute read (not in confirm list) -- should work without confirmation.
-	// Use a temp file to read.
+	// Execute read (read-only tool) -- should work without confirmation.
 	tmpFile := filepath.Join(t.TempDir(), "test.txt")
 	if err := os.WriteFile(tmpFile, []byte("test content"), 0o644); err != nil {
 		t.Fatal(err)
@@ -404,11 +384,12 @@ func TestIntegration_CLI_AgentsCreateWithWrappedRegistry(t *testing.T) {
 	cfg := &configs.Config{
 		LLM:    configs.LLMConfig{Model: "test-model"},
 		Agents: configs.AgentsConfig{MaxIterations: 10},
-		CLI:    configs.CLIConfig{ConfirmTools: []string{"bash", "write"}},
+		CLI:    configs.CLIConfig{PermissionMode: configs.PermissionModeDefault},
 	}
 
 	// Wrap registry (as main.go does).
-	wrapped := vvcli.WrapRegistry(reg, cfg.CLI.ConfirmTools)
+	ps := vvcli.NewPermissionState(cfg.CLI.PermissionMode)
+	wrapped := vvcli.WrapRegistryWithPermission(reg, ps)
 
 	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
 
@@ -482,7 +463,8 @@ tools:
 	}
 
 	// Wrap registry as main.go does.
-	wrapped := vvcli.WrapRegistry(toolRegistry, cfg.CLI.ConfirmTools)
+	ps := vvcli.NewPermissionState(cfg.CLI.PermissionMode)
+	wrapped := vvcli.WrapRegistryWithPermission(toolRegistry, ps)
 
 	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
 	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
@@ -830,16 +812,17 @@ cli:
 	}
 }
 
-// --- Test: WrapRegistry preserves tool execution ---
-// Verifies that wrapping a registry with confirm_tools still allows tool execution
-// to pass through for non-confirmed tools and confirms for confirmed tools.
-func TestIntegration_CLI_WrapRegistryPreservesExecution(t *testing.T) {
+// --- Test: WrapRegistryWithPermission preserves tool execution ---
+// Verifies that wrapping a registry with permission mode still allows tool execution
+// to pass through for read-only tools and preserves tool listing.
+func TestIntegration_CLI_WrapRegistryWithPermissionPreservesExecution(t *testing.T) {
 	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 5})
 	if err != nil {
 		t.Fatalf("tools.Register: %v", err)
 	}
 
-	wrapped := vvcli.WrapRegistry(reg, []string{"bash"})
+	ps := vvcli.NewPermissionState(configs.PermissionModeDefault)
+	wrapped := vvcli.WrapRegistryWithPermission(reg, ps)
 
 	// Verify all 6 tools are still accessible via Get.
 	for _, name := range []string{"bash", "read", "write", "edit", "glob", "grep"} {
@@ -848,7 +831,7 @@ func TestIntegration_CLI_WrapRegistryPreservesExecution(t *testing.T) {
 		}
 	}
 
-	// Execute a non-confirmed tool (read) -- should work directly.
+	// Execute a read-only tool (read) -- should work directly in default mode.
 	tmpFile := filepath.Join(t.TempDir(), "test.txt")
 	if err := os.WriteFile(tmpFile, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
@@ -860,7 +843,7 @@ func TestIntegration_CLI_WrapRegistryPreservesExecution(t *testing.T) {
 	}
 
 	if result.IsError {
-		t.Error("read should succeed without confirmation")
+		t.Error("read should succeed without confirmation in default mode")
 	}
 }
 

@@ -863,6 +863,114 @@ func TestLoad_ModelPricing_EnvOnly(t *testing.T) {
 	}
 }
 
+func TestLoad_PermissionMode_Default(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.CLI.PermissionMode != PermissionModeDefault {
+		t.Errorf("PermissionMode = %q, want %q", cfg.CLI.PermissionMode, PermissionModeDefault)
+	}
+}
+
+func TestLoad_PermissionMode_FromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+cli:
+  permission_mode: "auto"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.CLI.PermissionMode != PermissionModeAuto {
+		t.Errorf("PermissionMode = %q, want %q", cfg.CLI.PermissionMode, PermissionModeAuto)
+	}
+}
+
+func TestLoad_PermissionMode_EnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+cli:
+  permission_mode: "default"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_PERMISSION_MODE", "plan")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.CLI.PermissionMode != PermissionModePlan {
+		t.Errorf("PermissionMode = %q, want %q", cfg.CLI.PermissionMode, PermissionModePlan)
+	}
+}
+
+func TestLoad_PermissionMode_Invalid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+cli:
+  permission_mode: "invalid-mode"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(path, true)
+	if err == nil {
+		t.Fatal("expected error for invalid permission_mode")
+	}
+
+	if !strings.Contains(err.Error(), "invalid permission_mode") {
+		t.Errorf("error = %q, want it to contain 'invalid permission_mode'", err.Error())
+	}
+}
+
+func TestLoad_PermissionMode_AcceptEdits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+cli:
+  permission_mode: "accept-edits"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.CLI.PermissionMode != PermissionModeAcceptEdits {
+		t.Errorf("PermissionMode = %q, want %q", cfg.CLI.PermissionMode, PermissionModeAcceptEdits)
+	}
+}
+
 func TestLoad_OrchestrateConfig_ExplicitOverridesMigration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

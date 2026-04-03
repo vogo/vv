@@ -42,6 +42,15 @@ type App struct {
 	estimatedTokens int // running total of estimated tokens in history
 	contextCfg      configs.ContextConfig
 	costTracker     *costtracker.Tracker
+	permissionState *PermissionState      // shared state for /permission command
+	confirmCh       chan PermissionAction // channel for confirmation dialog results
+}
+
+// WithPermissionState sets the shared permission state on the App.
+func WithPermissionState(state *PermissionState) func(*App) {
+	return func(a *App) {
+		a.permissionState = state
+	}
 }
 
 // New creates a new CLI App.
@@ -51,10 +60,11 @@ func New(
 	persistentMem memory.Memory,
 	interactor *CLIInteractor,
 	compactor *memory.ConversationCompactor,
+	opts ...func(*App),
 ) *App {
 	pricing := costtracker.LookupPricing(cfg.LLM.Model, configs.ConvertPricing(cfg.ModelPricing))
 
-	return &App{
+	a := &App{
 		orchestrator:  orchestrator,
 		cfg:           cfg,
 		persistentMem: persistentMem,
@@ -62,7 +72,14 @@ func New(
 		compactor:     compactor,
 		contextCfg:    cfg.Context,
 		costTracker:   costtracker.New(cfg.LLM.Model, pricing),
+		confirmCh:     make(chan PermissionAction, 1),
 	}
+
+	for _, opt := range opts {
+		opt(a)
+	}
+
+	return a
 }
 
 // Run starts the bubbletea program and blocks until exit.
@@ -84,14 +101,16 @@ func (a *App) Run(ctx context.Context) error {
 		slog.SetDefault(slog.New(slog.NewTextHandler(logFile, nil)))
 	}
 
-	// Wire up the confirming executor if configured.
-	a.wireConfirmFn()
-
 	m := newModel(a, ctx)
 
 	// Inline mode: no WithAltScreen so output stays in terminal scrollback.
 	p := tea.NewProgram(m)
 	a.program = p
+
+	// Wire up the permission executor now that a.program is set.
+	// The confirmFn closure references a.program.Send, so this must come
+	// after the program is assigned.
+	a.wireConfirmFn()
 
 	// Wire the CLIInteractor's program reference for ask_user support.
 	if a.interactor != nil {
@@ -103,11 +122,26 @@ func (a *App) Run(ctx context.Context) error {
 	return err
 }
 
-// wireConfirmFn is a placeholder for wiring the confirming executor's confirmFn
-// to the TUI. The default confirmFn (set in WrapRegistry) allows all tools.
-// A future iteration will wire this to the TUI confirmation dialog via
-// the program reference once it is available.
-func (a *App) wireConfirmFn() {}
+// wireConfirmFn wires the permission executor's confirmFn to the TUI
+// confirmation dialog via the program reference.
+func (a *App) wireConfirmFn() {
+	if a.permissionState == nil {
+		return
+	}
+
+	confirmCh := a.confirmCh
+
+	a.permissionState.SetConfirmFn(func(ctx context.Context, toolName, args string) (PermissionAction, error) {
+		a.program.Send(confirmRequestMsg{toolName: toolName, arguments: args})
+
+		select {
+		case action := <-confirmCh:
+			return action, nil
+		case <-ctx.Done():
+			return PermissionDeny, ctx.Err()
+		}
+	})
+}
 
 // model is the bubbletea model for the CLI TUI.
 type model struct {
@@ -143,7 +177,6 @@ type model struct {
 	subAgentCacheReadTokens  int
 
 	// Confirmation
-	confirmCh   chan bool
 	confirmForm *huh.Form
 	pendingTC   *schema.ToolCallStartData
 
@@ -173,12 +206,11 @@ func newModel(app *App, ctx context.Context) *model {
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 
 	m := &model{
-		app:       app,
-		ctx:       ctx,
-		textarea:  ta,
-		spinner:   sp,
-		status:    statusIdle,
-		confirmCh: make(chan bool, 1),
+		app:      app,
+		ctx:      ctx,
+		textarea: ta,
+		spinner:  sp,
+		status:   statusIdle,
 	}
 
 	return m
@@ -282,9 +314,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if f, ok := form.(*huh.Form); ok {
 			m.confirmForm = f
 			if f.State == huh.StateCompleted {
-				// Form completed, get the result.
-				approved := f.GetBool("confirm")
-				m.confirmCh <- approved
+				action := f.GetString("confirm")
+
+				var pa PermissionAction
+
+				switch action {
+				case "allow_always":
+					pa = PermissionAllowAlways
+				case "deny":
+					pa = PermissionDeny
+				default:
+					pa = PermissionAllow
+				}
+
+				m.app.confirmCh <- pa
 				m.status = statusProcessing
 				m.confirmForm = nil
 				m.pendingTC = nil
@@ -397,7 +440,7 @@ func (m *model) handleCtrlC() (tea.Model, tea.Cmd) {
 	case statusConfirming:
 		// Reject the confirmation and cancel the run.
 		select {
-		case m.confirmCh <- false:
+		case m.app.confirmCh <- PermissionDeny:
 		default:
 		}
 		if m.runCancel != nil {
@@ -805,7 +848,7 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleConfirmRequest shows a confirmation dialog.
+// handleConfirmRequest shows a confirmation dialog with three options.
 func (m *model) handleConfirmRequest(msg confirmRequestMsg) (tea.Model, tea.Cmd) {
 	m.status = statusConfirming
 	m.pendingTC = &schema.ToolCallStartData{
@@ -813,16 +856,20 @@ func (m *model) handleConfirmRequest(msg confirmRequestMsg) (tea.Model, tea.Cmd)
 		Arguments: msg.arguments,
 	}
 
-	var approved bool
+	var action string
+
 	m.confirmForm = huh.NewForm(
 		huh.NewGroup(
-			huh.NewConfirm().
+			huh.NewSelect[string]().
 				Key("confirm").
 				Title(fmt.Sprintf("Allow tool call: %s?", msg.toolName)).
 				Description(truncate(msg.arguments, 200)).
-				Affirmative("Yes").
-				Negative("No").
-				Value(&approved),
+				Options(
+					huh.NewOption("Allow", "allow"),
+					huh.NewOption("Allow Always (this session)", "allow_always"),
+					huh.NewOption("Deny", "deny"),
+				).
+				Value(&action),
 		),
 	).WithShowHelp(false)
 

@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -73,9 +74,33 @@ type Config struct {
 	ProjectInstructions string `yaml:"-"`
 }
 
+// PermissionMode defines the tool permission mode for CLI mode.
+type PermissionMode string
+
+const (
+	PermissionModeDefault     PermissionMode = "default"
+	PermissionModeAcceptEdits PermissionMode = "accept-edits"
+	PermissionModeAuto        PermissionMode = "auto"
+	PermissionModePlan        PermissionMode = "plan"
+)
+
+// ValidPermissionModes lists all valid permission mode values.
+var ValidPermissionModes = []PermissionMode{
+	PermissionModeDefault,
+	PermissionModeAcceptEdits,
+	PermissionModeAuto,
+	PermissionModePlan,
+}
+
+// IsValidPermissionMode returns true if the given mode is a recognized permission mode.
+func IsValidPermissionMode(m PermissionMode) bool {
+	return slices.Contains(ValidPermissionModes, m)
+}
+
 // CLIConfig holds CLI-specific configuration.
 type CLIConfig struct {
-	ConfirmTools []string `yaml:"confirm_tools"` // tool names requiring confirmation
+	ConfirmTools   []string       `yaml:"confirm_tools,omitempty"`   // DEPRECATED: use PermissionMode
+	PermissionMode PermissionMode `yaml:"permission_mode,omitempty"` // tool permission mode
 }
 
 // LLMConfig holds LLM provider configuration.
@@ -173,6 +198,10 @@ func Load(path string, explicit bool) (*Config, error) {
 		cfg.Mode = v
 	}
 
+	if v := os.Getenv("VV_PERMISSION_MODE"); v != "" {
+		cfg.CLI.PermissionMode = PermissionMode(v)
+	}
+
 	if v := os.Getenv("VV_MAX_CONTEXT_TOKENS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Context.ModelMaxContextTokens = n
@@ -211,6 +240,15 @@ func Load(path string, explicit bool) (*Config, error) {
 	}
 
 	applyDefaults(cfg)
+
+	if !IsValidPermissionMode(cfg.CLI.PermissionMode) {
+		return nil, fmt.Errorf("invalid permission_mode %q; valid values: default, accept-edits, auto, plan",
+			cfg.CLI.PermissionMode)
+	}
+
+	if len(cfg.CLI.ConfirmTools) > 0 {
+		slog.Warn("vv: confirm_tools is deprecated; use permission_mode instead")
+	}
 
 	return cfg, nil
 }
@@ -281,6 +319,10 @@ func Save(cfg *Config, path string) error {
 func applyDefaults(cfg *Config) {
 	if cfg.Mode == "" {
 		cfg.Mode = "cli"
+	}
+
+	if cfg.CLI.PermissionMode == "" {
+		cfg.CLI.PermissionMode = PermissionModeDefault
 	}
 
 	if cfg.Server.Addr == "" {

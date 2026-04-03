@@ -20,6 +20,10 @@ func (m *model) handleCommand(input string) tea.Cmd {
 		return m.handleCompactCommand()
 	}
 
+	if parts[0] == "/permission" {
+		return m.handlePermissionCommand(parts[1:])
+	}
+
 	if parts[0] != "/memory" {
 		return nil
 	}
