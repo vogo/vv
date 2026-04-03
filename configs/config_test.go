@@ -595,6 +595,132 @@ agents:
 	}
 }
 
+func TestContextConfig_Defaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Context.ModelMaxContextTokens != 128000 {
+		t.Errorf("ModelMaxContextTokens = %d, want 128000", cfg.Context.ModelMaxContextTokens)
+	}
+
+	if cfg.Context.ToolOutputMaxTokens != 8000 {
+		t.Errorf("ToolOutputMaxTokens = %d, want 8000", cfg.Context.ToolOutputMaxTokens)
+	}
+
+	if cfg.Context.ProtectedTurns != 4 {
+		t.Errorf("ProtectedTurns = %d, want 4", cfg.Context.ProtectedTurns)
+	}
+
+	if cfg.Context.CompressionThreshold != nil {
+		t.Errorf("CompressionThreshold = %v, want nil (default)", cfg.Context.CompressionThreshold)
+	}
+
+	if cfg.Context.EffectiveCompressionThreshold() != 0.8 {
+		t.Errorf("EffectiveCompressionThreshold = %f, want 0.8", cfg.Context.EffectiveCompressionThreshold())
+	}
+}
+
+func TestContextConfig_ExplicitValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+context:
+  model_max_context_tokens: 200000
+  compression_threshold: 0.5
+  tool_output_max_tokens: 4000
+  context_protected_turns: 6
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Context.ModelMaxContextTokens != 200000 {
+		t.Errorf("ModelMaxContextTokens = %d, want 200000", cfg.Context.ModelMaxContextTokens)
+	}
+
+	if cfg.Context.ToolOutputMaxTokens != 4000 {
+		t.Errorf("ToolOutputMaxTokens = %d, want 4000", cfg.Context.ToolOutputMaxTokens)
+	}
+
+	if cfg.Context.ProtectedTurns != 6 {
+		t.Errorf("ProtectedTurns = %d, want 6", cfg.Context.ProtectedTurns)
+	}
+
+	if cfg.Context.CompressionThreshold == nil {
+		t.Fatal("CompressionThreshold should not be nil")
+	}
+
+	if *cfg.Context.CompressionThreshold != 0.5 {
+		t.Errorf("CompressionThreshold = %f, want 0.5", *cfg.Context.CompressionThreshold)
+	}
+
+	if cfg.Context.EffectiveCompressionThreshold() != 0.5 {
+		t.Errorf("EffectiveCompressionThreshold = %f, want 0.5", cfg.Context.EffectiveCompressionThreshold())
+	}
+}
+
+func TestContextConfig_EnvVarOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_MAX_CONTEXT_TOKENS", "64000")
+	t.Setenv("VV_CONTEXT_COMPRESSION_THRESHOLD", "0.6")
+	t.Setenv("VV_TOOL_OUTPUT_MAX_TOKENS", "2000")
+	t.Setenv("VV_CONTEXT_PROTECTED_TURNS", "3")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Context.ModelMaxContextTokens != 64000 {
+		t.Errorf("ModelMaxContextTokens = %d, want 64000", cfg.Context.ModelMaxContextTokens)
+	}
+
+	if cfg.Context.CompressionThreshold == nil {
+		t.Fatal("CompressionThreshold should not be nil after env override")
+	}
+
+	if *cfg.Context.CompressionThreshold != 0.6 {
+		t.Errorf("CompressionThreshold = %f, want 0.6", *cfg.Context.CompressionThreshold)
+	}
+
+	if cfg.Context.ToolOutputMaxTokens != 2000 {
+		t.Errorf("ToolOutputMaxTokens = %d, want 2000", cfg.Context.ToolOutputMaxTokens)
+	}
+
+	if cfg.Context.ProtectedTurns != 3 {
+		t.Errorf("ProtectedTurns = %d, want 3", cfg.Context.ProtectedTurns)
+	}
+}
+
+func TestContextConfig_EffectiveCompressionThreshold_ZeroValue(t *testing.T) {
+	threshold := 0.0
+	cfg := ContextConfig{CompressionThreshold: &threshold}
+	if cfg.EffectiveCompressionThreshold() != 0.0 {
+		t.Errorf("EffectiveCompressionThreshold = %f, want 0.0", cfg.EffectiveCompressionThreshold())
+	}
+}
+
 func TestLoad_OrchestrateConfig_Default(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

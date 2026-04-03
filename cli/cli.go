@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
@@ -28,14 +29,17 @@ import (
 
 // App holds the CLI TUI application state.
 type App struct {
-	orchestrator  agent.StreamAgent // replaces routeFn + routes
-	cfg           *configs.Config
-	sessionID     string
-	history       []schema.Message
-	messages      []DisplayMessage
-	program       *tea.Program
-	persistentMem memory.Memory // for /memory commands
-	interactor    *CLIInteractor
+	orchestrator    agent.StreamAgent // replaces routeFn + routes
+	cfg             *configs.Config
+	sessionID       string
+	history         []schema.Message
+	messages        []DisplayMessage
+	program         *tea.Program
+	persistentMem   memory.Memory // for /memory commands
+	interactor      *CLIInteractor
+	compactor       *memory.ConversationCompactor
+	estimatedTokens int // running total of estimated tokens in history
+	contextCfg      configs.ContextConfig
 }
 
 // New creates a new CLI App.
@@ -44,12 +48,15 @@ func New(
 	cfg *configs.Config,
 	persistentMem memory.Memory,
 	interactor *CLIInteractor,
+	compactor *memory.ConversationCompactor,
 ) *App {
 	return &App{
 		orchestrator:  orchestrator,
 		cfg:           cfg,
 		persistentMem: persistentMem,
 		interactor:    interactor,
+		compactor:     compactor,
+		contextCfg:    cfg.Context,
 	}
 }
 
@@ -141,6 +148,9 @@ type model struct {
 
 	// Track whether we have a running cancel function for current processing.
 	runCancel context.CancelFunc
+
+	// emergencyCompacted prevents infinite retry loops on context overflow.
+	emergencyCompacted bool
 }
 
 // newModel creates a new bubbletea model.
@@ -227,6 +237,24 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamDoneMsg:
 		return m.handleStreamDone(msg)
+
+	case compactionDoneMsg:
+		// Apply state changes from async compaction (sent from invokeAgent goroutine).
+		if msg.compressed != nil {
+			m.app.history = msg.compressed
+			m.app.estimatedTokens = msg.newTokens
+		}
+		return m, m.printSystem(
+			fmt.Sprintf("[context compressed: summarized %d messages to stay within model limits]", msg.summarizedCount))
+
+	case manualCompactResultMsg:
+		m.app.history = msg.compressed
+		m.app.estimatedTokens = msg.newTokens
+		return m, m.printSystem(
+			fmt.Sprintf("[context compressed: summarized %d messages]", msg.summarizedCount))
+
+	case emergencyCompactResultMsg:
+		return m.handleEmergencyCompactResult(msg)
 
 	case confirmRequestMsg:
 		return m.handleConfirmRequest(msg)
@@ -416,6 +444,12 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	userMsg := schema.NewUserMessage(input)
 	m.app.history = append(m.app.history, userMsg)
 
+	// Update running token estimate.
+	m.app.estimatedTokens += memory.DefaultTokenEstimator(userMsg)
+
+	// Reset emergency compacted flag for new turn.
+	m.emergencyCompacted = false
+
 	// Reset output builder and task-level stats for this round.
 	m.output.Reset()
 	m.taskStart = time.Now()
@@ -436,11 +470,39 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 
 // invokeAgent creates a tea.Cmd that runs the agent asynchronously.
 func (m *model) invokeAgent(ctx context.Context, _ string) tea.Cmd {
+	// Snapshot fields needed by the goroutine under the single-threaded Update context.
+	history := m.app.history
+	estimatedTokens := m.app.estimatedTokens
+	sessionID := m.app.sessionID
+
 	return func() tea.Msg {
-		// Build request with full history.
+		// Check if auto-compact is needed before building the request.
+		if m.app.compactor != nil {
+			safetyMargin := 0.10 // reserve 10% for system prompts and agent overhead
+			effectiveMax := float64(m.app.contextCfg.ModelMaxContextTokens) * (1.0 - safetyMargin)
+			threshold := int(effectiveMax * m.app.contextCfg.EffectiveCompressionThreshold())
+
+			if estimatedTokens > threshold {
+				compressed, newTokens, compacted, err := memory.CompactIfNeeded(
+					ctx, m.app.compactor, history, threshold)
+				if err == nil && compacted {
+					n := len(history) - len(compressed)
+					history = compressed
+					estimatedTokens = newTokens
+					// Send notification to TUI (Update will apply state changes).
+					m.app.program.Send(compactionDoneMsg{
+						summarizedCount: n,
+						compressed:      compressed,
+						newTokens:       newTokens,
+					})
+				}
+			}
+		}
+
+		// Build request with (possibly compressed) history.
 		req := &schema.RunRequest{
-			Messages:  m.app.history,
-			SessionID: m.app.sessionID,
+			Messages:  history,
+			SessionID: sessionID,
 		}
 
 		// Run stream via orchestrator.
@@ -675,6 +737,14 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Check for context overflow error and attempt emergency compact.
+	if msg.err != nil && largemodel.IsContextOverflowError(msg.err) && !m.emergencyCompacted {
+		m.emergencyCompacted = true
+		cmds = append(cmds, m.printSystem("[context overflow detected: attempting emergency compression...]"))
+		cmds = append(cmds, m.emergencyCompactCmd())
+		return m, tea.Batch(cmds...)
+	}
+
 	if msg.err != nil {
 		cmds = append(cmds, m.printError(msg.err.Error()))
 	}
@@ -686,6 +756,7 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 			"",
 		)
 		m.app.history = append(m.app.history, agentMsg)
+		m.app.estimatedTokens += memory.DefaultTokenEstimator(agentMsg)
 		cmds = append(cmds, m.flushAgentOutput())
 	}
 
@@ -814,6 +885,50 @@ func (m *model) flushAgentOutput() tea.Cmd {
 	}
 
 	return tea.Println(line)
+}
+
+// emergencyCompactCmd creates a tea.Cmd that runs emergency compression asynchronously.
+func (m *model) emergencyCompactCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.app.compactor == nil {
+			return emergencyCompactResultMsg{err: fmt.Errorf("compactor not configured")}
+		}
+
+		emergencyCompactor := memory.NewConversationCompactor(m.app.compactor.Summarizer(), 1)
+		compressed, newTokens, err := emergencyCompactor.Compact(m.ctx, m.app.history)
+		if err != nil {
+			return emergencyCompactResultMsg{err: err}
+		}
+
+		return emergencyCompactResultMsg{
+			compressed: compressed,
+			newTokens:  newTokens,
+		}
+	}
+}
+
+// handleEmergencyCompactResult processes the result of emergency compression.
+func (m *model) handleEmergencyCompactResult(msg emergencyCompactResultMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	if msg.err != nil {
+		cmds = append(cmds,
+			m.printError("Context overflow persists after emergency compression. Please start a new session."))
+		m.status = statusIdle
+		m.textarea.Focus()
+		return m, tea.Batch(cmds...)
+	}
+
+	m.app.history = msg.compressed
+	m.app.estimatedTokens = msg.newTokens
+	cmds = append(cmds, m.printSystem("[emergency context compression complete: retrying...]"))
+
+	// Retry the agent invocation once.
+	runCtx, cancel := context.WithCancel(m.ctx)
+	m.runCancel = cancel
+	cmds = append(cmds, m.invokeAgent(runCtx, ""))
+
+	return m, tea.Batch(cmds...)
 }
 
 // agentMessage creates an aimodel.Message from agent text.

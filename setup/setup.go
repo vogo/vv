@@ -1,10 +1,12 @@
 package setup
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vogo/aimodel"
@@ -12,6 +14,7 @@ import (
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
+	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vv/agents"
@@ -96,6 +99,11 @@ func New(
 			finalToolReg = opts.WrapToolRegistry(toolReg)
 		}
 
+		// Wrap with truncating registry for tool output limits.
+		if cfg.Context.ToolOutputMaxTokens > 0 {
+			finalToolReg = tool.NewTruncatingToolRegistry(finalToolReg, cfg.Context.ToolOutputMaxTokens)
+		}
+
 		factoryOpts := registries.FactoryOptions{
 			LLM:                 llm,
 			Model:               cfg.LLM.Model,
@@ -126,10 +134,16 @@ func New(
 		return nil, fmt.Errorf("build explorer tool registry: %w", err)
 	}
 
+	// Wrap explorer tool registry with truncation.
+	var explorerFinalToolReg tool.ToolRegistry = explorerToolReg
+	if cfg.Context.ToolOutputMaxTokens > 0 {
+		explorerFinalToolReg = tool.NewTruncatingToolRegistry(explorerToolReg, cfg.Context.ToolOutputMaxTokens)
+	}
+
 	explorer, err := explorerDesc.Factory(registries.FactoryOptions{
 		LLM:                 llm,
 		Model:               cfg.LLM.Model,
-		ToolRegistry:        explorerToolReg,
+		ToolRegistry:        explorerFinalToolReg,
 		MaxIterations:       min(cfg.Agents.MaxIterations, 15),
 		ProjectInstructions: cfg.ProjectInstructions,
 	})
@@ -237,6 +251,7 @@ type InitResult struct {
 	MemoryManager *memory.Manager
 	PersistentMem memory.Memory
 	SetupResult   *Result
+	Compactor     *memory.ConversationCompactor // conversation context compactor
 }
 
 // Init creates the LLM client, memory subsystem, and all agents from a
@@ -285,13 +300,57 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		return nil, fmt.Errorf("setup agents: %w", err)
 	}
 
+	// Create conversation compactor using the LLM for summarization.
+	compactSummarizer := func(ctx context.Context, messages []schema.Message) (string, error) {
+		var sb strings.Builder
+		sb.WriteString("Summarize the following conversation, preserving key decisions, ")
+		sb.WriteString("file changes, task progress, and important context:\n\n")
+		sb.WriteString(buildConversationText(messages))
+
+		req := &aimodel.ChatRequest{
+			Model: cfg.LLM.Model,
+			Messages: []aimodel.Message{
+				{Role: aimodel.RoleUser, Content: aimodel.NewTextContent(sb.String())},
+			},
+		}
+
+		resp, err := llmClient.ChatCompletion(ctx, req)
+		if err != nil {
+			return "", err
+		}
+
+		if len(resp.Choices) == 0 {
+			return "", fmt.Errorf("empty summarization response")
+		}
+
+		return resp.Choices[0].Message.Content.Text(), nil
+	}
+
+	// Limit summarizer input to 80% of context window to prevent the summarization
+	// call itself from exceeding the context limit.
+	maxSummarizerInput := int(float64(cfg.Context.ModelMaxContextTokens) * 0.8)
+
+	compactor := memory.NewConversationCompactor(compactSummarizer, cfg.Context.ProtectedTurns).
+		WithMaxInputTokens(maxSummarizerInput)
+
 	return &InitResult{
 		Config:        cfg,
 		LLMClient:     llmClient,
 		MemoryManager: memMgr,
 		PersistentMem: persistentMem,
 		SetupResult:   result,
+		Compactor:     compactor,
 	}, nil
+}
+
+// buildConversationText formats messages for summarization display.
+func buildConversationText(messages []schema.Message) string {
+	var sb strings.Builder
+	for _, msg := range messages {
+		fmt.Fprintf(&sb, "[%s]: %s\n", msg.Role, msg.Content.Text())
+	}
+
+	return sb.String()
 }
 
 // InitFromFile is a convenience wrapper that loads config from a YAML file

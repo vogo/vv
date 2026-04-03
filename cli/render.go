@@ -104,6 +104,13 @@ func renderSystemMessage(text string) string {
 	return systemStyle.Render(text)
 }
 
+// renderSummaryMessage renders a compressed context summary with dimmed style.
+func renderSummaryMessage(text string) string {
+	header := dimStyle.Render("[Previous context (summarized)]")
+	body := dimStyle.Render(text)
+	return header + "\n" + body
+}
+
 // renderToolMessage renders a tool-related message with bullet indicator.
 func renderToolMessage(text string) string {
 	return toolBulletStyle.Render(bullet) + toolStyle.Render(text)

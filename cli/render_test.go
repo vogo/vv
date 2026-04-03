@@ -52,6 +52,16 @@ func TestRenderSystemMessage(t *testing.T) {
 	}
 }
 
+func TestRenderSummaryMessage(t *testing.T) {
+	result := renderSummaryMessage("This is a summary of previous context.")
+	if !strings.Contains(result, "Previous context (summarized)") {
+		t.Errorf("renderSummaryMessage should contain header, got %q", result)
+	}
+	if !strings.Contains(result, "summary of previous context") {
+		t.Errorf("renderSummaryMessage should contain body text, got %q", result)
+	}
+}
+
 func TestRenderToolMessage(t *testing.T) {
 	result := renderToolMessage("tool output")
 	if !strings.Contains(result, "tool output") {

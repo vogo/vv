@@ -18,7 +18,8 @@ import (
 
 // Serve starts the HTTP server with agent and memory endpoints.
 // It blocks until the context is canceled or a fatal error occurs.
-func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore) error {
+// compactor may be nil if context compression is not configured.
+func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor) error {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {

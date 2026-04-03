@@ -52,7 +52,7 @@ func (s *stubStreamAgent) RunStream(ctx context.Context, req *schema.RunRequest)
 func TestMultiTurnHistory(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
 
-	app := New(orchestrator, &configs.Config{}, nil, nil)
+	app := New(orchestrator, &configs.Config{}, nil, nil, nil)
 
 	// Simulate adding messages to history.
 	app.history = append(app.history, schema.NewUserMessage("first message"))
@@ -113,7 +113,7 @@ func TestNewApp(t *testing.T) {
 
 	cfg := &configs.Config{Mode: "cli"}
 
-	app := New(orchestrator, cfg, nil, nil)
+	app := New(orchestrator, cfg, nil, nil, nil)
 
 	if app == nil {
 		t.Fatal("New returned nil")
@@ -140,7 +140,7 @@ func TestToolDepth_InsideSubAgent(t *testing.T) {
 
 func TestNestingDepth_SubAgentLifecycle(t *testing.T) {
 	orchestrator := &stubStreamAgent{id: "orchestrator", response: "response"}
-	app := New(orchestrator, &configs.Config{}, nil, nil)
+	app := New(orchestrator, &configs.Config{}, nil, nil, nil)
 	m := newModel(app, context.Background())
 
 	// Initially depth is 0.

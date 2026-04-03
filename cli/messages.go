@@ -6,6 +6,29 @@ import (
 	"github.com/vogo/vage/schema"
 )
 
+// compactionDoneMsg signals that context compression completed.
+// When triggered from invokeAgent (async), it carries the compressed
+// history so the Update handler can apply the state change safely.
+type compactionDoneMsg struct {
+	summarizedCount int
+	compressed      []schema.Message // nil when no state update needed (already applied)
+	newTokens       int
+}
+
+// emergencyCompactResultMsg signals the result of emergency compression.
+type emergencyCompactResultMsg struct {
+	compressed []schema.Message
+	newTokens  int
+	err        error
+}
+
+// manualCompactResultMsg signals the result of a manual /compact command.
+type manualCompactResultMsg struct {
+	compressed      []schema.Message
+	newTokens       int
+	summarizedCount int
+}
+
 // streamEventMsg wraps a schema.Event received from RunStream.
 type streamEventMsg struct {
 	event schema.Event

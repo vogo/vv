@@ -8,11 +8,19 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// handleCommand checks for slash commands (e.g. /memory) before routing to agents.
+// handleCommand checks for slash commands (e.g. /memory, /compact) before routing to agents.
 // Returns a non-nil tea.Cmd if the input was handled as a command, nil otherwise.
 func (m *model) handleCommand(input string) tea.Cmd {
 	parts := strings.Fields(input)
-	if len(parts) == 0 || parts[0] != "/memory" {
+	if len(parts) == 0 {
+		return nil
+	}
+
+	if parts[0] == "/compact" {
+		return m.handleCompactCommand()
+	}
+
+	if parts[0] != "/memory" {
 		return nil
 	}
 
@@ -114,4 +122,38 @@ func truncateValue(v any) string {
 		return s[:80] + "..."
 	}
 	return s
+}
+
+// handleCompactCommand handles the /compact slash command for manual context compression.
+func (m *model) handleCompactCommand() tea.Cmd {
+	if m.app.compactor == nil {
+		return m.printSystem("Context compression is not configured.")
+	}
+
+	// Dispatch async compaction via a tea.Cmd.
+	return m.manualCompactCmd()
+}
+
+// manualCompactCmd creates an async tea.Cmd that compresses the conversation.
+// The result is returned as a message to be applied in the Update handler,
+// avoiding data races on shared state.
+func (m *model) manualCompactCmd() tea.Cmd {
+	// Snapshot history under the single-threaded Update context.
+	history := m.app.history
+
+	return func() tea.Msg {
+		// Force compact regardless of threshold for manual command.
+		compressed, newTokens, err := m.app.compactor.Compact(context.Background(), history)
+		if err != nil {
+			return emergencyCompactResultMsg{err: err}
+		}
+
+		n := len(history) - len(compressed)
+
+		return manualCompactResultMsg{
+			compressed:      compressed,
+			newTokens:       newTokens,
+			summarizedCount: n,
+		}
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/vogo/aimodel"
@@ -60,6 +61,7 @@ type Config struct {
 	CLI         CLIConfig         `yaml:"cli"`
 	Memory      MemoryConfig      `yaml:"memory"`
 	Orchestrate OrchestrateConfig `yaml:"orchestrate"`
+	Context     ContextConfig     `yaml:"context"`
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
 	// Runtime-only; not persisted to vv.yaml.
@@ -95,6 +97,24 @@ type AgentsConfig struct {
 	MaxIterations  int `yaml:"max_iterations"`   // default 10
 	RunTokenBudget int `yaml:"run_token_budget"` // default 0 (unlimited)
 	AskUserTimeout int `yaml:"ask_user_timeout"` // seconds, default 300 (5 minutes)
+}
+
+// ContextConfig holds conversation context compression configuration.
+type ContextConfig struct {
+	ModelMaxContextTokens int      `yaml:"model_max_context_tokens"` // default: 128000
+	CompressionThreshold  *float64 `yaml:"compression_threshold"`    // default: 0.8; pointer to distinguish "not set" from 0.0
+	ToolOutputMaxTokens   int      `yaml:"tool_output_max_tokens"`   // default: 8000
+	ProtectedTurns        int      `yaml:"context_protected_turns"`  // default: 4
+}
+
+// EffectiveCompressionThreshold returns the compression threshold,
+// falling back to 0.8 if not explicitly set.
+func (c ContextConfig) EffectiveCompressionThreshold() float64 {
+	if c.CompressionThreshold != nil {
+		return *c.CompressionThreshold
+	}
+
+	return 0.8
 }
 
 // Load loads configuration from a YAML file with environment variable overrides.
@@ -139,6 +159,30 @@ func Load(path string, explicit bool) (*Config, error) {
 
 	if v := os.Getenv("VV_MODE"); v != "" {
 		cfg.Mode = v
+	}
+
+	if v := os.Getenv("VV_MAX_CONTEXT_TOKENS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Context.ModelMaxContextTokens = n
+		}
+	}
+
+	if v := os.Getenv("VV_CONTEXT_COMPRESSION_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Context.CompressionThreshold = &f
+		}
+	}
+
+	if v := os.Getenv("VV_TOOL_OUTPUT_MAX_TOKENS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Context.ToolOutputMaxTokens = n
+		}
+	}
+
+	if v := os.Getenv("VV_CONTEXT_PROTECTED_TURNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Context.ProtectedTurns = n
+		}
 	}
 
 	applyDefaults(cfg)
@@ -267,6 +311,20 @@ func applyDefaults(cfg *Config) {
 	if cfg.Orchestrate.Replan.MaxReplans == 0 {
 		cfg.Orchestrate.Replan.MaxReplans = 2
 	}
+
+	// Context compression defaults.
+	if cfg.Context.ModelMaxContextTokens == 0 {
+		cfg.Context.ModelMaxContextTokens = 128000
+	}
+
+	if cfg.Context.ToolOutputMaxTokens == 0 {
+		cfg.Context.ToolOutputMaxTokens = 8000
+	}
+
+	if cfg.Context.ProtectedTurns == 0 {
+		cfg.Context.ProtectedTurns = 4
+	}
+	// CompressionThreshold uses a pointer; nil means "use default 0.8" via EffectiveCompressionThreshold().
 }
 
 func prompt(scanner *bufio.Scanner, w io.Writer, label, current, defaultVal string) string {
