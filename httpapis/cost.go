@@ -10,14 +10,14 @@ import (
 	"strings"
 
 	"github.com/vogo/aimodel"
-	"github.com/vogo/vv/costtracker"
+	"github.com/vogo/vv/traces/costtraces"
 )
 
 // costEnrichMiddleware wraps an HTTP handler to enrich responses with cost data.
 // For sync run responses, it injects estimated_cost_usd.
 // For streaming responses, it accumulates token counts from llm_call_end events
 // and emits a final usage SSE event after the stream ends.
-func costEnrichMiddleware(next http.Handler, pricingLookup func(string) *costtracker.Pricing) http.Handler {
+func costEnrichMiddleware(next http.Handler, pricingLookup func(string) *costtraces.Pricing) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
@@ -34,7 +34,7 @@ func costEnrichMiddleware(next http.Handler, pricingLookup func(string) *costtra
 }
 
 // enrichSyncResponse captures the response body, injects estimated_cost_usd, and re-writes.
-func enrichSyncResponse(next http.Handler, w http.ResponseWriter, r *http.Request, pricingLookup func(string) *costtracker.Pricing) {
+func enrichSyncResponse(next http.Handler, w http.ResponseWriter, r *http.Request, pricingLookup func(string) *costtraces.Pricing) {
 	rec := &responseRecorder{
 		ResponseWriter: w,
 		body:           &bytes.Buffer{},
@@ -62,7 +62,7 @@ func enrichSyncResponse(next http.Handler, w http.ResponseWriter, r *http.Reques
 }
 
 // injectCostIntoJSON parses the response, calculates cost from usage, and injects estimated_cost_usd.
-func injectCostIntoJSON(body []byte, pricingLookup func(string) *costtracker.Pricing) []byte {
+func injectCostIntoJSON(body []byte, pricingLookup func(string) *costtraces.Pricing) []byte {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return body
@@ -122,7 +122,7 @@ func extractModel(raw map[string]json.RawMessage) string {
 
 // enrichStreamResponse wraps the SSE stream to accumulate token counts
 // and emit a final usage event.
-func enrichStreamResponse(next http.Handler, w http.ResponseWriter, r *http.Request, pricingLookup func(string) *costtracker.Pricing) {
+func enrichStreamResponse(next http.Handler, w http.ResponseWriter, r *http.Request, pricingLookup func(string) *costtraces.Pricing) {
 	rec := &streamRecorder{
 		ResponseWriter: w,
 		body:           &bytes.Buffer{},
@@ -140,7 +140,7 @@ func enrichStreamResponse(next http.Handler, w http.ResponseWriter, r *http.Requ
 	}
 
 	// Parse SSE events, write them through, and accumulate usage.
-	tracker := costtracker.New("", nil)
+	tracker := costtraces.New("", nil)
 
 	var model string
 
@@ -201,7 +201,7 @@ func enrichStreamResponse(next http.Handler, w http.ResponseWriter, r *http.Requ
 
 	// Re-create tracker with pricing to compute cost.
 	pricing := pricingLookup(model)
-	pricedTracker := costtracker.New(model, pricing)
+	pricedTracker := costtraces.New(model, pricing)
 
 	snap := tracker.Snapshot()
 	pricedTracker.Add(snap.InputTokens, snap.OutputTokens, snap.CacheReadTokens)

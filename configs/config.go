@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/vogo/aimodel"
-	"github.com/vogo/vv/costtracker"
+	"github.com/vogo/vv/traces/costtraces"
 	"gopkg.in/yaml.v3"
 )
 
@@ -419,16 +419,16 @@ func prompt(scanner *bufio.Scanner, w io.Writer, label, current, defaultVal stri
 	return defaultVal
 }
 
-// ConvertPricing converts config pricing entries to costtracker pricing entries.
-func ConvertPricing(entries map[string]ModelPricingEntry) map[string]costtracker.Pricing {
+// ConvertPricing converts config pricing entries to costtraces pricing entries.
+func ConvertPricing(entries map[string]ModelPricingEntry) map[string]costtraces.Pricing {
 	if len(entries) == 0 {
 		return nil
 	}
 
-	result := make(map[string]costtracker.Pricing, len(entries))
+	result := make(map[string]costtraces.Pricing, len(entries))
 
 	for k, v := range entries {
-		result[k] = costtracker.Pricing{
+		result[k] = costtraces.Pricing{
 			InputPerMTokens:  v.InputPerMTokens,
 			OutputPerMTokens: v.OutputPerMTokens,
 			CachePerMTokens:  v.CachePerMTokens,

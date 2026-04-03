@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package costtracker
+package costtraces
 
 import "sort"
 

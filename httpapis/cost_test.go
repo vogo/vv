@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/vogo/vv/costtracker"
+	"github.com/vogo/vv/traces/costtraces"
 )
 
 func TestCostEnrichMiddleware_SyncResponse(t *testing.T) {
@@ -21,8 +21,8 @@ func TestCostEnrichMiddleware_SyncResponse(t *testing.T) {
 		}`))
 	})
 
-	lookup := func(_ string) *costtracker.Pricing {
-		return &costtracker.Pricing{
+	lookup := func(_ string) *costtraces.Pricing {
+		return &costtraces.Pricing{
 			InputPerMTokens:  3.0,
 			OutputPerMTokens: 15.0,
 			CachePerMTokens:  0.3,
@@ -70,7 +70,7 @@ func TestCostEnrichMiddleware_NoPricing(t *testing.T) {
 		_, _ = w.Write([]byte(`{"messages":[],"usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}`))
 	})
 
-	lookup := func(_ string) *costtracker.Pricing {
+	lookup := func(_ string) *costtraces.Pricing {
 		return nil
 	}
 
@@ -98,8 +98,8 @@ func TestCostEnrichMiddleware_NonRunEndpoints_PassThrough(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	lookup := func(_ string) *costtracker.Pricing {
-		return &costtracker.Pricing{InputPerMTokens: 1.0, OutputPerMTokens: 2.0}
+	lookup := func(_ string) *costtraces.Pricing {
+		return &costtraces.Pricing{InputPerMTokens: 1.0, OutputPerMTokens: 2.0}
 	}
 
 	enriched := costEnrichMiddleware(handler, lookup)
@@ -115,8 +115,8 @@ func TestCostEnrichMiddleware_NonRunEndpoints_PassThrough(t *testing.T) {
 
 func TestInjectCostIntoJSON_NoUsage(t *testing.T) {
 	body := []byte(`{"messages":[],"duration_ms":1000}`)
-	lookup := func(_ string) *costtracker.Pricing {
-		return &costtracker.Pricing{InputPerMTokens: 1.0, OutputPerMTokens: 2.0}
+	lookup := func(_ string) *costtraces.Pricing {
+		return &costtraces.Pricing{InputPerMTokens: 1.0, OutputPerMTokens: 2.0}
 	}
 
 	result := injectCostIntoJSON(body, lookup)

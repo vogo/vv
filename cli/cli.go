@@ -25,7 +25,7 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
-	"github.com/vogo/vv/costtracker"
+	"github.com/vogo/vv/traces/costtraces"
 )
 
 // App holds the CLI TUI application state.
@@ -41,7 +41,7 @@ type App struct {
 	compactor       *memory.ConversationCompactor
 	estimatedTokens int // running total of estimated tokens in history
 	contextCfg      configs.ContextConfig
-	costTracker     *costtracker.Tracker
+	costTracker     *costtraces.Tracker
 	permissionState *PermissionState      // shared state for /permission command
 	confirmCh       chan PermissionAction // channel for confirmation dialog results
 }
@@ -62,7 +62,7 @@ func New(
 	compactor *memory.ConversationCompactor,
 	opts ...func(*App),
 ) *App {
-	pricing := costtracker.LookupPricing(cfg.LLM.Model, configs.ConvertPricing(cfg.ModelPricing))
+	pricing := costtraces.LookupPricing(cfg.LLM.Model, configs.ConvertPricing(cfg.ModelPricing))
 
 	a := &App{
 		orchestrator:  orchestrator,
@@ -71,7 +71,7 @@ func New(
 		interactor:    interactor,
 		compactor:     compactor,
 		contextCfg:    cfg.Context,
-		costTracker:   costtracker.New(cfg.LLM.Model, pricing),
+		costTracker:   costtraces.New(cfg.LLM.Model, pricing),
 		confirmCh:     make(chan PermissionAction, 1),
 	}
 

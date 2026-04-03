@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/vv/costtracker"
+	"github.com/vogo/vv/traces/costtraces"
 )
 
 // Test 7a: HTTP cost enrichment middleware for sync responses.
@@ -32,8 +32,8 @@ func TestIntegration_HTTP_CostEnrichment_SyncRun(t *testing.T) {
 		}`))
 	})
 
-	pricingLookup := func(model string) *costtracker.Pricing {
-		return costtracker.LookupPricing(model, nil)
+	pricingLookup := func(model string) *costtraces.Pricing {
+		return costtraces.LookupPricing(model, nil)
 	}
 
 	// Wrap with cost enrichment middleware.
@@ -105,8 +105,8 @@ func TestIntegration_HTTP_CostEnrichment_NoPricing(t *testing.T) {
 		}`))
 	})
 
-	pricingLookup := func(model string) *costtracker.Pricing {
-		return costtracker.LookupPricing(model, nil)
+	pricingLookup := func(model string) *costtraces.Pricing {
+		return costtraces.LookupPricing(model, nil)
 	}
 
 	handler := costEnrichTestMiddleware(mockHandler, pricingLookup)
@@ -154,8 +154,8 @@ func TestIntegration_HTTP_CostEnrichment_Stream(t *testing.T) {
 		}
 	})
 
-	pricingLookup := func(model string) *costtracker.Pricing {
-		return costtracker.LookupPricing(model, nil)
+	pricingLookup := func(model string) *costtraces.Pricing {
+		return costtraces.LookupPricing(model, nil)
 	}
 
 	handler := costEnrichTestMiddleware(mockHandler, pricingLookup)
@@ -197,7 +197,7 @@ func TestIntegration_HTTP_CostEnrichment_Stream(t *testing.T) {
 		t.Fatal("could not extract usage event data")
 	}
 
-	var usage costtracker.Usage
+	var usage costtraces.Usage
 	if err := json.Unmarshal([]byte(usageLine), &usage); err != nil {
 		t.Fatalf("unmarshal usage: %v", err)
 	}
@@ -238,8 +238,8 @@ func TestIntegration_HTTP_CostEnrichment_Passthrough(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	pricingLookup := func(model string) *costtracker.Pricing {
-		return costtracker.LookupPricing(model, nil)
+	pricingLookup := func(model string) *costtraces.Pricing {
+		return costtraces.LookupPricing(model, nil)
 	}
 
 	handler := costEnrichTestMiddleware(mockHandler, pricingLookup)
@@ -272,7 +272,7 @@ func TestIntegration_HTTP_CostEnrichment_Passthrough(t *testing.T) {
 //
 // Note: This tests the same logic as httpapis.costEnrichMiddleware by
 // reconstructing it from the public API patterns used in httpapis/cost.go.
-func costEnrichTestMiddleware(next http.Handler, pricingLookup func(string) *costtracker.Pricing) http.Handler {
+func costEnrichTestMiddleware(next http.Handler, pricingLookup func(string) *costtraces.Pricing) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
@@ -287,7 +287,7 @@ func costEnrichTestMiddleware(next http.Handler, pricingLookup func(string) *cos
 	})
 }
 
-func enrichSyncTestResponse(next http.Handler, w http.ResponseWriter, r *http.Request, pricingLookup func(string) *costtracker.Pricing) {
+func enrichSyncTestResponse(next http.Handler, w http.ResponseWriter, r *http.Request, pricingLookup func(string) *costtraces.Pricing) {
 	rec := httptest.NewRecorder()
 	next.ServeHTTP(rec, r)
 
@@ -307,7 +307,7 @@ func enrichSyncTestResponse(next http.Handler, w http.ResponseWriter, r *http.Re
 	_, _ = w.Write(body)
 }
 
-func injectCostTestJSON(body []byte, pricingLookup func(string) *costtracker.Pricing) []byte {
+func injectCostTestJSON(body []byte, pricingLookup func(string) *costtraces.Pricing) []byte {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return body
@@ -351,11 +351,11 @@ func injectCostTestJSON(body []byte, pricingLookup func(string) *costtracker.Pri
 	return enriched
 }
 
-func enrichStreamTestResponse(next http.Handler, w http.ResponseWriter, r *http.Request, pricingLookup func(string) *costtracker.Pricing) {
+func enrichStreamTestResponse(next http.Handler, w http.ResponseWriter, r *http.Request, pricingLookup func(string) *costtraces.Pricing) {
 	rec := httptest.NewRecorder()
 	next.ServeHTTP(rec, r)
 
-	tracker := costtracker.New("", nil)
+	tracker := costtraces.New("", nil)
 
 	var model string
 
@@ -399,7 +399,7 @@ func enrichStreamTestResponse(next http.Handler, w http.ResponseWriter, r *http.
 	}
 
 	pricing := pricingLookup(model)
-	pricedTracker := costtracker.New(model, pricing)
+	pricedTracker := costtraces.New(model, pricing)
 
 	snap := tracker.Snapshot()
 	pricedTracker.Add(snap.InputTokens, snap.OutputTokens, snap.CacheReadTokens)

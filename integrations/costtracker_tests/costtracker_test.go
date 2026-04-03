@@ -1,4 +1,4 @@
-package costtracker_tests
+package costtraces_tests
 
 import (
 	"encoding/json"
@@ -9,19 +9,19 @@ import (
 	"testing"
 
 	"github.com/vogo/vv/configs"
-	"github.com/vogo/vv/costtracker"
+	"github.com/vogo/vv/traces/costtraces"
 )
 
 // Test 4a: Cost tracker accumulation across multiple Add calls.
 // Creates a Tracker with known pricing, calls Add() multiple times,
 // and verifies cumulative totals in Snapshot().
 func TestIntegration_CostTracker_Accumulation(t *testing.T) {
-	pricing := &costtracker.Pricing{
+	pricing := &costtraces.Pricing{
 		InputPerMTokens:  3.0,
 		OutputPerMTokens: 15.0,
 		CachePerMTokens:  0.3,
 	}
-	tracker := costtracker.New("claude-sonnet-4", pricing)
+	tracker := costtraces.New("claude-sonnet-4", pricing)
 
 	// First call: 1000 input (200 cached), 500 output.
 	tracker.Add(1000, 500, 200)
@@ -64,12 +64,12 @@ func TestIntegration_CostTracker_Accumulation(t *testing.T) {
 // (800 * inputRate + 200 * cacheRate + 500 * outputRate)
 // NOT: (1000 * inputRate + 200 * cacheRate + 500 * outputRate).
 func TestIntegration_CostTracker_NoCacheDoubleCharge(t *testing.T) {
-	pricing := &costtracker.Pricing{
+	pricing := &costtraces.Pricing{
 		InputPerMTokens:  3.0,
 		OutputPerMTokens: 15.0,
 		CachePerMTokens:  0.3,
 	}
-	tracker := costtracker.New("test-model", pricing)
+	tracker := costtraces.New("test-model", pricing)
 
 	tracker.Add(1000, 500, 200)
 
@@ -100,7 +100,7 @@ func TestIntegration_CostTracker_NoCacheDoubleCharge(t *testing.T) {
 // Test 4c: Nil pricing produces nil EstimatedCostUSD.
 // Verifies token counts are still tracked even without pricing.
 func TestIntegration_CostTracker_NilPricing(t *testing.T) {
-	tracker := costtracker.New("unknown-model", nil)
+	tracker := costtraces.New("unknown-model", nil)
 
 	tracker.Add(1000, 500, 200)
 	tracker.Add(2000, 1000, 100)
@@ -133,12 +133,12 @@ func TestIntegration_CostTracker_NilPricing(t *testing.T) {
 // Spawns many goroutines calling Add() concurrently and verifies
 // the final snapshot is consistent.
 func TestIntegration_CostTracker_ConcurrentAccess(t *testing.T) {
-	pricing := &costtracker.Pricing{
+	pricing := &costtraces.Pricing{
 		InputPerMTokens:  3.0,
 		OutputPerMTokens: 15.0,
 		CachePerMTokens:  0.3,
 	}
-	tracker := costtracker.New("test", pricing)
+	tracker := costtraces.New("test", pricing)
 
 	const goroutines = 200
 
@@ -180,8 +180,8 @@ func TestIntegration_CostTracker_ConcurrentAccess(t *testing.T) {
 // Verifies that modifying or adding after a snapshot doesn't affect
 // previously captured snapshots.
 func TestIntegration_CostTracker_SnapshotIsolation(t *testing.T) {
-	pricing := &costtracker.Pricing{InputPerMTokens: 3.0, OutputPerMTokens: 15.0}
-	tracker := costtracker.New("test", pricing)
+	pricing := &costtraces.Pricing{InputPerMTokens: 3.0, OutputPerMTokens: 15.0}
+	tracker := costtraces.New("test", pricing)
 
 	tracker.Add(1000, 500, 0)
 	snap1 := tracker.Snapshot()
@@ -205,7 +205,7 @@ func TestIntegration_CostTracker_SnapshotIsolation(t *testing.T) {
 // Test 5a: LookupPricing exact match.
 // Verifies "gpt-4o" matches "gpt-4o" exactly.
 func TestIntegration_PricingLookup_ExactMatch(t *testing.T) {
-	p := costtracker.LookupPricing("gpt-4o", nil)
+	p := costtraces.LookupPricing("gpt-4o", nil)
 	if p == nil {
 		t.Fatal("LookupPricing(\"gpt-4o\") = nil, want non-nil")
 	}
@@ -221,7 +221,7 @@ func TestIntegration_PricingLookup_ExactMatch(t *testing.T) {
 
 // Test 5b: Longest prefix match -- "gpt-4o-mini" matches "gpt-4o-mini" not "gpt-4o".
 func TestIntegration_PricingLookup_LongestPrefix(t *testing.T) {
-	p := costtracker.LookupPricing("gpt-4o-mini", nil)
+	p := costtraces.LookupPricing("gpt-4o-mini", nil)
 	if p == nil {
 		t.Fatal("LookupPricing(\"gpt-4o-mini\") = nil, want non-nil")
 	}
@@ -234,7 +234,7 @@ func TestIntegration_PricingLookup_LongestPrefix(t *testing.T) {
 
 // Test 5c: Prefix match -- "claude-sonnet-4-20250514" matches "claude-sonnet-4".
 func TestIntegration_PricingLookup_PrefixMatch(t *testing.T) {
-	p := costtracker.LookupPricing("claude-sonnet-4-20250514", nil)
+	p := costtraces.LookupPricing("claude-sonnet-4-20250514", nil)
 	if p == nil {
 		t.Fatal("LookupPricing(\"claude-sonnet-4-20250514\") = nil, want non-nil")
 	}
@@ -250,11 +250,11 @@ func TestIntegration_PricingLookup_PrefixMatch(t *testing.T) {
 
 // Test 5d: Custom overrides take precedence over defaults.
 func TestIntegration_PricingLookup_CustomOverrides(t *testing.T) {
-	custom := map[string]costtracker.Pricing{
+	custom := map[string]costtraces.Pricing{
 		"gpt-4o": {InputPerMTokens: 99.0, OutputPerMTokens: 99.0},
 	}
 
-	p := costtracker.LookupPricing("gpt-4o", custom)
+	p := costtraces.LookupPricing("gpt-4o", custom)
 	if p == nil {
 		t.Fatal("LookupPricing(\"gpt-4o\", custom) = nil, want non-nil")
 	}
@@ -266,7 +266,7 @@ func TestIntegration_PricingLookup_CustomOverrides(t *testing.T) {
 
 // Test 5e: Unknown model returns nil pricing.
 func TestIntegration_PricingLookup_UnknownModel(t *testing.T) {
-	p := costtracker.LookupPricing("totally-unknown-model-xyz", nil)
+	p := costtraces.LookupPricing("totally-unknown-model-xyz", nil)
 	if p != nil {
 		t.Errorf("LookupPricing(\"totally-unknown-model-xyz\") = %+v, want nil", p)
 	}
@@ -274,11 +274,11 @@ func TestIntegration_PricingLookup_UnknownModel(t *testing.T) {
 
 // Test 5f: Custom prefix match -- custom entries support prefix matching.
 func TestIntegration_PricingLookup_CustomPrefixMatch(t *testing.T) {
-	custom := map[string]costtracker.Pricing{
+	custom := map[string]costtraces.Pricing{
 		"my-org-model": {InputPerMTokens: 1.0, OutputPerMTokens: 5.0, CachePerMTokens: 0.1},
 	}
 
-	p := costtracker.LookupPricing("my-org-model-v2-20260101", custom)
+	p := costtraces.LookupPricing("my-org-model-v2-20260101", custom)
 	if p == nil {
 		t.Fatal("LookupPricing with custom prefix = nil, want non-nil")
 	}
@@ -401,7 +401,7 @@ model_pricing:
 	}
 }
 
-// Test 8c: ConvertPricing converts config entries to costtracker pricing.
+// Test 8c: ConvertPricing converts config entries to costtraces pricing.
 func TestIntegration_Config_ConvertPricing(t *testing.T) {
 	entries := map[string]configs.ModelPricingEntry{
 		"test-model": {InputPerMTokens: 3.0, OutputPerMTokens: 15.0, CachePerMTokens: 0.3},
@@ -443,7 +443,7 @@ func TestIntegration_Config_ConvertPricingEmpty(t *testing.T) {
 	}
 }
 
-// Test 8e: End-to-end: config -> costtracker -> pricing lookup.
+// Test 8e: End-to-end: config -> costtraces -> pricing lookup.
 // Loads config with custom model pricing, converts, and verifies
 // LookupPricing works with the converted pricing.
 func TestIntegration_Config_EndToEndPricingLookup(t *testing.T) {
@@ -473,7 +473,7 @@ model_pricing:
 	customPricing := configs.ConvertPricing(cfg.ModelPricing)
 
 	// "my-org-model-v2" should match "my-org-model" by prefix.
-	p := costtracker.LookupPricing("my-org-model-v2", customPricing)
+	p := costtraces.LookupPricing("my-org-model-v2", customPricing)
 	if p == nil {
 		t.Fatal("LookupPricing(\"my-org-model-v2\") = nil, want non-nil (prefix match)")
 	}
@@ -483,7 +483,7 @@ model_pricing:
 	}
 
 	// Create a tracker with looked-up pricing and verify cost calculation.
-	tracker := costtracker.New(cfg.LLM.Model, p)
+	tracker := costtraces.New(cfg.LLM.Model, p)
 	tracker.Add(1000, 500, 200)
 
 	snap := tracker.Snapshot()

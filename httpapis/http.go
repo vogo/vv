@@ -13,8 +13,8 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/configs"
-	"github.com/vogo/vv/costtracker"
 	"github.com/vogo/vv/tools"
+	"github.com/vogo/vv/traces/costtraces"
 )
 
 // Serve starts the HTTP server with agent and memory endpoints.
@@ -39,8 +39,8 @@ func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, age
 
 	// Build pricing lookup for cost enrichment middleware.
 	customPricing := configs.ConvertPricing(cfg.ModelPricing)
-	pricingLookup := func(model string) *costtracker.Pricing {
-		return costtracker.LookupPricing(model, customPricing)
+	pricingLookup := func(model string) *costtraces.Pricing {
+		return costtraces.LookupPricing(model, customPricing)
 	}
 
 	// Build a custom mux that wraps the service handler with cost enrichment middleware.
