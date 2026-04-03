@@ -369,6 +369,76 @@ func TestRenderTaskComplete_NoTokens(t *testing.T) {
 	}
 }
 
+func TestShortModelName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"claude-sonnet-4-20250514", "sonnet-4"},
+		{"claude-opus-4-20250514", "opus-4"},
+		{"claude-sonnet-4", "sonnet-4"},
+		{"gpt-4o-20240806", "gpt-4o"},
+		{"gpt-4o", "gpt-4o"},
+		{"gpt-4o-mini", "gpt-4o-mini"},
+		{"my-custom-model", "my-custom-model"},
+	}
+
+	for _, tt := range tests {
+		got := shortModelName(tt.input)
+		if got != tt.want {
+			t.Errorf("shortModelName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestFormatCost(t *testing.T) {
+	tests := []struct {
+		name string
+		cost *float64
+		want string
+	}{
+		{"nil", nil, "N/A"},
+		{"zero", new(0.0), "$0.000"},
+		{"small", new(0.042), "$0.042"},
+		{"large", new(1.5), "$1.50"},
+		{"exact dollar", new(1.0), "$1.00"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatCost(tt.cost)
+			if got != tt.want {
+				t.Errorf("formatCost(%v) = %q, want %q", tt.cost, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildStatsLine_WithCacheReadTokens(t *testing.T) {
+	s := execStats{
+		DurationMs:       5000,
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+		CacheReadTokens:  200,
+	}
+	result := buildStatsLine(s)
+	if !strings.Contains(result, "cache 200") {
+		t.Errorf("buildStatsLine should contain 'cache 200', got %q", result)
+	}
+}
+
+func TestBuildStatsLine_ZeroCacheReadTokensOmitted(t *testing.T) {
+	s := execStats{
+		DurationMs:       5000,
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	}
+	result := buildStatsLine(s)
+	if strings.Contains(result, "cache") {
+		t.Errorf("buildStatsLine should not contain 'cache' when CacheReadTokens=0, got %q", result)
+	}
+}
+
 func TestIsExitCommand(t *testing.T) {
 	tests := []struct {
 		input string

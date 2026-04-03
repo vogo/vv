@@ -2,14 +2,18 @@ package configs
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/vogo/aimodel"
+	"github.com/vogo/vv/costtracker"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,15 +57,16 @@ func DefaultPath() string {
 
 // Config holds all vv application configuration.
 type Config struct {
-	LLM         LLMConfig         `yaml:"llm"`
-	Server      ServerConfig      `yaml:"server"`
-	Tools       ToolsConfig       `yaml:"tools"`
-	Agents      AgentsConfig      `yaml:"agents"`
-	Mode        string            `yaml:"mode"` // "cli" or "http"; default "cli"
-	CLI         CLIConfig         `yaml:"cli"`
-	Memory      MemoryConfig      `yaml:"memory"`
-	Orchestrate OrchestrateConfig `yaml:"orchestrate"`
-	Context     ContextConfig     `yaml:"context"`
+	LLM          LLMConfig                    `yaml:"llm"`
+	Server       ServerConfig                 `yaml:"server"`
+	Tools        ToolsConfig                  `yaml:"tools"`
+	Agents       AgentsConfig                 `yaml:"agents"`
+	Mode         string                       `yaml:"mode"` // "cli" or "http"; default "cli"
+	CLI          CLIConfig                    `yaml:"cli"`
+	Memory       MemoryConfig                 `yaml:"memory"`
+	Orchestrate  OrchestrateConfig            `yaml:"orchestrate"`
+	Context      ContextConfig                `yaml:"context"`
+	ModelPricing map[string]ModelPricingEntry `yaml:"model_pricing,omitempty"`
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
 	// Runtime-only; not persisted to vv.yaml.
@@ -97,6 +102,13 @@ type AgentsConfig struct {
 	MaxIterations  int `yaml:"max_iterations"`   // default 10
 	RunTokenBudget int `yaml:"run_token_budget"` // default 0 (unlimited)
 	AskUserTimeout int `yaml:"ask_user_timeout"` // seconds, default 300 (5 minutes)
+}
+
+// ModelPricingEntry defines cost rates for a model (USD per million tokens).
+type ModelPricingEntry struct {
+	InputPerMTokens  float64 `json:"input_per_m_tokens" yaml:"input_per_m_tokens"`
+	OutputPerMTokens float64 `json:"output_per_m_tokens" yaml:"output_per_m_tokens"`
+	CachePerMTokens  float64 `json:"cache_per_m_tokens,omitempty" yaml:"cache_per_m_tokens,omitempty"`
 }
 
 // ContextConfig holds conversation context compression configuration.
@@ -182,6 +194,19 @@ func Load(path string, explicit bool) (*Config, error) {
 	if v := os.Getenv("VV_CONTEXT_PROTECTED_TURNS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Context.ProtectedTurns = n
+		}
+	}
+
+	if v := os.Getenv("VV_MODEL_PRICING"); v != "" {
+		var mp map[string]ModelPricingEntry
+		if err := json.Unmarshal([]byte(v), &mp); err != nil {
+			slog.Warn("vv: invalid VV_MODEL_PRICING JSON, ignoring", "error", err)
+		} else {
+			if cfg.ModelPricing == nil {
+				cfg.ModelPricing = mp
+			} else {
+				maps.Copy(cfg.ModelPricing, mp)
+			}
 		}
 	}
 
@@ -350,6 +375,25 @@ func prompt(scanner *bufio.Scanner, w io.Writer, label, current, defaultVal stri
 	}
 
 	return defaultVal
+}
+
+// ConvertPricing converts config pricing entries to costtracker pricing entries.
+func ConvertPricing(entries map[string]ModelPricingEntry) map[string]costtracker.Pricing {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	result := make(map[string]costtracker.Pricing, len(entries))
+
+	for k, v := range entries {
+		result[k] = costtracker.Pricing{
+			InputPerMTokens:  v.InputPerMTokens,
+			OutputPerMTokens: v.OutputPerMTokens,
+			CachePerMTokens:  v.CachePerMTokens,
+		}
+	}
+
+	return result
 }
 
 // NewLLMClient creates an aimodel.Client from the LLM configuration.

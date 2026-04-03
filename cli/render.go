@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/glamour"
@@ -41,6 +42,7 @@ type execStats struct {
 	DurationMs       int64
 	PromptTokens     int
 	CompletionTokens int
+	CacheReadTokens  int
 }
 
 // indentBlock prepends `depth * indentUnit` spaces to each line of text.
@@ -360,6 +362,10 @@ func buildStatsLine(s execStats) string {
 		parts = append(parts, fmt.Sprintf("\u2193 %s", formatCompactTokens(s.CompletionTokens)))
 	}
 
+	if s.CacheReadTokens > 0 {
+		parts = append(parts, fmt.Sprintf("cache %s", formatCompactTokens(s.CacheReadTokens)))
+	}
+
 	return "(" + strings.Join(parts, " \u00b7 ") + ")"
 }
 
@@ -370,6 +376,34 @@ func truncate(s string, maxLen int) string {
 	}
 
 	return s[:maxLen] + "..."
+}
+
+// dateSuffixRe matches date suffixes like "-20250514" (hyphen + 8 digits at end).
+var dateSuffixRe = regexp.MustCompile(`-\d{8}$`)
+
+// shortModelName derives a short display name from a full model identifier.
+// e.g., "claude-sonnet-4-20250514" -> "sonnet-4", "gpt-4o-2024-08-06" -> "gpt-4o"
+func shortModelName(model string) string {
+	// Strip date suffixes like "-20250514".
+	short := dateSuffixRe.ReplaceAllString(model, "")
+
+	// Strip "claude-" prefix for Anthropic models.
+	short = strings.TrimPrefix(short, "claude-")
+
+	return short
+}
+
+// formatCost formats a USD cost for display.
+func formatCost(cost *float64) string {
+	if cost == nil {
+		return "N/A"
+	}
+
+	if *cost < 1.0 {
+		return fmt.Sprintf("$%.3f", *cost)
+	}
+
+	return fmt.Sprintf("$%.2f", *cost)
 }
 
 // pluralS returns "s" for counts != 1.

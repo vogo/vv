@@ -770,6 +770,99 @@ memory:
 	}
 }
 
+func TestLoad_ModelPricing_FromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+model_pricing:
+  claude-opus-4:
+    input_per_m_tokens: 15.0
+    output_per_m_tokens: 75.0
+    cache_per_m_tokens: 1.5
+  my-model:
+    input_per_m_tokens: 1.0
+    output_per_m_tokens: 5.0
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.ModelPricing) != 2 {
+		t.Fatalf("ModelPricing len = %d, want 2", len(cfg.ModelPricing))
+	}
+
+	opus := cfg.ModelPricing["claude-opus-4"]
+	if opus.InputPerMTokens != 15.0 {
+		t.Errorf("claude-opus-4 InputPerMTokens = %f, want 15.0", opus.InputPerMTokens)
+	}
+	if opus.CachePerMTokens != 1.5 {
+		t.Errorf("claude-opus-4 CachePerMTokens = %f, want 1.5", opus.CachePerMTokens)
+	}
+}
+
+func TestLoad_ModelPricing_EnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+model_pricing:
+  gpt-4o:
+    input_per_m_tokens: 2.5
+    output_per_m_tokens: 10.0
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_MODEL_PRICING", `{"my-model":{"input_per_m_tokens":1.0,"output_per_m_tokens":5.0},"gpt-4o":{"input_per_m_tokens":99.0,"output_per_m_tokens":99.0}}`)
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Env should merge with YAML; gpt-4o should be overridden.
+	if len(cfg.ModelPricing) != 2 {
+		t.Fatalf("ModelPricing len = %d, want 2", len(cfg.ModelPricing))
+	}
+
+	gpt := cfg.ModelPricing["gpt-4o"]
+	if gpt.InputPerMTokens != 99.0 {
+		t.Errorf("gpt-4o InputPerMTokens = %f, want 99.0 (env override)", gpt.InputPerMTokens)
+	}
+
+	myModel := cfg.ModelPricing["my-model"]
+	if myModel.InputPerMTokens != 1.0 {
+		t.Errorf("my-model InputPerMTokens = %f, want 1.0", myModel.InputPerMTokens)
+	}
+}
+
+func TestLoad_ModelPricing_EnvOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_MODEL_PRICING", `{"my-model":{"input_per_m_tokens":1.0,"output_per_m_tokens":5.0}}`)
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.ModelPricing) != 1 {
+		t.Fatalf("ModelPricing len = %d, want 1", len(cfg.ModelPricing))
+	}
+}
+
 func TestLoad_OrchestrateConfig_ExplicitOverridesMigration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

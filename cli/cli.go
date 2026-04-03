@@ -25,6 +25,7 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/costtracker"
 )
 
 // App holds the CLI TUI application state.
@@ -40,6 +41,7 @@ type App struct {
 	compactor       *memory.ConversationCompactor
 	estimatedTokens int // running total of estimated tokens in history
 	contextCfg      configs.ContextConfig
+	costTracker     *costtracker.Tracker
 }
 
 // New creates a new CLI App.
@@ -50,6 +52,8 @@ func New(
 	interactor *CLIInteractor,
 	compactor *memory.ConversationCompactor,
 ) *App {
+	pricing := costtracker.LookupPricing(cfg.LLM.Model, configs.ConvertPricing(cfg.ModelPricing))
+
 	return &App{
 		orchestrator:  orchestrator,
 		cfg:           cfg,
@@ -57,6 +61,7 @@ func New(
 		interactor:    interactor,
 		compactor:     compactor,
 		contextCfg:    cfg.Context,
+		costTracker:   costtracker.New(cfg.LLM.Model, pricing),
 	}
 }
 
@@ -135,6 +140,7 @@ type model struct {
 	// may lack token stats).
 	subAgentPromptTokens     int
 	subAgentCompletionTokens int
+	subAgentCacheReadTokens  int
 
 	// Confirmation
 	confirmCh   chan bool
@@ -367,6 +373,10 @@ func (m *model) View() string {
 	default:
 		sb.WriteString("\n")
 	}
+
+	// Persistent status bar.
+	sb.WriteString(m.statusBarView())
+	sb.WriteString("\n")
 
 	// Input area.
 	sb.WriteString(m.textarea.View())
@@ -641,6 +651,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				DurationMs:       data.Duration,
 				PromptTokens:     data.PromptTokens,
 				CompletionTokens: data.CompletionTokens,
+				CacheReadTokens:  data.CacheReadTokens,
 			}
 			rendered := renderPhaseTransition(data.Phase, false, stats, 1)
 			m.app.messages = append(m.app.messages, DisplayMessage{
@@ -660,6 +671,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			m.toolCallCount = 0 // reset tool call counter
 			m.subAgentPromptTokens = 0
 			m.subAgentCompletionTokens = 0
+			m.subAgentCacheReadTokens = 0
 			rendered := renderSubAgentStart(data.AgentName, data.StepID, data.Description, data.StepIndex, data.TotalSteps, m.nestingDepth)
 			m.app.messages = append(m.app.messages, DisplayMessage{
 				Role:      RoleSubAgent,
@@ -690,11 +702,17 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				completionTokens = m.subAgentCompletionTokens
 			}
 
+			cacheReadTokens := data.CacheReadTokens
+			if cacheReadTokens == 0 {
+				cacheReadTokens = m.subAgentCacheReadTokens
+			}
+
 			stats := execStats{
 				ToolCalls:        toolCalls,
 				DurationMs:       data.Duration,
 				PromptTokens:     promptTokens,
 				CompletionTokens: completionTokens,
+				CacheReadTokens:  cacheReadTokens,
 			}
 			rendered := renderSubAgentEnd(data.AgentName, data.StepID, stats, m.nestingDepth)
 			m.app.messages = append(m.app.messages, DisplayMessage{
@@ -706,6 +724,7 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			m.toolCallCount = 0
 			m.subAgentPromptTokens = 0
 			m.subAgentCompletionTokens = 0
+			m.subAgentCacheReadTokens = 0
 			m.nestingDepth--
 			if m.nestingDepth < 0 {
 				m.nestingDepth = 0
@@ -727,6 +746,9 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			m.totalCompletionTokens += data.CompletionTokens
 			m.subAgentPromptTokens += data.PromptTokens
 			m.subAgentCompletionTokens += data.CompletionTokens
+			m.subAgentCacheReadTokens += data.CacheReadTokens
+			// Update cost tracker.
+			m.app.costTracker.Add(data.PromptTokens, data.CompletionTokens, data.CacheReadTokens)
 		}
 	}
 
@@ -929,6 +951,24 @@ func (m *model) handleEmergencyCompactResult(msg emergencyCompactResultMsg) (tea
 	cmds = append(cmds, m.invokeAgent(runCtx, ""))
 
 	return m, tea.Batch(cmds...)
+}
+
+// statusBarView renders a persistent status bar with session cost and token info.
+func (m *model) statusBarView() string {
+	snap := m.app.costTracker.Snapshot()
+
+	status := "idle"
+	if m.status == statusProcessing {
+		status = "working"
+	}
+
+	model := shortModelName(m.app.costTracker.Model())
+	cost := formatCost(snap.EstimatedCostUSD)
+	tokens := formatCompactTokens(snap.TotalTokens) + " tokens"
+
+	parts := []string{"vv", status, model, cost, tokens}
+
+	return dimStyle.Render(strings.Join(parts, " | "))
 }
 
 // agentMessage creates an aimodel.Message from agent text.
