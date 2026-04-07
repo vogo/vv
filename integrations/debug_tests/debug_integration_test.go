@@ -187,8 +187,10 @@ func TestDebug_On_PromptMode_LLMAndToolRecords(t *testing.T) {
 	}
 
 	out := stderr.String()
-	for _, want := range []string{"llm.request", "llm.response", "tool.start", "tool.end",
-		"hello-from-fake", "OK-result-bytes", "main.go", "agent=coder"} {
+	for _, want := range []string{
+		"llm.request", "llm.response", "tool.start", "tool.end",
+		"hello-from-fake", "OK-result-bytes", "main.go", "agent=coder",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected debug output to contain %q, got:\n%s", want, out)
 		}
@@ -400,23 +402,21 @@ func TestDebug_ConcurrentRequests_NoGarble(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const N = 200
-	for i := 0; i < N; i++ {
+	for i := range N {
 		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			corr := fmt.Sprintf("corr-%04d", i)
 			sink.Emit(context.Background(), &debugs.Record{
 				Kind:          debugs.KindLLMRequest,
 				CorrelationID: corr,
 				AgentName:     "coder",
 			})
-		}()
+		})
 	}
 	wg.Wait()
 
 	out := buf.String()
-	for i := 0; i < N; i++ {
+	for i := range N {
 		want := fmt.Sprintf("corr=corr-%04d", i)
 		if !strings.Contains(out, want) {
 			t.Errorf("missing or garbled correlation id %q", want)

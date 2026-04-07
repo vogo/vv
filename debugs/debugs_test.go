@@ -60,12 +60,10 @@ func TestSink_ConcurrentEmit(t *testing.T) {
 	var buf bytes.Buffer
 	s := NewWriterSink(&buf)
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			s.Emit(context.Background(), &Record{Kind: KindLLMRequest, CorrelationID: "x"})
-		}()
+		})
 	}
 	wg.Wait()
 	// Each line begins with "[" and ends with "\n"; count lines.
