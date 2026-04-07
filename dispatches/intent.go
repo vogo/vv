@@ -10,6 +10,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
+	"github.com/vogo/vv/debugs"
 	"github.com/vogo/vv/registries"
 )
 
@@ -100,6 +101,7 @@ func (d *Dispatcher) recognizeIntentStream(ctx context.Context, req *schema.RunR
 
 // recognizeIntentDirect makes a direct LLM call for intent recognition.
 func (d *Dispatcher) recognizeIntentDirect(ctx context.Context, req *schema.RunRequest) (*IntentResult, string, *aimodel.Usage, error) {
+	ctx = debugs.WithAgentName(ctx, "intent")
 	systemPrompt := d.intentSystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = "You are a task planner. Respond with JSON: {\"needs_exploration\": false, \"mode\": \"direct\", \"agent\": \"chat\"}"
@@ -352,6 +354,8 @@ func (d *Dispatcher) explore(ctx context.Context, req *schema.RunRequest) (strin
 		return "", nil
 	}
 
+	ctx = debugs.WithAgentName(ctx, "explorer")
+
 	var msgs []schema.Message
 
 	if d.workingDir != "" {
@@ -479,6 +483,8 @@ func (d *Dispatcher) classify(ctx context.Context, req *schema.RunRequest, conte
 	if d.plannerAgent == nil {
 		return d.classifyDirect(ctx, req)
 	}
+
+	ctx = debugs.WithAgentName(ctx, "planner")
 
 	var msgs []schema.Message
 
@@ -636,6 +642,7 @@ func (d *Dispatcher) classifyStream(
 
 // classifyDirect makes a direct LLM call to classify the task (fallback when no planner agent).
 func (d *Dispatcher) classifyDirect(ctx context.Context, req *schema.RunRequest) (*ClassifyResult, *aimodel.Usage, error) {
+	ctx = debugs.WithAgentName(ctx, "planner")
 	systemPrompt := d.intentSystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = "You are a task planner. Respond with JSON: {\"mode\": \"direct\", \"agent\": \"chat\"}"

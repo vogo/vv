@@ -13,9 +13,28 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/debugs"
 	"github.com/vogo/vv/tools"
 	"github.com/vogo/vv/traces/costtraces"
 )
+
+// requestIDMiddleware injects a fresh debug request id into the request
+// context. Always installed (not gated on debug) to keep the conditional
+// surface minimal and avoid any chance of body drift between debug on/off.
+func requestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := debugs.WithRequestID(r.Context(), newRequestID())
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func newRequestID() string {
+	var b [12]byte
+	if _, err := cryptoRandRead(b[:]); err != nil {
+		return ""
+	}
+	return hexEncode(b[:])
+}
 
 // Serve starts the HTTP server with agent and memory endpoints.
 // It blocks until the context is canceled or a fatal error occurs.
@@ -63,7 +82,7 @@ func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, age
 		return fmt.Errorf("listen %s: %w", cfg.Server.Addr, err)
 	}
 
-	server := &http.Server{Handler: mux}
+	server := &http.Server{Handler: requestIDMiddleware(mux)}
 
 	// Shut down when context is canceled.
 	go func() {

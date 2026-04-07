@@ -9,12 +9,14 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/orchestrate"
 	"github.com/vogo/vage/schema"
+	"github.com/vogo/vv/debugs"
 )
 
 // executeTask runs the dispatched task(s), handling direct and plan modes.
 func (d *Dispatcher) executeTask(ctx context.Context, req *schema.RunRequest, intent *IntentResult, contextSummary string) (*schema.RunResponse, *aimodel.Usage, error) {
 	switch intent.Mode {
 	case "direct":
+		ctx = debugs.WithAgentName(ctx, intent.Agent)
 		cr := &ClassifyResult{Mode: intent.Mode, Agent: intent.Agent}
 		resp, err := d.runDirect(ctx, req, cr, nil)
 		if err != nil {
@@ -54,6 +56,7 @@ func (d *Dispatcher) executeTaskStream(ctx context.Context, req *schema.RunReque
 			subAgent = d.fallbackAgent
 		}
 
+		ctx = debugs.WithAgentName(ctx, intent.Agent)
 		err := d.forwardSubAgentStream(ctx, send, subAgent, req, intent.Agent, "", sessionID)
 
 		return nil, err

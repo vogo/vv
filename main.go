@@ -15,6 +15,7 @@ import (
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/debugs"
 	"github.com/vogo/vv/httpapis"
 	"github.com/vogo/vv/setup"
 )
@@ -26,6 +27,7 @@ func main() {
 	modeFlag := flag.String("mode", "", "run mode: cli or http (default: cli)")
 	promptFlag := flag.String("p", "", "run a single prompt non-interactively and exit")
 	permissionModeFlag := flag.String("permission-mode", "", "tool permission mode: default, accept-edits, auto, plan")
+	debugFlag := flag.Bool("debug", false, "enable detailed LLM and tool I/O debug records (env: VV_DEBUG)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\nOptions:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -36,6 +38,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  VV_LLM_PROVIDER     LLM provider (openai, anthropic)\n")
 		fmt.Fprintf(os.Stderr, "  VV_SERVER_ADDR      Server listen address\n")
 		fmt.Fprintf(os.Stderr, "  VV_MODE             Run mode (cli or http)\n")
+		fmt.Fprintf(os.Stderr, "  VV_DEBUG            Enable debug records (true/false). Equivalent to --debug.\n")
+		fmt.Fprintf(os.Stderr, "  VV_DEBUG_FILE       Override debug log file path (interactive CLI only).\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  vv                                          # interactive TUI mode\n")
 		fmt.Fprintf(os.Stderr, "  vv -p \"explain the main.go file\"             # single prompt, exit after response\n")
@@ -47,12 +51,15 @@ func main() {
 	// Determine whether flags were explicitly set by the user.
 	explicit := false
 	promptSet := false
+	debugSet := false
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "config":
 			explicit = true
 		case "p":
 			promptSet = true
+		case "debug":
+			debugSet = true
 		}
 	})
 
@@ -83,6 +90,35 @@ func main() {
 		fmt.Printf("\nConfiguration saved to %s\n\n", *configPath)
 	}
 
+	// Debug precedence: CLI > env (already in cfg.Debug from configs.Load) > YAML > false.
+	if debugSet {
+		cfg.Debug = *debugFlag
+	}
+
+	// Construct the debug sink (only when enabled). Sink mode is decided here:
+	// HTTP -> slog, CLI -p -> stderr, CLI interactive -> file.
+	var debugSink *debugs.Sink
+	if cfg.Debug {
+		switch {
+		case (*modeFlag == "http") || (cfg.Mode == "http" && *modeFlag == ""):
+			debugSink = debugs.NewSlogSink(slog.Default())
+		case promptSet:
+			debugSink = debugs.NewWriterSink(os.Stderr)
+		default:
+			path := debugs.DefaultFilePath()
+			s, derr := debugs.NewFileSink(path)
+			if derr != nil {
+				slog.Error("vv: open debug file", "error", derr)
+				os.Exit(1)
+			}
+			fmt.Fprintf(os.Stderr, "vv: debug enabled, log file: %s\n", path)
+			debugSink = s
+		}
+	}
+	if debugSink != nil {
+		defer func() { _ = debugSink.Close() }()
+	}
+
 	if *modeFlag != "" {
 		cfg.Mode = *modeFlag
 	}
@@ -107,6 +143,7 @@ func main() {
 		initResult, initErr := setup.Init(cfg, &setup.Options{
 			UserInteractor: askuser.NonInteractiveInteractor{},
 			AskUserTimeout: time.Duration(cfg.Agents.AskUserTimeout) * time.Second,
+			DebugSink:      debugSink,
 		})
 		if initErr != nil {
 			slog.Error("vv: init", "error", initErr)
@@ -153,6 +190,7 @@ func main() {
 		},
 		UserInteractor: interactor,
 		AskUserTimeout: askUserTimeout,
+		DebugSink:      debugSink,
 	})
 	if err != nil {
 		slog.Error("vv: init", "error", err)

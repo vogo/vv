@@ -68,6 +68,7 @@ type Config struct {
 	Orchestrate  OrchestrateConfig            `yaml:"orchestrate"`
 	Context      ContextConfig                `yaml:"context"`
 	ModelPricing map[string]ModelPricingEntry `yaml:"model_pricing,omitempty"`
+	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
 	// Runtime-only; not persisted to vv.yaml.
@@ -223,6 +224,14 @@ func Load(path string, explicit bool) (*Config, error) {
 	if v := os.Getenv("VV_CONTEXT_PROTECTED_TURNS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Context.ProtectedTurns = n
+		}
+	}
+
+	if v := os.Getenv("VV_DEBUG"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Debug = b
+		} else {
+			slog.Warn("vv: invalid VV_DEBUG, ignoring", "value", v)
 		}
 	}
 

@@ -12,6 +12,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/schema"
@@ -19,6 +20,7 @@ import (
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/debugs"
 	"github.com/vogo/vv/dispatches"
 	"github.com/vogo/vv/hooks"
 	"github.com/vogo/vv/memories"
@@ -57,6 +59,7 @@ type Options struct {
 	WrapToolRegistry func(*tool.Registry) tool.ToolRegistry // optional: wraps tool registries (e.g., CLI confirmation)
 	UserInteractor   askuser.UserInteractor                 // optional: interactor for ask_user tool
 	AskUserTimeout   time.Duration                          // optional: timeout for ask_user responses
+	DebugSink        *debugs.Sink                           // optional: debug sink (constructed only when cfg.Debug is true)
 }
 
 // New reads config, registers all agents, and constructs the Dispatcher.
@@ -104,6 +107,11 @@ func New(
 			finalToolReg = tool.NewTruncatingToolRegistry(finalToolReg, cfg.Context.ToolOutputMaxTokens)
 		}
 
+		// Debug decorator is OUTERMOST so it sees the post-truncation result the agent receives.
+		if cfg.Debug && opts != nil && opts.DebugSink != nil {
+			finalToolReg = debugs.NewDebuggingToolRegistry(finalToolReg, opts.DebugSink)
+		}
+
 		factoryOpts := registries.FactoryOptions{
 			LLM:                 llm,
 			Model:               cfg.LLM.Model,
@@ -138,6 +146,10 @@ func New(
 	var explorerFinalToolReg tool.ToolRegistry = explorerToolReg
 	if cfg.Context.ToolOutputMaxTokens > 0 {
 		explorerFinalToolReg = tool.NewTruncatingToolRegistry(explorerToolReg, cfg.Context.ToolOutputMaxTokens)
+	}
+
+	if cfg.Debug && opts != nil && opts.DebugSink != nil {
+		explorerFinalToolReg = debugs.NewDebuggingToolRegistry(explorerFinalToolReg, opts.DebugSink)
 	}
 
 	explorer, err := explorerDesc.Factory(registries.FactoryOptions{
@@ -279,6 +291,14 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		return nil, fmt.Errorf("create LLM client: %w", err)
 	}
 
+	// Wrap with debug middleware BEFORE compactor and BEFORE setup.New so that
+	// every LLM call (sub-agents, compactor summarizer, dispatcher intent/plan-gen)
+	// is captured. Default OFF: when cfg.Debug is false the wrapper is not constructed.
+	var wrappedLLM aimodel.ChatCompleter = llmClient
+	if cfg.Debug && opts != nil && opts.DebugSink != nil {
+		wrappedLLM = largemodel.Chain(llmClient, largemodel.NewDebugMiddleware(debugs.SinkAdapter{S: opts.DebugSink}))
+	}
+
 	// Create persistent memory with FileStore backend.
 	fileStore, err := memories.NewFileStore(cfg.Memory.Dir)
 	if err != nil {
@@ -294,8 +314,8 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		memory.WithCompressor(memory.NewSlidingWindowCompressor(cfg.Memory.SessionWindow)),
 	)
 
-	// Set up all agents.
-	result, err := New(cfg, llmClient, memMgr, persistentMem, opts)
+	// Set up all agents using the (possibly debug-wrapped) LLM client.
+	result, err := New(cfg, wrappedLLM, memMgr, persistentMem, opts)
 	if err != nil {
 		return nil, fmt.Errorf("setup agents: %w", err)
 	}
@@ -314,7 +334,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 			},
 		}
 
-		resp, err := llmClient.ChatCompletion(ctx, req)
+		resp, err := wrappedLLM.ChatCompletion(ctx, req)
 		if err != nil {
 			return "", err
 		}

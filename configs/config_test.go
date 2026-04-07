@@ -998,3 +998,54 @@ orchestrate:
 		t.Errorf("Orchestrate.MaxConcurrency = %d, want 8 (explicit)", cfg.Orchestrate.MaxConcurrency)
 	}
 }
+
+func TestLoad_DebugFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.yaml")
+	if err := os.WriteFile(path, []byte("debug: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VV_DEBUG", "")
+	t.Setenv("VV_LLM_API_KEY", "x")
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Debug {
+		t.Errorf("expected Debug=true from YAML")
+	}
+}
+
+func TestLoad_DebugEnvOverridesYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.yaml")
+	if err := os.WriteFile(path, []byte("debug: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VV_DEBUG", "true")
+	t.Setenv("VV_LLM_API_KEY", "x")
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Debug {
+		t.Errorf("env VV_DEBUG=true should override YAML")
+	}
+}
+
+func TestLoad_DebugDefaultFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.yaml")
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VV_DEBUG", "")
+	t.Setenv("VV_LLM_API_KEY", "x")
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Debug {
+		t.Errorf("expected default Debug=false")
+	}
+}
