@@ -874,4 +874,3 @@ func TestPermissionExecutor_BashClassifier_NonBashToolsIgnored(t *testing.T) {
 		t.Error("non-bash tool should still go through the normal confirm flow")
 	}
 }
-

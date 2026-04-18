@@ -2,9 +2,11 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +20,8 @@ import (
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/askuser"
+	"github.com/vogo/vage/tool/bash"
+	"github.com/vogo/vage/tool/toolkit"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
@@ -29,9 +33,11 @@ import (
 
 // Result holds the assembled components for the application.
 type Result struct {
-	Dispatcher *dispatches.Dispatcher
-	registry   *registries.Registry
-	subAgents  map[string]agent.Agent
+	Dispatcher   *dispatches.Dispatcher
+	PathGuard    *toolkit.PathGuard
+	PathGuardian *bash.PathGuardian
+	registry     *registries.Registry
+	subAgents    map[string]agent.Agent
 }
 
 // Agents returns the dispatchable agents suitable for HTTP service registration.
@@ -70,6 +76,21 @@ func New(
 	persistentMem memory.Memory,
 	opts *Options,
 ) (*Result, error) {
+	// 0. Build path guard + path guardian from cfg.Tools.AllowedDirs.
+	pathGuard, pathGuardian, err := buildPathEnforcement(&cfg.Tools)
+	if err != nil {
+		return nil, err
+	}
+
+	regOpts := []registries.RegistryOption{}
+	if pathGuard.Allowed() {
+		regOpts = append(regOpts, registries.WithPathGuard(pathGuard))
+	}
+
+	if pathGuardian != nil {
+		regOpts = append(regOpts, registries.WithPathGuardian(pathGuardian))
+	}
+
 	// 1. Create registry and register all agents.
 	reg := registries.New()
 	agents.RegisterCoder(reg)
@@ -83,7 +104,7 @@ func New(
 	subAgents := make(map[string]agent.Agent)
 
 	for _, desc := range reg.Dispatchable() {
-		toolReg, err := desc.ToolProfile.BuildRegistry(cfg.Tools)
+		toolReg, err := desc.ToolProfile.BuildRegistry(cfg.Tools, regOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("build tool registry for %q: %w", desc.ID, err)
 		}
@@ -137,7 +158,7 @@ func New(
 		return nil, fmt.Errorf("explorer agent not registered")
 	}
 
-	explorerToolReg, err := explorerDesc.ToolProfile.BuildRegistry(cfg.Tools)
+	explorerToolReg, err := explorerDesc.ToolProfile.BuildRegistry(cfg.Tools, regOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("build explorer tool registry: %w", err)
 	}
@@ -250,10 +271,103 @@ func New(
 	)
 
 	return &Result{
-		Dispatcher: dispatcher,
-		registry:   reg,
-		subAgents:  subAgents,
+		Dispatcher:   dispatcher,
+		PathGuard:    pathGuard,
+		PathGuardian: pathGuardian,
+		registry:     reg,
+		subAgents:    subAgents,
 	}, nil
+}
+
+// buildPathEnforcement computes the canonical allow-list, opens a PathGuard,
+// and constructs a PathGuardian for the bash tool. It mutates cfg.AllowedDirs
+// to the canonical list so downstream consumers see a consistent value.
+func buildPathEnforcement(cfg *configs.ToolsConfig) (*toolkit.PathGuard, *bash.PathGuardian, error) {
+	dirs, err := buildAllowedDirs(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	guard, err := toolkit.NewPathGuard(dirs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open path guard: %w", err)
+	}
+
+	canonicalized := guard.Dirs()
+	cfg.AllowedDirs = &canonicalized
+
+	guardian := bash.NewPathGuardian(canonicalized, cfg.BashWorkingDir)
+
+	slog.Info("vv: allowed_dirs active", "dirs", canonicalized)
+
+	return guard, guardian, nil
+}
+
+// buildAllowedDirs resolves the final allow-list from cfg, applying defaults
+// when the YAML key is absent and erroring on explicit empty.
+func buildAllowedDirs(cfg *configs.ToolsConfig) ([]string, error) {
+	var dirs []string
+
+	switch {
+	case cfg.AllowedDirs == nil:
+		if cfg.BashWorkingDir != "" {
+			dirs = append(dirs, cfg.BashWorkingDir)
+		}
+
+		if tmp := os.TempDir(); tmp != "" {
+			dirs = append(dirs, tmp)
+		}
+	case len(*cfg.AllowedDirs) == 0:
+		return nil, errors.New("tools.allowed_dirs is explicitly empty; at least one directory is required")
+	default:
+		dirs = make([]string, 0, len(*cfg.AllowedDirs))
+		dirs = append(dirs, *cfg.AllowedDirs...)
+		for i, d := range dirs {
+			expanded, err := expandUserPath(d, cfg.BashWorkingDir)
+			if err != nil {
+				return nil, fmt.Errorf("allowed_dirs[%d]=%q: %w", i, d, err)
+			}
+			dirs[i] = expanded
+		}
+	}
+
+	canonical, err := toolkit.CanonicalizeDirs(dirs)
+	if err != nil {
+		return nil, err
+	}
+
+	return canonical, nil
+}
+
+// expandUserPath expands a leading "~" to the user's home and resolves a
+// relative path against the bash working directory.
+func expandUserPath(p, workingDir string) (string, error) {
+	if p == "" {
+		return "", errors.New("empty path")
+	}
+
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve ~: %w", err)
+		}
+
+		if p == "~" {
+			return home, nil
+		}
+
+		return filepath.Join(home, p[2:]), nil
+	}
+
+	if !filepath.IsAbs(p) {
+		if workingDir == "" {
+			return "", fmt.Errorf("cannot resolve relative path %q without working directory", p)
+		}
+
+		return filepath.Join(workingDir, p), nil
+	}
+
+	return p, nil
 }
 
 // InitResult holds all components initialized by Init.

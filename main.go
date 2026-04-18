@@ -184,6 +184,7 @@ func main() {
 
 	permissionState := cli.NewPermissionState(permissionMode)
 	permissionState.SetClassifier(configs.BuildBashClassifier(cfg.Tools.BashRules))
+	permissionState.SetNonInteractive(cfg.Mode == "http")
 
 	initResult, err := setup.Init(cfg, &setup.Options{
 		WrapToolRegistry: func(r *tool.Registry) tool.ToolRegistry {
@@ -197,6 +198,8 @@ func main() {
 		slog.Error("vv: init", "error", err)
 		os.Exit(1)
 	}
+
+	permissionState.SetPathGuardian(initResult.SetupResult.PathGuardian)
 
 	// Graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

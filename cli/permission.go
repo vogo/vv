@@ -27,11 +27,13 @@ const (
 // creates a separate wrapped registry per agent, but permission policy
 // must be uniform across all agents.
 type PermissionState struct {
-	mu             sync.Mutex
-	mode           configs.PermissionMode
-	sessionAllowed map[string]bool
-	executors      []*permissionExecutor
-	classifier     *bash.Classifier
+	mu               sync.Mutex
+	mode             configs.PermissionMode
+	sessionAllowed   map[string]bool
+	executors        []*permissionExecutor
+	classifier       *bash.Classifier
+	pathGuardian     *bash.PathGuardian
+	isNonInteractive bool
 }
 
 // NewPermissionState creates a PermissionState with the given initial mode.
@@ -40,6 +42,16 @@ func NewPermissionState(mode configs.PermissionMode) *PermissionState {
 		mode:           mode,
 		sessionAllowed: make(map[string]bool),
 	}
+}
+
+// SetNonInteractive marks the state as running in a non-interactive context
+// (e.g., HTTP service, headless CLI). When true, Dangerous-tier bash
+// classifications are hard-rejected since no confirmation prompt can be shown.
+func (s *PermissionState) SetNonInteractive(v bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.isNonInteractive = v
 }
 
 // Mode returns the current permission mode.
@@ -110,6 +122,33 @@ func (s *PermissionState) Classifier() *bash.Classifier {
 	return s.classifier
 }
 
+// SetPathGuardian installs a path guardian that runs alongside the classifier.
+// The final Tier is the max of (classifier, guardian).
+func (s *PermissionState) SetPathGuardian(g *bash.PathGuardian) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.pathGuardian = g
+}
+
+// PathGuardian returns the currently installed path guardian, or nil.
+func (s *PermissionState) PathGuardian() *bash.PathGuardian {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.pathGuardian
+}
+
+// IsNonInteractive reports whether the runtime cannot display confirmation
+// prompts (e.g., HTTP mode). Dangerous classifications are hard-rejected in
+// that case.
+func (s *PermissionState) IsNonInteractive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.isNonInteractive
+}
+
 // bashClassificationKey is the context key used to thread a bash
 // classification from permissionExecutor.Execute into the confirm callback.
 type bashClassificationKey struct{}
@@ -146,14 +185,22 @@ func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (sc
 	hasClassification := false
 
 	if name == "bash" {
-		if cls, ok := tryClassifyBash(p.state.Classifier(), args); ok {
+		if cls, ok := tryClassifyBashMerged(p.state.Classifier(), p.state.PathGuardian(), args); ok {
 			switch cls.Tier {
 			case bash.TierBlocked:
 				return schema.ErrorResult("",
 					fmt.Sprintf("bash command blocked by rule %q: %s", cls.Rule, cls.Reason)), nil
 			case bash.TierSafe:
 				return p.ToolRegistry.Execute(ctx, name, args)
-			case bash.TierDangerous, bash.TierCaution:
+			case bash.TierDangerous:
+				if p.state.IsNonInteractive() {
+					return schema.ErrorResult("",
+						fmt.Sprintf("bash command classified dangerous (rule %q) in non-interactive mode: %s", cls.Rule, cls.Reason)), nil
+				}
+				classification = cls
+				hasClassification = true
+				ctx = withBashClassification(ctx, cls)
+			case bash.TierCaution:
 				classification = cls
 				hasClassification = true
 				ctx = withBashClassification(ctx, cls)
@@ -219,11 +266,11 @@ func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (sc
 	}
 }
 
-// tryClassifyBash unmarshals bash tool arguments and returns the classification.
-// Returns (zero, false) when no classifier is configured or args are malformed;
-// the caller should fall through to normal permission handling in that case.
-func tryClassifyBash(c *bash.Classifier, args string) (bash.Classification, bool) {
-	if c == nil {
+// tryClassifyBashMerged evaluates both the classifier and path guardian and
+// returns the higher-Tier classification. Returns (zero, false) when neither
+// is configured or args are malformed.
+func tryClassifyBashMerged(c *bash.Classifier, g *bash.PathGuardian, args string) (bash.Classification, bool) {
+	if c == nil && g == nil {
 		return bash.Classification{}, false
 	}
 
@@ -235,7 +282,23 @@ func tryClassifyBash(c *bash.Classifier, args string) (bash.Classification, bool
 		return bash.Classification{}, false
 	}
 
-	return c.Classify(parsed.Command), true
+	var best bash.Classification
+
+	initialized := false
+
+	if c != nil {
+		best = c.Classify(parsed.Command)
+		initialized = true
+	}
+
+	if g != nil {
+		gCls := g.Classify(parsed.Command)
+		if !initialized || gCls.Tier > best.Tier {
+			best = gCls
+		}
+	}
+
+	return best, true
 }
 
 // WrapRegistryWithPermission wraps a tool.ToolRegistry with permission logic.

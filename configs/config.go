@@ -119,9 +119,10 @@ type ServerConfig struct {
 
 // ToolsConfig holds tool configuration.
 type ToolsConfig struct {
-	BashTimeout    int             `yaml:"bash_timeout"`         // seconds, default 30
-	BashWorkingDir string          `yaml:"bash_working_dir"`     // default ""
-	BashRules      BashRulesConfig `yaml:"bash_rules,omitempty"` // dangerous-command classification
+	BashTimeout    int             `yaml:"bash_timeout"`           // seconds, default 30
+	BashWorkingDir string          `yaml:"bash_working_dir"`       // default ""
+	AllowedDirs    *[]string       `yaml:"allowed_dirs,omitempty"` // workspace allow-list; nil = auto-populate defaults, empty = startup error
+	BashRules      BashRulesConfig `yaml:"bash_rules,omitempty"`   // dangerous-command classification
 }
 
 // BashRulesConfig controls the pre-execution bash command classifier.

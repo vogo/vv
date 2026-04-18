@@ -66,7 +66,7 @@ func TestBuildBashClassifier_UserExtensions(t *testing.T) {
 func TestBuildBashClassifier_InvalidRegexSkipped(t *testing.T) {
 	c := BuildBashClassifier(BashRulesConfig{
 		UserBlocked: []string{
-			`[invalid(regex`,     // malformed; should be skipped with a warning
+			`[invalid(regex`,    // malformed; should be skipped with a warning
 			`\bvalid-pattern\b`, // valid; should load
 		},
 	})

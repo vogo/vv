@@ -403,7 +403,6 @@ func TestDebug_ConcurrentRequests_NoGarble(t *testing.T) {
 	var wg sync.WaitGroup
 	const N = 200
 	for i := range N {
-		i := i
 		wg.Go(func() {
 			corr := fmt.Sprintf("corr-%04d", i)
 			sink.Emit(context.Background(), &debugs.Record{
