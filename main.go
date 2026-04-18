@@ -183,6 +183,7 @@ func main() {
 	}
 
 	permissionState := cli.NewPermissionState(permissionMode)
+	permissionState.SetClassifier(configs.BuildBashClassifier(cfg.Tools.BashRules))
 
 	initResult, err := setup.Init(cfg, &setup.Options{
 		WrapToolRegistry: func(r *tool.Registry) tool.ToolRegistry {

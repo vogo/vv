@@ -119,8 +119,28 @@ type ServerConfig struct {
 
 // ToolsConfig holds tool configuration.
 type ToolsConfig struct {
-	BashTimeout    int    `yaml:"bash_timeout"`     // seconds, default 30
-	BashWorkingDir string `yaml:"bash_working_dir"` // default ""
+	BashTimeout    int             `yaml:"bash_timeout"`         // seconds, default 30
+	BashWorkingDir string          `yaml:"bash_working_dir"`     // default ""
+	BashRules      BashRulesConfig `yaml:"bash_rules,omitempty"` // dangerous-command classification
+}
+
+// BashRulesConfig controls the pre-execution bash command classifier.
+type BashRulesConfig struct {
+	// Enabled gates the classifier. A nil pointer means "use the default" (true);
+	// explicit `false` disables the feature entirely so behaviour matches the pre-feature baseline.
+	Enabled *bool `yaml:"enabled,omitempty"`
+
+	// UserBlocked, UserDangerous, UserSafe extend the built-in rule library.
+	// Each entry is a regular expression matched against every sub-command.
+	// Invalid entries are logged and skipped; they do not fail config loading.
+	UserBlocked   []string `yaml:"user_blocked,omitempty"`
+	UserDangerous []string `yaml:"user_dangerous,omitempty"`
+	UserSafe      []string `yaml:"user_safe,omitempty"`
+}
+
+// IsEnabled returns true unless the user explicitly set `enabled: false`.
+func (b BashRulesConfig) IsEnabled() bool {
+	return b.Enabled == nil || *b.Enabled
 }
 
 // AgentsConfig holds agent configuration.

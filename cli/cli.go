@@ -132,7 +132,14 @@ func (a *App) wireConfirmFn() {
 	confirmCh := a.confirmCh
 
 	a.permissionState.SetConfirmFn(func(ctx context.Context, toolName, args string) (PermissionAction, error) {
-		a.program.Send(confirmRequestMsg{toolName: toolName, arguments: args})
+		msg := confirmRequestMsg{toolName: toolName, arguments: args}
+		if cls, ok := BashClassificationFromContext(ctx); ok {
+			msg.tier = cls.Tier.String()
+			msg.rule = cls.Rule
+			msg.reason = cls.Reason
+		}
+
+		a.program.Send(msg)
 
 		select {
 		case action := <-confirmCh:
@@ -848,7 +855,8 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleConfirmRequest shows a confirmation dialog with three options.
+// handleConfirmRequest shows a confirmation dialog. Dangerous bash commands
+// drop the "Allow Always" option and are labelled in the title.
 func (m *model) handleConfirmRequest(msg confirmRequestMsg) (tea.Model, tea.Cmd) {
 	m.status = statusConfirming
 	m.pendingTC = &schema.ToolCallStartData{
@@ -856,19 +864,36 @@ func (m *model) handleConfirmRequest(msg confirmRequestMsg) (tea.Model, tea.Cmd)
 		Arguments: msg.arguments,
 	}
 
+	title := fmt.Sprintf("Allow tool call: %s?", msg.toolName)
+	if msg.tier == "dangerous" {
+		if msg.rule != "" {
+			title = fmt.Sprintf("[DANGEROUS: %s] Allow tool call: %s?", msg.rule, msg.toolName)
+		} else {
+			title = fmt.Sprintf("[DANGEROUS] Allow tool call: %s?", msg.toolName)
+		}
+	}
+
+	desc := truncate(msg.arguments, 200)
+	if msg.reason != "" {
+		desc = msg.reason + "\n" + desc
+	}
+
+	options := []huh.Option[string]{huh.NewOption("Allow", "allow")}
+	if msg.tier != "dangerous" {
+		options = append(options, huh.NewOption("Allow Always (this session)", "allow_always"))
+	}
+
+	options = append(options, huh.NewOption("Deny", "deny"))
+
 	var action string
 
 	m.confirmForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Key("confirm").
-				Title(fmt.Sprintf("Allow tool call: %s?", msg.toolName)).
-				Description(truncate(msg.arguments, 200)).
-				Options(
-					huh.NewOption("Allow", "allow"),
-					huh.NewOption("Allow Always (this session)", "allow_always"),
-					huh.NewOption("Deny", "deny"),
-				).
+				Title(title).
+				Description(desc).
+				Options(options...).
 				Value(&action),
 		),
 	).WithShowHelp(false)

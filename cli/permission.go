@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
+	"github.com/vogo/vage/tool/bash"
 	"github.com/vogo/vv/configs"
 )
 
@@ -29,6 +31,7 @@ type PermissionState struct {
 	mode           configs.PermissionMode
 	sessionAllowed map[string]bool
 	executors      []*permissionExecutor
+	classifier     *bash.Classifier
 }
 
 // NewPermissionState creates a PermissionState with the given initial mode.
@@ -90,6 +93,40 @@ func (s *PermissionState) SetConfirmFn(fn func(ctx context.Context, toolName, ar
 	}
 }
 
+// SetClassifier installs a bash command classifier. Pass nil to disable
+// classifier-driven gating (behaviour falls back to tool-level approval only).
+func (s *PermissionState) SetClassifier(c *bash.Classifier) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.classifier = c
+}
+
+// Classifier returns the currently installed bash classifier, or nil.
+func (s *PermissionState) Classifier() *bash.Classifier {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.classifier
+}
+
+// bashClassificationKey is the context key used to thread a bash
+// classification from permissionExecutor.Execute into the confirm callback.
+type bashClassificationKey struct{}
+
+// withBashClassification attaches a classification to ctx.
+func withBashClassification(ctx context.Context, cls bash.Classification) context.Context {
+	return context.WithValue(ctx, bashClassificationKey{}, cls)
+}
+
+// BashClassificationFromContext retrieves a classification attached by
+// permissionExecutor.Execute, if any.
+func BashClassificationFromContext(ctx context.Context) (bash.Classification, bool) {
+	cls, ok := ctx.Value(bashClassificationKey{}).(bash.Classification)
+
+	return cls, ok
+}
+
 // permissionExecutor wraps a tool.ToolRegistry, intercepting Execute() calls
 // based on the active permission mode and session-allowed tools.
 type permissionExecutor struct {
@@ -100,9 +137,33 @@ type permissionExecutor struct {
 
 // Execute intercepts tool calls and applies permission logic.
 func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (schema.ToolResult, error) {
+	// 0. Bash classifier runs before mode checks so TierBlocked applies
+	//    even in auto mode (defense-in-depth) and TierSafe skips prompts.
+	//    TierDangerous and TierCaution fall through to normal mode logic; the
+	//    classification is attached to ctx so the confirm callback can render it.
+	var classification bash.Classification
+
+	hasClassification := false
+
+	if name == "bash" {
+		if cls, ok := tryClassifyBash(p.state.Classifier(), args); ok {
+			switch cls.Tier {
+			case bash.TierBlocked:
+				return schema.ErrorResult("",
+					fmt.Sprintf("bash command blocked by rule %q: %s", cls.Rule, cls.Reason)), nil
+			case bash.TierSafe:
+				return p.ToolRegistry.Execute(ctx, name, args)
+			case bash.TierDangerous, bash.TierCaution:
+				classification = cls
+				hasClassification = true
+				ctx = withBashClassification(ctx, cls)
+			}
+		}
+	}
+
 	mode := p.state.Mode()
 
-	// 1. Auto mode: approve everything.
+	// 1. Auto mode: approve everything except pre-blocked commands handled above.
 	if mode == configs.PermissionModeAuto {
 		return p.ToolRegistry.Execute(ctx, name, args)
 	}
@@ -127,8 +188,11 @@ func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (sc
 		return p.ToolRegistry.Execute(ctx, name, args)
 	}
 
-	// 6. Check session-allowed set.
-	if p.state.IsSessionAllowed(name) {
+	// 6. Check session-allowed set. Dangerous bash commands skip this shortcut
+	//    so they re-prompt every invocation; an earlier "Allow Always" on the
+	//    bash tool must not silently approve a later dangerous call.
+	isDangerous := hasClassification && classification.Tier == bash.TierDangerous
+	if p.state.IsSessionAllowed(name) && !isDangerous {
 		return p.ToolRegistry.Execute(ctx, name, args)
 	}
 
@@ -140,7 +204,12 @@ func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (sc
 
 	switch action {
 	case PermissionAllowAlways:
-		p.state.AddSessionAllowed(name)
+		// Never upgrade a dangerous invocation to session-wide approval,
+		// even if the caller somehow returns AllowAlways. The dialog should
+		// not offer that option in the first place; this is defense in depth.
+		if !isDangerous {
+			p.state.AddSessionAllowed(name)
+		}
 
 		return p.ToolRegistry.Execute(ctx, name, args)
 	case PermissionAllow:
@@ -148,6 +217,25 @@ func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (sc
 	default:
 		return schema.ErrorResult("", "Tool call rejected by user"), nil
 	}
+}
+
+// tryClassifyBash unmarshals bash tool arguments and returns the classification.
+// Returns (zero, false) when no classifier is configured or args are malformed;
+// the caller should fall through to normal permission handling in that case.
+func tryClassifyBash(c *bash.Classifier, args string) (bash.Classification, bool) {
+	if c == nil {
+		return bash.Classification{}, false
+	}
+
+	var parsed struct {
+		Command string `json:"command"`
+	}
+
+	if err := json.Unmarshal([]byte(args), &parsed); err != nil || parsed.Command == "" {
+		return bash.Classification{}, false
+	}
+
+	return c.Classify(parsed.Command), true
 }
 
 // WrapRegistryWithPermission wraps a tool.ToolRegistry with permission logic.

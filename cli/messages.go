@@ -43,6 +43,12 @@ type streamDoneMsg struct {
 type confirmRequestMsg struct {
 	toolName  string
 	arguments string
+
+	// Classification fields are populated for bash commands when a classifier
+	// is configured; empty otherwise. tier is one of "caution" | "dangerous".
+	tier   string
+	rule   string
+	reason string
 }
 
 // sessionStatus represents the current state of the CLI session.
