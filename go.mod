@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
-	github.com/vogo/aimodel v0.2.0
+	github.com/vogo/aimodel v0.3.0
 	github.com/vogo/vage v0.1.0
 	gopkg.in/yaml.v3 v3.0.1
 )

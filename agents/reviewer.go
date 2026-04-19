@@ -68,6 +68,10 @@ func RegisterReviewer(reg *registries.Registry) {
 				taskOpts = append(taskOpts, taskagent.WithMemory(opts.Memory))
 			}
 
+			if len(opts.ToolResultGuards) > 0 {
+				taskOpts = append(taskOpts, taskagent.WithToolResultGuards(opts.ToolResultGuards...))
+			}
+
 			return taskagent.New(
 				agent.Config{
 					ID:          "reviewer",

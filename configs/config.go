@@ -67,12 +67,41 @@ type Config struct {
 	Memory       MemoryConfig                 `yaml:"memory"`
 	Orchestrate  OrchestrateConfig            `yaml:"orchestrate"`
 	Context      ContextConfig                `yaml:"context"`
+	Security     SecurityConfig               `yaml:"security,omitempty"`
 	ModelPricing map[string]ModelPricingEntry `yaml:"model_pricing,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
 	// Runtime-only; not persisted to vv.yaml.
 	ProjectInstructions string `yaml:"-"`
+}
+
+// SecurityConfig groups security subsystems (tool-result injection scanning, etc.).
+type SecurityConfig struct {
+	ToolResultInjection ToolResultInjectionConfig `yaml:"tool_result_injection,omitempty"`
+}
+
+// ToolResultInjectionConfig controls the tool-result injection scanning guard.
+// Default posture: enabled=true, action=log, block_on_severity=high — low/medium
+// hits are recorded only; high-severity structural attacks are blocked.
+type ToolResultInjectionConfig struct {
+	// Enabled gates the feature. nil means "use the default" (true).
+	Enabled *bool `yaml:"enabled,omitempty"`
+
+	// Action is taken on any low/medium hit: "log" | "rewrite" | "block".
+	Action string `yaml:"action,omitempty"`
+
+	// BlockOnSeverity escalates to block when a hit meets this severity:
+	// "" (disabled), "low", "medium", "high". Default "high".
+	BlockOnSeverity string `yaml:"block_on_severity,omitempty"`
+
+	// MaxScanBytes caps the scanned text length. Default 256*1024.
+	MaxScanBytes int `yaml:"max_scan_bytes,omitempty"`
+}
+
+// IsEnabled returns true unless the user explicitly set `enabled: false`.
+func (t ToolResultInjectionConfig) IsEnabled() bool {
+	return t.Enabled == nil || *t.Enabled
 }
 
 // PermissionMode defines the tool permission mode for CLI mode.

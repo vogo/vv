@@ -14,6 +14,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
@@ -142,6 +143,7 @@ func New(
 			Memory:              memMgr,
 			PersistentMemory:    persistentMem,
 			ProjectInstructions: cfg.ProjectInstructions,
+			ToolResultGuards:    buildToolResultGuards(cfg.Security.ToolResultInjection),
 		}
 
 		a, err := desc.Factory(factoryOpts)
@@ -505,4 +507,54 @@ func InitFromFile(configPath string, explicit bool, opts *Options) (*InitResult,
 	}
 
 	return Init(cfg, opts)
+}
+
+// buildToolResultGuards constructs the tool-result injection guard from the
+// security config. Returns nil when disabled or misconfigured so the caller
+// leaves the taskagent option unset (zero-impact path).
+func buildToolResultGuards(cfg configs.ToolResultInjectionConfig) []guard.Guard {
+	if !cfg.IsEnabled() {
+		return nil
+	}
+
+	action := parseInjectionAction(cfg.Action)
+	blockOn := parseSeverity(cfg.BlockOnSeverity, guard.SeverityHigh)
+
+	g := guard.NewToolResultInjectionGuard(guard.ToolResultInjectionConfig{
+		Action:          action,
+		BlockOnSeverity: blockOn,
+		MaxScanBytes:    cfg.MaxScanBytes,
+	})
+
+	return []guard.Guard{g}
+}
+
+// parseInjectionAction maps a config string to InjectionAction. Empty or
+// unknown values default to InjectionActionLog.
+func parseInjectionAction(s string) guard.InjectionAction {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case string(guard.InjectionActionRewrite):
+		return guard.InjectionActionRewrite
+	case string(guard.InjectionActionBlock):
+		return guard.InjectionActionBlock
+	default:
+		return guard.InjectionActionLog
+	}
+}
+
+// parseSeverity maps a config string to Severity. Empty returns defaultSev;
+// "" in user config is treated as "no escalation" only when defaultSev==0.
+func parseSeverity(s string, defaultSev guard.Severity) guard.Severity {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "low":
+		return guard.SeverityLow
+	case "medium":
+		return guard.SeverityMedium
+	case "high":
+		return guard.SeverityHigh
+	case "":
+		return defaultSev
+	default:
+		return defaultSev
+	}
 }
