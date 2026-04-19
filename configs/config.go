@@ -76,9 +76,44 @@ type Config struct {
 	ProjectInstructions string `yaml:"-"`
 }
 
-// SecurityConfig groups security subsystems (tool-result injection scanning, etc.).
+// SecurityConfig groups security subsystems (tool-result injection scanning,
+// MCP credential filter, etc.).
 type SecurityConfig struct {
 	ToolResultInjection ToolResultInjectionConfig `yaml:"tool_result_injection,omitempty"`
+	MCPCredentialFilter MCPCredentialFilterConfig `yaml:"mcp_credential_filter,omitempty"`
+}
+
+// MCPCredentialFilterConfig controls the MCP credential filter middleware.
+// It scans tool arguments (outbound) and tool results (inbound) on the MCP
+// client, and handler inputs/outputs on the MCP server, to prevent
+// credentials (AWS keys, JWTs, PEM private keys, etc.) from leaking to or
+// from third-party MCP servers.
+//
+// Default posture: enabled=true, action=redact, max_scan_bytes=256 KiB.
+type MCPCredentialFilterConfig struct {
+	// Enabled gates the feature. nil means "use the default" (true).
+	Enabled *bool `yaml:"enabled,omitempty"`
+
+	// Action is taken on any hit: "log" | "redact" | "block". Default "redact".
+	Action string `yaml:"action,omitempty"`
+
+	// MaxScanBytes caps scanned text length. 0 = default 256*1024.
+	MaxScanBytes int `yaml:"max_scan_bytes,omitempty"`
+
+	// ExtraPatterns are additional user-supplied Go regex patterns. Each
+	// invalid pattern is logged and skipped; it does not fail config loading.
+	// Each pattern scans without keyword gating and flags the match as
+	// type "custom".
+	ExtraPatterns []string `yaml:"extra_patterns,omitempty"`
+
+	// Allowlist extends the default allowlist with user regexes. A match
+	// whose entire text matches any allowlist regex is dropped.
+	Allowlist []string `yaml:"allowlist,omitempty"`
+}
+
+// IsEnabled returns true unless the user explicitly set `enabled: false`.
+func (m MCPCredentialFilterConfig) IsEnabled() bool {
+	return m.Enabled == nil || *m.Enabled
 }
 
 // ToolResultInjectionConfig controls the tool-result injection scanning guard.
@@ -283,6 +318,18 @@ func Load(path string, explicit bool) (*Config, error) {
 		} else {
 			slog.Warn("vv: invalid VV_DEBUG, ignoring", "value", v)
 		}
+	}
+
+	if v := os.Getenv("VV_MCP_CREDFILTER_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Security.MCPCredentialFilter.Enabled = &b
+		} else {
+			slog.Warn("vv: invalid VV_MCP_CREDFILTER_ENABLED, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_MCP_CREDFILTER_ACTION"); v != "" {
+		cfg.Security.MCPCredentialFilter.Action = v
 	}
 
 	if v := os.Getenv("VV_MODEL_PRICING"); v != "" {
