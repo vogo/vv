@@ -17,6 +17,7 @@ import (
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
 	"github.com/vogo/vv/httpapis"
+	"github.com/vogo/vv/mcps"
 	"github.com/vogo/vv/setup"
 )
 
@@ -24,7 +25,7 @@ func main() {
 	// Parse flags.
 	configPath := flag.String("config", configs.DefaultPath(), "config file path")
 	listenAddr := flag.String("addr", "", "listen address (overrides config)")
-	modeFlag := flag.String("mode", "", "run mode: cli or http (default: cli)")
+	modeFlag := flag.String("mode", "", "run mode: cli, http, or mcp (default: cli)")
 	promptFlag := flag.String("p", "", "run a single prompt non-interactively and exit")
 	permissionModeFlag := flag.String("permission-mode", "", "tool permission mode: default, accept-edits, auto, plan")
 	debugFlag := flag.Bool("debug", false, "enable detailed LLM and tool I/O debug records (env: VV_DEBUG)")
@@ -37,7 +38,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  VV_LLM_MODEL        LLM model name\n")
 		fmt.Fprintf(os.Stderr, "  VV_LLM_PROVIDER     LLM provider (openai, anthropic)\n")
 		fmt.Fprintf(os.Stderr, "  VV_SERVER_ADDR      Server listen address\n")
-		fmt.Fprintf(os.Stderr, "  VV_MODE             Run mode (cli or http)\n")
+		fmt.Fprintf(os.Stderr, "  VV_MODE             Run mode (cli, http, or mcp)\n")
 		fmt.Fprintf(os.Stderr, "  VV_DEBUG            Enable debug records (true/false). Equivalent to --debug.\n")
 		fmt.Fprintf(os.Stderr, "  VV_DEBUG_FILE       Override debug log file path (interactive CLI only).\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
@@ -100,7 +101,8 @@ func main() {
 	var debugSink *debugs.Sink
 	if cfg.Debug {
 		switch {
-		case (*modeFlag == "http") || (cfg.Mode == "http" && *modeFlag == ""):
+		case (*modeFlag == "http") || (cfg.Mode == "http" && *modeFlag == ""),
+			(*modeFlag == "mcp") || (cfg.Mode == "mcp" && *modeFlag == ""):
 			debugSink = debugs.NewSlogSink(slog.Default())
 		case promptSet:
 			debugSink = debugs.NewWriterSink(os.Stderr)
@@ -140,6 +142,11 @@ func main() {
 			os.Exit(1)
 		}
 
+		if cfg.Mode == "mcp" {
+			fmt.Fprintf(os.Stderr, "vv: -p flag is incompatible with MCP mode\n")
+			os.Exit(1)
+		}
+
 		initResult, initErr := setup.Init(cfg, &setup.Options{
 			UserInteractor: askuser.NonInteractiveInteractor{},
 			AskUserTimeout: time.Duration(cfg.Agents.AskUserTimeout) * time.Second,
@@ -168,7 +175,7 @@ func main() {
 	// Determine interactor based on run mode.
 	var interactor askuser.UserInteractor = cliInteractor
 
-	if cfg.Mode == "http" {
+	if cfg.Mode == "http" || cfg.Mode == "mcp" {
 		interactor = askuser.NonInteractiveInteractor{}
 	}
 
@@ -184,16 +191,21 @@ func main() {
 
 	permissionState := cli.NewPermissionState(permissionMode)
 	permissionState.SetClassifier(configs.BuildBashClassifier(cfg.Tools.BashRules))
-	permissionState.SetNonInteractive(cfg.Mode == "http")
+	permissionState.SetNonInteractive(cfg.Mode == "http" || cfg.Mode == "mcp")
 
-	initResult, err := setup.Init(cfg, &setup.Options{
-		WrapToolRegistry: func(r *tool.Registry) tool.ToolRegistry {
-			return cli.WrapRegistryWithPermission(r, permissionState)
-		},
+	setupOpts := &setup.Options{
 		UserInteractor: interactor,
 		AskUserTimeout: askUserTimeout,
 		DebugSink:      debugSink,
-	})
+	}
+	// CLI permission wrapping applies only when running a real terminal loop.
+	if cfg.Mode != "mcp" {
+		setupOpts.WrapToolRegistry = func(r *tool.Registry) tool.ToolRegistry {
+			return cli.WrapRegistryWithPermission(r, permissionState)
+		}
+	}
+
+	initResult, err := setup.Init(cfg, setupOpts)
 	if err != nil {
 		slog.Error("vv: init", "error", err)
 		os.Exit(1)
@@ -210,6 +222,12 @@ func main() {
 		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
 		if err := httpapis.Serve(ctx, cfg, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
+			os.Exit(1)
+		}
+
+	case "mcp":
+		if err := mcps.Serve(ctx, cfg, initResult); err != nil {
+			slog.Error("vv: MCP server error", "error", err)
 			os.Exit(1)
 		}
 

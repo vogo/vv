@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -62,18 +63,39 @@ type Config struct {
 	Server       ServerConfig                 `yaml:"server"`
 	Tools        ToolsConfig                  `yaml:"tools"`
 	Agents       AgentsConfig                 `yaml:"agents"`
-	Mode         string                       `yaml:"mode"` // "cli" or "http"; default "cli"
+	Mode         string                       `yaml:"mode"` // "cli", "http", or "mcp"; default "cli"
 	CLI          CLIConfig                    `yaml:"cli"`
 	Memory       MemoryConfig                 `yaml:"memory"`
 	Orchestrate  OrchestrateConfig            `yaml:"orchestrate"`
 	Context      ContextConfig                `yaml:"context"`
 	Security     SecurityConfig               `yaml:"security,omitempty"`
+	MCP          MCPConfig                    `yaml:"mcp,omitempty"`
 	ModelPricing map[string]ModelPricingEntry `yaml:"model_pricing,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
 	// Runtime-only; not persisted to vv.yaml.
 	ProjectInstructions string `yaml:"-"`
+}
+
+// MCPConfig groups MCP-related configuration. Currently only the `server`
+// subsection is defined; MCP client settings live under `security.mcp_credential_filter`.
+type MCPConfig struct {
+	Server MCPServerConfig `yaml:"server,omitempty"`
+}
+
+// MCPServerConfig configures the MCP server exposed by `vv --mode mcp`.
+//
+// Transport defaults to "stdio" (process-isolated, no auth). When Transport
+// is "http", the server uses Streamable HTTP; non-loopback binds require
+// AuthToken to be set.
+type MCPServerConfig struct {
+	Transport        string   `yaml:"transport,omitempty"`         // "stdio" (default) | "http"
+	Addr             string   `yaml:"addr,omitempty"`              // default "127.0.0.1:7801" when Transport="http"
+	AuthToken        string   `yaml:"auth_token,omitempty"`        // required for non-loopback binds
+	Agents           []string `yaml:"agents,omitempty"`            // empty = all dispatchable
+	ExposeDispatcher bool     `yaml:"expose_dispatcher,omitempty"` // default false
+	SessionTimeout   int      `yaml:"session_timeout,omitempty"`   // seconds; 0 = no timeout; http only
 }
 
 // SecurityConfig groups security subsystems (tool-result injection scanning,
@@ -332,6 +354,18 @@ func Load(path string, explicit bool) (*Config, error) {
 		cfg.Security.MCPCredentialFilter.Action = v
 	}
 
+	if v := os.Getenv("VV_MCP_TRANSPORT"); v != "" {
+		cfg.MCP.Server.Transport = v
+	}
+
+	if v := os.Getenv("VV_MCP_ADDR"); v != "" {
+		cfg.MCP.Server.Addr = v
+	}
+
+	if v := os.Getenv("VV_MCP_AUTH_TOKEN"); v != "" {
+		cfg.MCP.Server.AuthToken = v
+	}
+
 	if v := os.Getenv("VV_MODEL_PRICING"); v != "" {
 		var mp map[string]ModelPricingEntry
 		if err := json.Unmarshal([]byte(v), &mp); err != nil {
@@ -352,11 +386,74 @@ func Load(path string, explicit bool) (*Config, error) {
 			cfg.CLI.PermissionMode)
 	}
 
+	if err := ValidateMCPServer(&cfg.MCP.Server); err != nil {
+		return nil, err
+	}
+
 	if len(cfg.CLI.ConfirmTools) > 0 {
 		slog.Warn("vv: confirm_tools is deprecated; use permission_mode instead")
 	}
 
 	return cfg, nil
+}
+
+// ValidateMCPServer normalizes and validates the MCP server config.
+// Transport is lower-cased; an empty value defaults to "stdio". HTTP
+// transports get a default loopback Addr; non-loopback Addrs require a
+// non-empty AuthToken.
+func ValidateMCPServer(c *MCPServerConfig) error {
+	c.Transport = strings.ToLower(strings.TrimSpace(c.Transport))
+	if c.Transport == "" {
+		c.Transport = "stdio"
+	}
+
+	switch c.Transport {
+	case "stdio":
+		// No further defaults/validation needed.
+	case "http":
+		if strings.TrimSpace(c.Addr) == "" {
+			c.Addr = "127.0.0.1:7801"
+		}
+
+		if !isLoopbackAddr(c.Addr) && strings.TrimSpace(c.AuthToken) == "" {
+			return fmt.Errorf("mcp.server.auth_token is required when mcp.server.addr binds a non-loopback host (%q)", c.Addr)
+		}
+	default:
+		return fmt.Errorf("invalid mcp.server.transport %q; valid values: stdio, http", c.Transport)
+	}
+
+	if c.SessionTimeout < 0 {
+		c.SessionTimeout = 0
+	}
+
+	return nil
+}
+
+// isLoopbackAddr reports whether addr's host is a loopback address.
+// Accepts "host", "host:port", or a bare hostname. "localhost" is treated
+// as loopback; an empty host (e.g. ":8080") is NOT — net.Listen on such
+// an address binds every interface, so it must require an auth token.
+// IPv6 bracketed hosts are handled via net.SplitHostPort.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+
+	if host == "localhost" {
+		return true
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+
+	return false
 }
 
 // NeedsSetup returns true if required configuration is missing.
