@@ -16,6 +16,7 @@ import (
 	"github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
+	vveval "github.com/vogo/vv/eval"
 	"github.com/vogo/vv/httpapis"
 	"github.com/vogo/vv/mcps"
 	"github.com/vogo/vv/setup"
@@ -27,6 +28,10 @@ func main() {
 	listenAddr := flag.String("addr", "", "listen address (overrides config)")
 	modeFlag := flag.String("mode", "", "run mode: cli, http, or mcp (default: cli)")
 	promptFlag := flag.String("p", "", "run a single prompt non-interactively and exit")
+	evalFlag := flag.String("eval", "", "run evaluation on the given JSONL dataset file and exit")
+	evalOutFlag := flag.String("eval-out", "", "write full eval report JSON to this path (requires -eval)")
+	evalConcurrencyFlag := flag.Int("eval-concurrency", 0, "override eval.concurrency (>0)")
+	evalTimeoutMsFlag := flag.Int("eval-timeout-ms", 0, "override eval.timeout_ms per case (>0)")
 	permissionModeFlag := flag.String("permission-mode", "", "tool permission mode: default, accept-edits, auto, plan")
 	debugFlag := flag.Bool("debug", false, "enable detailed LLM and tool I/O debug records (env: VV_DEBUG)")
 	flag.Usage = func() {
@@ -131,6 +136,11 @@ func main() {
 
 	// Single-prompt mode: run the prompt non-interactively and exit.
 	if promptSet {
+		if *evalFlag != "" {
+			fmt.Fprintf(os.Stderr, "vv: -p and -eval are mutually exclusive\n")
+			os.Exit(1)
+		}
+
 		trimmed := strings.TrimSpace(*promptFlag)
 		if trimmed == "" {
 			fmt.Fprintf(os.Stderr, "vv: -p flag requires a non-empty prompt\n")
@@ -166,6 +176,43 @@ func main() {
 		}
 
 		os.Exit(0)
+	}
+
+	// Eval mode: load a JSONL dataset, run the dispatcher over each case,
+	// emit a report, and exit. Mutually exclusive with -p / HTTP / MCP.
+	if *evalFlag != "" {
+		if cfg.Mode == "http" || cfg.Mode == "mcp" {
+			fmt.Fprintf(os.Stderr, "vv: -eval is incompatible with --mode %s\n", cfg.Mode)
+			os.Exit(1)
+		}
+
+		if *evalConcurrencyFlag > 0 {
+			cfg.Eval.Concurrency = *evalConcurrencyFlag
+		}
+
+		if *evalTimeoutMsFlag > 0 {
+			cfg.Eval.TimeoutMs = *evalTimeoutMsFlag
+		}
+
+		initResult, initErr := setup.Init(cfg, &setup.Options{
+			UserInteractor: askuser.NonInteractiveInteractor{},
+			AskUserTimeout: time.Duration(cfg.Agents.AskUserTimeout) * time.Second,
+			DebugSink:      debugSink,
+		})
+		if initErr != nil {
+			slog.Error("vv: init", "error", initErr)
+			os.Exit(1)
+		}
+
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
+		exitCode, evalErr := vveval.RunCLI(ctx, initResult, cfg, *evalFlag, *evalOutFlag, os.Stdout, os.Stderr)
+		if evalErr != nil {
+			fmt.Fprintf(os.Stderr, "vv: %s\n", evalErr)
+		}
+
+		os.Exit(exitCode)
 	}
 
 	// Initialize LLM client, memory, and agents via setup package.
@@ -220,7 +267,7 @@ func main() {
 	switch cfg.Mode {
 	case "http":
 		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
-		if err := httpapis.Serve(ctx, cfg, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor); err != nil {
+		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
 			os.Exit(1)
 		}

@@ -70,6 +70,7 @@ type Config struct {
 	Context      ContextConfig                `yaml:"context"`
 	Security     SecurityConfig               `yaml:"security,omitempty"`
 	MCP          MCPConfig                    `yaml:"mcp,omitempty"`
+	Eval         EvalConfig                   `yaml:"eval,omitempty"`
 	ModelPricing map[string]ModelPricingEntry `yaml:"model_pricing,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
@@ -159,6 +160,58 @@ type ToolResultInjectionConfig struct {
 // IsEnabled returns true unless the user explicitly set `enabled: false`.
 func (t ToolResultInjectionConfig) IsEnabled() bool {
 	return t.Enabled == nil || *t.Enabled
+}
+
+// EvalConfig controls the evaluation subsystem (CLI `-eval` + HTTP
+// `POST /v1/eval/run`). Defaults: disabled for HTTP surface, concurrency 1,
+// 60s per-case timeout, latency+cost evaluators (no extra LLM calls).
+type EvalConfig struct {
+	// Enabled gates the HTTP `/v1/eval/run` endpoint. The CLI `-eval` flag
+	// does not consult this field — it always works when the user passes it.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// Concurrency is the number of cases evaluated in parallel. <=0 → 1.
+	Concurrency int `yaml:"concurrency,omitempty"`
+
+	// TimeoutMs caps each case's wall-clock time. 0 → 60000.
+	TimeoutMs int `yaml:"timeout_ms,omitempty"`
+
+	// Evaluators selects which evaluators run. Valid values:
+	// "latency", "cost", "contains", "llm_judge". Empty → ["latency","cost"].
+	Evaluators []string `yaml:"evaluators,omitempty"`
+
+	// LatencyThresholdMs is the pass threshold for the latency evaluator.
+	// 0 → 60000.
+	LatencyThresholdMs int64 `yaml:"latency_threshold_ms,omitempty"`
+
+	// CostBudgetTokens is the token budget for the cost evaluator. 0 → 10000.
+	CostBudgetTokens int `yaml:"cost_budget_tokens,omitempty"`
+
+	// ContainsKeywords is required when "contains" is in Evaluators.
+	ContainsKeywords []string `yaml:"contains_keywords,omitempty"`
+
+	// LLMJudgeModel overrides the main LLM model for the LLM judge evaluator.
+	// Empty → use cfg.LLM.Model.
+	LLMJudgeModel string `yaml:"llm_judge_model,omitempty"`
+}
+
+// ValidateEval validates eval configuration. Called from Load after
+// applyDefaults. Returns an error for unknown evaluator names so the user
+// hears about typos at startup rather than at HTTP/CLI invocation time.
+func ValidateEval(c *EvalConfig) error {
+	if c.TimeoutMs < 0 {
+		return fmt.Errorf("eval.timeout_ms must be >= 0, got %d", c.TimeoutMs)
+	}
+
+	for _, name := range c.Evaluators {
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "latency", "cost", "contains", "llm_judge":
+		default:
+			return fmt.Errorf("eval.evaluators: unknown evaluator %q; valid: latency, cost, contains, llm_judge", name)
+		}
+	}
+
+	return nil
 }
 
 // PermissionMode defines the tool permission mode for CLI mode.
@@ -354,6 +407,14 @@ func Load(path string, explicit bool) (*Config, error) {
 		cfg.Security.MCPCredentialFilter.Action = v
 	}
 
+	if v := os.Getenv("VV_EVAL_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Eval.Enabled = b
+		} else {
+			slog.Warn("vv: invalid VV_EVAL_ENABLED, ignoring", "value", v)
+		}
+	}
+
 	if v := os.Getenv("VV_MCP_TRANSPORT"); v != "" {
 		cfg.MCP.Server.Transport = v
 	}
@@ -387,6 +448,10 @@ func Load(path string, explicit bool) (*Config, error) {
 	}
 
 	if err := ValidateMCPServer(&cfg.MCP.Server); err != nil {
+		return nil, err
+	}
+
+	if err := ValidateEval(&cfg.Eval); err != nil {
 		return nil, err
 	}
 
@@ -595,6 +660,22 @@ func applyDefaults(cfg *Config) {
 		cfg.Context.ProtectedTurns = 4
 	}
 	// CompressionThreshold uses a pointer; nil means "use default 0.8" via EffectiveCompressionThreshold().
+
+	if cfg.Eval.Concurrency <= 0 {
+		cfg.Eval.Concurrency = 1
+	}
+	if cfg.Eval.TimeoutMs == 0 {
+		cfg.Eval.TimeoutMs = 60000
+	}
+	if len(cfg.Eval.Evaluators) == 0 {
+		cfg.Eval.Evaluators = []string{"latency", "cost"}
+	}
+	if cfg.Eval.LatencyThresholdMs == 0 {
+		cfg.Eval.LatencyThresholdMs = 60000
+	}
+	if cfg.Eval.CostBudgetTokens == 0 {
+		cfg.Eval.CostBudgetTokens = 10000
+	}
 }
 
 func prompt(scanner *bufio.Scanner, w io.Writer, label, current, defaultVal string) string {

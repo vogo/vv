@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
@@ -39,7 +40,7 @@ func newRequestID() string {
 // Serve starts the HTTP server with agent and memory endpoints.
 // It blocks until the context is canceled or a fatal error occurs.
 // compactor may be nil if context compression is not configured.
-func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor) error {
+func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor) error {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
@@ -73,6 +74,10 @@ func Serve(ctx context.Context, cfg *configs.Config, dispatcher agent.Agent, age
 
 	if interactionStore != nil {
 		mux.HandleFunc("POST /v1/interactions/{interactionID}/respond", handleInteractionRespond(interactionStore))
+	}
+
+	if cfg.Eval.Enabled {
+		mux.HandleFunc("POST /v1/eval/run", handleEvalRun(cfg, dispatcher, llm))
 	}
 
 	slog.Info("vv: starting HTTP server", "addr", cfg.Server.Addr)
