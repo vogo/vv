@@ -35,6 +35,9 @@ type FactoryOptions struct {
 	ToolRegistry        tool.ToolRegistry // filtered by ToolProfile
 	MaxIterations       int
 	RunTokenBudget      int
+	// MaxParallelToolCalls caps concurrent tool dispatch within an assistant
+	// message. 0 uses the taskagent default; values <= 1 force serial.
+	MaxParallelToolCalls int
 	Memory              *memory.Manager
 	PersistentMemory    memory.Memory // for coder's persistent memory prompt; nil if not available
 	ProjectInstructions string        // content from VV.md; empty if no file

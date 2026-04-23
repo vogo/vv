@@ -314,6 +314,9 @@ type AgentsConfig struct {
 	MaxIterations  int `yaml:"max_iterations"`   // default 10
 	RunTokenBudget int `yaml:"run_token_budget"` // default 0 (unlimited)
 	AskUserTimeout int `yaml:"ask_user_timeout"` // seconds, default 300 (5 minutes)
+	// MaxParallelToolCalls caps concurrent tool dispatch within a single
+	// assistant message. 0 uses the framework default (4); <=1 serializes.
+	MaxParallelToolCalls int `yaml:"max_parallel_tool_calls"`
 }
 
 // BudgetConfig holds session- and daily-level token/cost enforcement limits.
@@ -479,6 +482,14 @@ func Load(path string, explicit bool) (*Config, error) {
 
 	if v := os.Getenv("VV_MEMORY_BACKEND"); v != "" {
 		cfg.Memory.Backend = v
+	}
+
+	if v := os.Getenv("VV_AGENTS_MAX_PARALLEL_TOOL_CALLS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Agents.MaxParallelToolCalls = n
+		} else {
+			slog.Warn("vv: invalid VV_AGENTS_MAX_PARALLEL_TOOL_CALLS, ignoring", "value", v)
+		}
 	}
 
 	if v := os.Getenv("VV_MCP_CREDFILTER_ENABLED"); v != "" {
@@ -736,6 +747,10 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.Agents.AskUserTimeout == 0 {
 		cfg.Agents.AskUserTimeout = 300
+	}
+
+	if cfg.Agents.MaxParallelToolCalls == 0 {
+		cfg.Agents.MaxParallelToolCalls = 4
 	}
 
 	// Provider-specific defaults.

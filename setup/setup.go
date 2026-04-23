@@ -141,16 +141,17 @@ func New(
 		}
 
 		factoryOpts := registries.FactoryOptions{
-			LLM:                 llm,
-			Model:               cfg.LLM.Model,
-			ToolRegistry:        finalToolReg,
-			MaxIterations:       cfg.Agents.MaxIterations,
-			RunTokenBudget:      cfg.Agents.RunTokenBudget,
-			Memory:              memMgr,
-			PersistentMemory:    persistentMem,
-			ProjectInstructions: cfg.ProjectInstructions,
-			ToolResultGuards:    buildToolResultGuards(cfg.Security.ToolResultInjection),
-			HookManager:         getHookManager(opts),
+			LLM:                  llm,
+			Model:                cfg.LLM.Model,
+			ToolRegistry:         finalToolReg,
+			MaxIterations:        cfg.Agents.MaxIterations,
+			RunTokenBudget:       cfg.Agents.RunTokenBudget,
+			MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
+			Memory:               memMgr,
+			PersistentMemory:     persistentMem,
+			ProjectInstructions:  cfg.ProjectInstructions,
+			ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
+			HookManager:          getHookManager(opts),
 		}
 
 		a, err := desc.Factory(factoryOpts)
@@ -183,12 +184,13 @@ func New(
 	}
 
 	explorer, err := explorerDesc.Factory(registries.FactoryOptions{
-		LLM:                 llm,
-		Model:               cfg.LLM.Model,
-		ToolRegistry:        explorerFinalToolReg,
-		MaxIterations:       min(cfg.Agents.MaxIterations, 15),
-		ProjectInstructions: cfg.ProjectInstructions,
-		HookManager:         getHookManager(opts),
+		LLM:                  llm,
+		Model:                cfg.LLM.Model,
+		ToolRegistry:         explorerFinalToolReg,
+		MaxIterations:        min(cfg.Agents.MaxIterations, 15),
+		MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
+		ProjectInstructions:  cfg.ProjectInstructions,
+		HookManager:          getHookManager(opts),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create explorer agent: %w", err)

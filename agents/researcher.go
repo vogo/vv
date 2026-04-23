@@ -55,6 +55,7 @@ func RegisterResearcher(reg *registries.Registry) {
 				taskagent.WithModel(opts.Model),
 				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(opts.MaxIterations),
+				taskagent.WithMaxParallelToolCalls(opts.MaxParallelToolCalls),
 			)
 
 			if opts.ToolRegistry != nil {
