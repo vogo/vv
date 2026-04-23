@@ -25,6 +25,30 @@ type MemoryConfig struct {
 	SessionWindow  int    `yaml:"session_window"`  // sliding window size, default 50
 	PersistentLoad bool   `yaml:"persistent_load"` // load at startup, default true
 	MaxConcurrency int    `yaml:"max_concurrency"` // Deprecated: use orchestrate.max_concurrency
+	Backend        string `yaml:"backend"`         // "file" (default) | "sqlite"
+}
+
+// Supported memory backend identifiers.
+const (
+	MemoryBackendFile   = "file"
+	MemoryBackendSQLite = "sqlite"
+)
+
+// ValidateMemoryBackend normalizes and validates cfg.Memory.Backend. An empty
+// value is treated as "file" so existing configs continue to work unchanged.
+func ValidateMemoryBackend(backend string) (string, error) {
+	b := strings.ToLower(strings.TrimSpace(backend))
+	switch b {
+	case "", MemoryBackendFile:
+		return MemoryBackendFile, nil
+	case MemoryBackendSQLite:
+		return MemoryBackendSQLite, nil
+	default:
+		return "", fmt.Errorf(
+			"unknown memory backend %q (expected %q or %q)",
+			backend, MemoryBackendFile, MemoryBackendSQLite,
+		)
+	}
 }
 
 // OrchestrateConfig holds orchestration configuration.
@@ -453,6 +477,10 @@ func Load(path string, explicit bool) (*Config, error) {
 		cfg.Trace.Dir = v
 	}
 
+	if v := os.Getenv("VV_MEMORY_BACKEND"); v != "" {
+		cfg.Memory.Backend = v
+	}
+
 	if v := os.Getenv("VV_MCP_CREDFILTER_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Security.MCPCredentialFilter.Enabled = &b
@@ -514,6 +542,12 @@ func Load(path string, explicit bool) (*Config, error) {
 	if err := ValidateEval(&cfg.Eval); err != nil {
 		return nil, err
 	}
+
+	normalized, err := ValidateMemoryBackend(cfg.Memory.Backend)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Memory.Backend = normalized
 
 	if len(cfg.CLI.ConfirmTools) > 0 {
 		slog.Warn("vv: confirm_tools is deprecated; use permission_mode instead")

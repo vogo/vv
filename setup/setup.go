@@ -461,13 +461,16 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		wrappedLLM = largemodel.Chain(wrappedLLM, largemodel.NewBudgetMiddleware(preCheck, postRecord))
 	}
 
-	// Create persistent memory with FileStore backend.
-	fileStore, err := memories.NewFileStore(cfg.Memory.Dir)
+	// Create persistent memory. Backend is selected by cfg.Memory.Backend;
+	// "file" (default) keeps the JSON-per-file FileStore; "sqlite" uses the
+	// WAL-mode SQLiteStore. Validated upstream in configs.Load, so an unknown
+	// value here is an internal bug, not user input.
+	store, closeStore, err := openMemoryStore(cfg.Memory)
 	if err != nil {
-		return nil, fmt.Errorf("create file store: %w", err)
+		return nil, err
 	}
 
-	persistentMem := memory.NewPersistentMemoryWithStore(fileStore)
+	persistentMem := memory.NewPersistentMemoryWithStore(store)
 
 	// Create memory manager.
 	memMgr := memory.NewManager(
@@ -481,6 +484,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	// injected into every TaskAgent factory via opts.HookManager.
 	hookManager, traceShutdown, err := buildHookManager(cfg)
 	if err != nil {
+		closeStore()
 		return nil, fmt.Errorf("setup hooks: %w", err)
 	}
 
@@ -496,6 +500,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	result, err := New(cfg, wrappedLLM, memMgr, persistentMem, opts)
 	if err != nil {
 		traceShutdown(context.Background())
+		closeStore()
 
 		return nil, fmt.Errorf("setup agents: %w", err)
 	}
@@ -542,8 +547,44 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		Compactor:     compactor,
 		SessionBudget: sessionBudget,
 		DailyBudget:   dailyBudget,
-		Shutdown:      traceShutdown,
+		Shutdown:      chainShutdown(traceShutdown, closeStore),
 	}, nil
+}
+
+// openMemoryStore constructs the persistent-memory Store chosen by
+// cfg.Memory.Backend. Returns the Store, a close function (always non-nil;
+// no-op for FileStore), and any open error. Validated upstream in
+// configs.Load so the default branch is defensive only.
+func openMemoryStore(cfg configs.MemoryConfig) (memory.Store, func(), error) {
+	switch cfg.Backend {
+	case "", configs.MemoryBackendFile:
+		fs, err := memories.NewFileStore(cfg.Dir)
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("create file store: %w", err)
+		}
+		return fs, func() {}, nil
+	case configs.MemoryBackendSQLite:
+		ss, err := memories.NewSQLiteStore(cfg.Dir)
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("create sqlite store: %w", err)
+		}
+		return ss, func() { _ = ss.Close() }, nil
+	default:
+		return nil, func() {}, fmt.Errorf("unsupported memory backend %q", cfg.Backend)
+	}
+}
+
+// chainShutdown composes the trace-hook shutdown with the store close so
+// Init's Shutdown hook owns every resource the function opened.
+func chainShutdown(trace func(context.Context), closeStore func()) func(context.Context) {
+	return func(ctx context.Context) {
+		if trace != nil {
+			trace(ctx)
+		}
+		if closeStore != nil {
+			closeStore()
+		}
+	}
 }
 
 // buildHookManager constructs the process-level hook.Manager and registers

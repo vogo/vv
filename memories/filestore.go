@@ -56,23 +56,46 @@ type fileRecord struct {
 // Compile-time check: FileStore implements memory.Store.
 var _ memory.Store = (*FileStore)(nil)
 
-// Option configures a FileStore.
-type Option func(*FileStore)
+// Option configures a memory Store. It is applied in both FileStore and
+// SQLiteStore constructors so backend-swap is a config flip rather than a
+// code change.
+type Option interface {
+	applyFile(*FileStore)
+	applySQLite(*SQLiteStore)
+}
+
+// sharedNamespacesOpt carries the extra-shared namespace names.
+type sharedNamespacesOpt struct {
+	names []string
+}
+
+func (o sharedNamespacesOpt) applyFile(s *FileStore) {
+	if s.extraShared == nil {
+		s.extraShared = make(map[string]struct{}, len(o.names))
+	}
+	for _, n := range o.names {
+		if n != "" {
+			s.extraShared[n] = struct{}{}
+		}
+	}
+}
+
+func (o sharedNamespacesOpt) applySQLite(s *SQLiteStore) {
+	if s.extraShared == nil {
+		s.extraShared = make(map[string]struct{}, len(o.names))
+	}
+	for _, n := range o.names {
+		if n != "" {
+			s.extraShared[n] = struct{}{}
+		}
+	}
+}
 
 // WithSharedNamespaces adds extra namespace names to the shared allowlist.
 // Entries in these namespaces are treated as cross-session; writes from any
 // context path skip session_id binding.
 func WithSharedNamespaces(names ...string) Option {
-	return func(s *FileStore) {
-		if s.extraShared == nil {
-			s.extraShared = make(map[string]struct{}, len(names))
-		}
-		for _, n := range names {
-			if n != "" {
-				s.extraShared[n] = struct{}{}
-			}
-		}
-	}
+	return sharedNamespacesOpt{names: names}
 }
 
 // NewFileStore creates a new FileStore rooted at dir.
@@ -83,9 +106,24 @@ func NewFileStore(dir string, opts ...Option) (*FileStore, error) {
 	}
 	s := &FileStore{dir: dir}
 	for _, opt := range opts {
-		opt(s)
+		opt.applyFile(s)
 	}
 	return s, nil
+}
+
+// encodeValue normalises a caller-supplied value to the stored TEXT form.
+// Strings pass through verbatim; everything else is JSON-marshalled. Used by
+// both FileStore and SQLiteStore so the on-disk representation stays
+// identical across backends.
+func encodeValue(value any) (string, error) {
+	if s, ok := value.(string); ok {
+		return s, nil
+	}
+	b, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("memories: marshal value: %w", err)
+	}
+	return string(b), nil
 }
 
 // parseKey splits a key into namespace and name.
@@ -243,16 +281,9 @@ func (s *FileStore) Set(ctx context.Context, key string, value any, ttl int64) e
 		}
 	}
 
-	var strValue string
-	switch v := value.(type) {
-	case string:
-		strValue = v
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return fmt.Errorf("filestore: marshal value: %w", err)
-		}
-		strValue = string(b)
+	strValue, err := encodeValue(value)
+	if err != nil {
+		return err
 	}
 
 	rec := fileRecord{
