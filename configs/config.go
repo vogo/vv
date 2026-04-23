@@ -317,6 +317,20 @@ type AgentsConfig struct {
 	// MaxParallelToolCalls caps concurrent tool dispatch within a single
 	// assistant message. 0 uses the framework default (4); <=1 serializes.
 	MaxParallelToolCalls int `yaml:"max_parallel_tool_calls"`
+	// PromptCaching, nil-default-on, controls emission of prompt-cache
+	// boundary hints on the system message and the last tool definition.
+	// Set to a pointer to false to disable. No on-wire effect for OpenAI
+	// backends — OpenAI prefix-caches automatically.
+	PromptCaching *bool `yaml:"prompt_caching"`
+}
+
+// EffectivePromptCaching resolves the nil-default-on pointer. nil / unset
+// yields true; only an explicit false disables.
+func (c *AgentsConfig) EffectivePromptCaching() bool {
+	if c == nil || c.PromptCaching == nil {
+		return true
+	}
+	return *c.PromptCaching
 }
 
 // BudgetConfig holds session- and daily-level token/cost enforcement limits.
@@ -489,6 +503,14 @@ func Load(path string, explicit bool) (*Config, error) {
 			cfg.Agents.MaxParallelToolCalls = n
 		} else {
 			slog.Warn("vv: invalid VV_AGENTS_MAX_PARALLEL_TOOL_CALLS, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_AGENTS_PROMPT_CACHING"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Agents.PromptCaching = &b
+		} else {
+			slog.Warn("vv: invalid VV_AGENTS_PROMPT_CACHING, ignoring", "value", v)
 		}
 	}
 

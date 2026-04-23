@@ -58,6 +58,7 @@ func RegisterExplorer(reg *registries.Registry) {
 				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(maxIter),
 				taskagent.WithMaxParallelToolCalls(opts.MaxParallelToolCalls),
+				taskagent.WithPromptCaching(opts.PromptCaching),
 			)
 
 			if opts.ToolRegistry != nil {

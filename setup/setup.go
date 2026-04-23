@@ -147,6 +147,7 @@ func New(
 			MaxIterations:        cfg.Agents.MaxIterations,
 			RunTokenBudget:       cfg.Agents.RunTokenBudget,
 			MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
+			PromptCaching:        cfg.Agents.EffectivePromptCaching(),
 			Memory:               memMgr,
 			PersistentMemory:     persistentMem,
 			ProjectInstructions:  cfg.ProjectInstructions,
@@ -189,6 +190,7 @@ func New(
 		ToolRegistry:         explorerFinalToolReg,
 		MaxIterations:        min(cfg.Agents.MaxIterations, 15),
 		MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
+		PromptCaching:        cfg.Agents.EffectivePromptCaching(),
 		ProjectInstructions:  cfg.ProjectInstructions,
 		HookManager:          getHookManager(opts),
 	})

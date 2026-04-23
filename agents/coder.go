@@ -68,6 +68,7 @@ func RegisterCoder(reg *registries.Registry) {
 				taskagent.WithMaxIterations(opts.MaxIterations),
 				taskagent.WithRunTokenBudget(opts.RunTokenBudget),
 				taskagent.WithMaxParallelToolCalls(opts.MaxParallelToolCalls),
+				taskagent.WithPromptCaching(opts.PromptCaching),
 			)
 
 			if opts.ToolRegistry != nil {

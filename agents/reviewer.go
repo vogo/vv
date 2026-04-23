@@ -59,6 +59,7 @@ func RegisterReviewer(reg *registries.Registry) {
 				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(opts.MaxIterations),
 				taskagent.WithMaxParallelToolCalls(opts.MaxParallelToolCalls),
+				taskagent.WithPromptCaching(opts.PromptCaching),
 			)
 
 			if opts.ToolRegistry != nil {
