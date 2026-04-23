@@ -1049,3 +1049,103 @@ func TestLoad_DebugDefaultFalse(t *testing.T) {
 		t.Errorf("expected default Debug=false")
 	}
 }
+
+func TestLoad_BudgetYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+llm:
+  api_key: "sk-x"
+budget:
+  session_hard_tokens: 200000
+  session_hard_cost_usd: 5.0
+  daily_hard_tokens: 2000000
+  daily_hard_cost_usd: 10.0
+  warn_percent: 0.7
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Budget.SessionHardTokens != 200000 {
+		t.Errorf("session_hard_tokens = %d, want 200000", cfg.Budget.SessionHardTokens)
+	}
+	if cfg.Budget.SessionHardCostUSD != 5.0 {
+		t.Errorf("session_hard_cost_usd = %v, want 5.0", cfg.Budget.SessionHardCostUSD)
+	}
+	if cfg.Budget.DailyHardTokens != 2000000 {
+		t.Errorf("daily_hard_tokens = %d, want 2000000", cfg.Budget.DailyHardTokens)
+	}
+	if cfg.Budget.DailyHardCostUSD != 10.0 {
+		t.Errorf("daily_hard_cost_usd = %v, want 10.0", cfg.Budget.DailyHardCostUSD)
+	}
+	if cfg.Budget.WarnPercent != 0.7 {
+		t.Errorf("warn_percent = %v, want 0.7", cfg.Budget.WarnPercent)
+	}
+	if !cfg.Budget.IsEnabled() {
+		t.Error("Budget.IsEnabled should be true with any limit configured")
+	}
+}
+
+func TestLoad_BudgetEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: sk-x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_BUDGET_SESSION_HARD_TOKENS", "12345")
+	t.Setenv("VV_BUDGET_SESSION_HARD_COST_USD", "1.5")
+	t.Setenv("VV_BUDGET_DAILY_HARD_TOKENS", "999999")
+	t.Setenv("VV_BUDGET_DAILY_HARD_COST_USD", "50")
+	t.Setenv("VV_BUDGET_WARN_PERCENT", "0.5")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Budget.SessionHardTokens != 12345 {
+		t.Errorf("session tokens env: want 12345, got %d", cfg.Budget.SessionHardTokens)
+	}
+	if cfg.Budget.SessionHardCostUSD != 1.5 {
+		t.Errorf("session cost env: want 1.5, got %v", cfg.Budget.SessionHardCostUSD)
+	}
+	if cfg.Budget.DailyHardTokens != 999999 {
+		t.Errorf("daily tokens env: want 999999, got %d", cfg.Budget.DailyHardTokens)
+	}
+	if cfg.Budget.DailyHardCostUSD != 50 {
+		t.Errorf("daily cost env: want 50, got %v", cfg.Budget.DailyHardCostUSD)
+	}
+	if cfg.Budget.WarnPercent != 0.5 {
+		t.Errorf("warn env: want 0.5, got %v", cfg.Budget.WarnPercent)
+	}
+}
+
+func TestLoad_BudgetDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: sk-x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Budget.IsEnabled() {
+		t.Error("unset budget should report disabled")
+	}
+	// WarnPercent default applied even when limits are unset; the percent is
+	// used only once a tracker exists, but the default is written for
+	// observability/docs parity.
+	if cfg.Budget.WarnPercent != 0.8 {
+		t.Errorf("default warn_percent: want 0.8, got %v", cfg.Budget.WarnPercent)
+	}
+}

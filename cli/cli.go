@@ -25,6 +25,7 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
 )
 
@@ -42,6 +43,8 @@ type App struct {
 	estimatedTokens int // running total of estimated tokens in history
 	contextCfg      configs.ContextConfig
 	costTracker     *costtraces.Tracker
+	sessionBudget   *budgets.Tracker      // nil if session budget disabled
+	dailyBudget     *budgets.Tracker      // nil if daily budget disabled
 	permissionState *PermissionState      // shared state for /permission command
 	confirmCh       chan PermissionAction // channel for confirmation dialog results
 }
@@ -50,6 +53,15 @@ type App struct {
 func WithPermissionState(state *PermissionState) func(*App) {
 	return func(a *App) {
 		a.permissionState = state
+	}
+}
+
+// WithBudgetTrackers supplies session- and daily-level budget trackers shared
+// with setup.Init. Either may be nil to leave that layer unmonitored.
+func WithBudgetTrackers(session, daily *budgets.Tracker) func(*App) {
+	return func(a *App) {
+		a.sessionBudget = session
+		a.dailyBudget = daily
 	}
 }
 

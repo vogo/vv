@@ -16,6 +16,7 @@ import (
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
 	"github.com/vogo/vv/tools"
+	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
 )
 
@@ -40,7 +41,7 @@ func newRequestID() string {
 // Serve starts the HTTP server with agent and memory endpoints.
 // It blocks until the context is canceled or a fatal error occurs.
 // compactor may be nil if context compression is not configured.
-func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor) error {
+func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker) error {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
@@ -63,8 +64,16 @@ func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, 
 		return costtraces.LookupPricing(model, customPricing)
 	}
 
-	// Build a custom mux that wraps the service handler with cost enrichment middleware.
-	svcHandler := costEnrichMiddleware(svc.Handler(), pricingLookup)
+	// Build a custom mux that wraps the service handler with cost enrichment
+	// and budget-error (429) middlewares. Budget middleware is inner so cost
+	// enrichment still runs on non-budget responses. The budget middleware is
+	// only installed when at least one tracker is active — otherwise the extra
+	// body-buffering layer would pay for itself on every request for no gain.
+	inner := svc.Handler()
+	if sessionBudget != nil || dailyBudget != nil {
+		inner = budgetErrorMiddleware(inner)
+	}
+	svcHandler := costEnrichMiddleware(inner, pricingLookup)
 	mux := http.NewServeMux()
 	mux.Handle("/", svcHandler)
 	mux.HandleFunc("GET /v1/memory", handleListMemory(persistentMem))
@@ -78,6 +87,10 @@ func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, 
 
 	if cfg.Eval.Enabled {
 		mux.HandleFunc("POST /v1/eval/run", handleEvalRun(cfg, dispatcher, llm))
+	}
+
+	if sessionBudget != nil || dailyBudget != nil {
+		mux.HandleFunc("GET /v1/budget", handleGetBudget(sessionBudget, dailyBudget))
 	}
 
 	slog.Info("vv: starting HTTP server", "addr", cfg.Server.Addr)

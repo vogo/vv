@@ -267,7 +267,7 @@ func main() {
 	switch cfg.Mode {
 	case "http":
 		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
-		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor); err != nil {
+		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
 			os.Exit(1)
 		}
@@ -280,7 +280,8 @@ func main() {
 
 	default: // "cli" or any other value defaults to CLI mode.
 		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem, cliInteractor, initResult.Compactor,
-			cli.WithPermissionState(permissionState))
+			cli.WithPermissionState(permissionState),
+			cli.WithBudgetTrackers(initResult.SessionBudget, initResult.DailyBudget))
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vv: CLI error", "error", err)
 			os.Exit(1)

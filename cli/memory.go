@@ -24,6 +24,10 @@ func (m *model) handleCommand(input string) tea.Cmd {
 		return m.handlePermissionCommand(parts[1:])
 	}
 
+	if parts[0] == "/budget" {
+		return m.handleBudgetCommand()
+	}
+
 	if parts[0] != "/memory" {
 		return nil
 	}

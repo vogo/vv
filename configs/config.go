@@ -72,6 +72,7 @@ type Config struct {
 	MCP          MCPConfig                    `yaml:"mcp,omitempty"`
 	Eval         EvalConfig                   `yaml:"eval,omitempty"`
 	ModelPricing map[string]ModelPricingEntry `yaml:"model_pricing,omitempty"`
+	Budget       BudgetConfig                 `yaml:"budget,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
@@ -290,6 +291,24 @@ type AgentsConfig struct {
 	AskUserTimeout int `yaml:"ask_user_timeout"` // seconds, default 300 (5 minutes)
 }
 
+// BudgetConfig holds session- and daily-level token/cost enforcement limits.
+// All fields are opt-in: zero values mean "unlimited / disabled". Session limits
+// apply for the lifetime of a CLI session or HTTP process; daily limits roll
+// forward automatically at UTC 00:00 (in-memory; restart clears the counter).
+type BudgetConfig struct {
+	SessionHardTokens  int64   `yaml:"session_hard_tokens,omitempty"`   // 0 = off
+	SessionHardCostUSD float64 `yaml:"session_hard_cost_usd,omitempty"` // 0 = off
+	DailyHardTokens    int64   `yaml:"daily_hard_tokens,omitempty"`     // 0 = off
+	DailyHardCostUSD   float64 `yaml:"daily_hard_cost_usd,omitempty"`   // 0 = off
+	WarnPercent        float64 `yaml:"warn_percent,omitempty"`          // 0 → 0.8 default; shared by both layers
+}
+
+// IsEnabled reports whether any session- or daily-level limit is configured.
+func (b BudgetConfig) IsEnabled() bool {
+	return b.SessionHardTokens > 0 || b.SessionHardCostUSD > 0 ||
+		b.DailyHardTokens > 0 || b.DailyHardCostUSD > 0
+}
+
 // ModelPricingEntry defines cost rates for a model (USD per million tokens).
 type ModelPricingEntry struct {
 	InputPerMTokens  float64 `json:"input_per_m_tokens" yaml:"input_per_m_tokens"`
@@ -426,6 +445,8 @@ func Load(path string, explicit bool) (*Config, error) {
 	if v := os.Getenv("VV_MCP_AUTH_TOKEN"); v != "" {
 		cfg.MCP.Server.AuthToken = v
 	}
+
+	applyBudgetEnv(cfg)
 
 	if v := os.Getenv("VV_MODEL_PRICING"); v != "" {
 		var mp map[string]ModelPricingEntry
@@ -584,6 +605,41 @@ func Save(cfg *Config, path string) error {
 	return nil
 }
 
+// applyBudgetEnv overrides cfg.Budget from VV_BUDGET_* environment variables.
+// Invalid numeric values are logged and left at their YAML value.
+func applyBudgetEnv(cfg *Config) {
+	envInt64 := func(key string, dst *int64) {
+		v := os.Getenv(key)
+		if v == "" {
+			return
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			slog.Warn("vv: invalid budget env, ignoring", "key", key, "value", v)
+			return
+		}
+		*dst = n
+	}
+	envFloat64 := func(key string, dst *float64) {
+		v := os.Getenv(key)
+		if v == "" {
+			return
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			slog.Warn("vv: invalid budget env, ignoring", "key", key, "value", v)
+			return
+		}
+		*dst = f
+	}
+
+	envInt64("VV_BUDGET_SESSION_HARD_TOKENS", &cfg.Budget.SessionHardTokens)
+	envFloat64("VV_BUDGET_SESSION_HARD_COST_USD", &cfg.Budget.SessionHardCostUSD)
+	envInt64("VV_BUDGET_DAILY_HARD_TOKENS", &cfg.Budget.DailyHardTokens)
+	envFloat64("VV_BUDGET_DAILY_HARD_COST_USD", &cfg.Budget.DailyHardCostUSD)
+	envFloat64("VV_BUDGET_WARN_PERCENT", &cfg.Budget.WarnPercent)
+}
+
 func applyDefaults(cfg *Config) {
 	if cfg.Mode == "" {
 		cfg.Mode = "cli"
@@ -675,6 +731,10 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Eval.CostBudgetTokens == 0 {
 		cfg.Eval.CostBudgetTokens = 10000
+	}
+
+	if cfg.Budget.WarnPercent <= 0 {
+		cfg.Budget.WarnPercent = 0.8
 	}
 }
 

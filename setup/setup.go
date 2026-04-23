@@ -30,6 +30,8 @@ import (
 	"github.com/vogo/vv/hooks"
 	"github.com/vogo/vv/memories"
 	"github.com/vogo/vv/registries"
+	"github.com/vogo/vv/traces/budgets"
+	"github.com/vogo/vv/traces/costtraces"
 )
 
 // Result holds the assembled components for the application.
@@ -380,6 +382,8 @@ type InitResult struct {
 	PersistentMem memory.Memory
 	SetupResult   *Result
 	Compactor     *memory.ConversationCompactor // conversation context compactor
+	SessionBudget *budgets.Tracker              // nil if session budget disabled
+	DailyBudget   *budgets.Tracker              // nil if daily budget disabled
 }
 
 // Init creates the LLM client, memory subsystem, and all agents from a
@@ -413,6 +417,16 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	var wrappedLLM aimodel.ChatCompleter = llmClient
 	if cfg.Debug && opts != nil && opts.DebugSink != nil {
 		wrappedLLM = largemodel.Chain(llmClient, largemodel.NewDebugMiddleware(debugs.SinkAdapter{S: opts.DebugSink}))
+	}
+
+	// Budget middleware — enforces session/daily hard limits across every LLM
+	// call (sub-agents, compactor summarizer, dispatcher intent/plan-gen).
+	// Skipped entirely when no budget limits are configured.
+	sessionBudget, dailyBudget := buildBudgetTrackers(cfg.Budget)
+	if sessionBudget != nil || dailyBudget != nil {
+		pricing := costtraces.LookupPricing(cfg.LLM.Model, configs.ConvertPricing(cfg.ModelPricing))
+		preCheck, postRecord := budgets.Wire(sessionBudget, dailyBudget, pricing, budgetEventDispatcher())
+		wrappedLLM = largemodel.Chain(wrappedLLM, largemodel.NewBudgetMiddleware(preCheck, postRecord))
 	}
 
 	// Create persistent memory with FileStore backend.
@@ -476,7 +490,46 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		PersistentMem: persistentMem,
 		SetupResult:   result,
 		Compactor:     compactor,
+		SessionBudget: sessionBudget,
+		DailyBudget:   dailyBudget,
 	}, nil
+}
+
+// buildBudgetTrackers constructs session and daily budget trackers from cfg.
+// Either (or both) may be nil when the corresponding limits are not set.
+func buildBudgetTrackers(cfg configs.BudgetConfig) (*budgets.Tracker, *budgets.Tracker) {
+	session := budgets.NewSession(budgets.Config{
+		HardTokens:  cfg.SessionHardTokens,
+		HardCostUSD: cfg.SessionHardCostUSD,
+		WarnPercent: cfg.WarnPercent,
+	})
+	daily := budgets.NewDaily(budgets.Config{
+		HardTokens:  cfg.DailyHardTokens,
+		HardCostUSD: cfg.DailyHardCostUSD,
+		WarnPercent: cfg.WarnPercent,
+	})
+
+	return session, daily
+}
+
+// budgetEventDispatcher returns a Dispatcher that forwards budget events to
+// slog. vv does not currently install a hook.Manager on the LLM call path,
+// so logging is the best-effort observability sink; CLI/HTTP render the
+// current snapshot via Tracker.Snapshot() on demand.
+func budgetEventDispatcher() budgets.Dispatcher {
+	return func(_ context.Context, e schema.Event) {
+		switch d := e.Data.(type) {
+		case schema.BudgetWarnData:
+			slog.Warn("vv: budget warn threshold crossed",
+				"scope", d.Scope, "dimension", d.Dimension,
+				"used", d.Used, "limit", d.Limit, "percent", d.Percent)
+		case schema.BudgetExceededData:
+			slog.Warn("vv: budget exceeded",
+				"scope", d.Scope, "dimension", d.Dimension,
+				"used", d.Used, "used_cost", d.UsedCost,
+				"limit", d.Limit, "limit_cost", d.LimitCost)
+		}
+	}
 }
 
 // buildConversationText formats messages for summarization display.
