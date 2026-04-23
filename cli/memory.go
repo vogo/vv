@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/vogo/vv/memories"
 )
 
 // handleCommand checks for slash commands (e.g. /memory, /compact) before routing to agents.
@@ -40,7 +42,7 @@ func (m *model) handleCommand(input string) tea.Cmd {
 		return m.printSystem("Usage: /memory list|show|set|delete ...")
 	}
 
-	ctx := context.Background()
+	ctx := memories.WithUserPath(context.Background())
 
 	switch parts[1] {
 	case "list":
@@ -61,12 +63,18 @@ func (m *model) handleCommand(input string) tea.Cmd {
 			return m.printSystem("Usage: /memory set <namespace:key> <content...>")
 		}
 		key := parts[2]
+		if !userPathNamespaceOK(key) {
+			return m.printSystem("Error: /memory set is restricted to shared namespaces (project/user/conventions/notes). Session-private namespaces can only be written by Agents.")
+		}
 		content := strings.Join(parts[3:], " ")
 		return m.handleMemorySet(ctx, key, content)
 
 	case "delete":
 		if len(parts) < 3 {
 			return m.printSystem("Usage: /memory delete <namespace:key>")
+		}
+		if !userPathNamespaceOK(parts[2]) {
+			return m.printSystem("Error: /memory delete is restricted to shared namespaces (project/user/conventions/notes).")
 		}
 		return m.handleMemoryDelete(ctx, parts[2])
 
@@ -121,6 +129,16 @@ func (m *model) handleMemoryDelete(ctx context.Context, key string) tea.Cmd {
 	}
 
 	return m.printSystem(fmt.Sprintf("Memory entry %q deleted.", key))
+}
+
+// userPathNamespaceOK reports whether a user-supplied "<ns>:<key>" refers to
+// a shared namespace the CLI/HTTP memory CRUD is allowed to operate on.
+func userPathNamespaceOK(nskey string) bool {
+	ns := "default"
+	if before, _, ok := strings.Cut(nskey, ":"); ok {
+		ns = before
+	}
+	return memories.IsSharedNamespace(ns)
 }
 
 // truncateValue returns a short preview of a memory entry value.

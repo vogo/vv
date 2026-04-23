@@ -15,6 +15,7 @@ import (
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
+	"github.com/vogo/vv/memories"
 	"github.com/vogo/vv/tools"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
@@ -139,7 +140,8 @@ func handleListMemory(mem memory.Memory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ns := r.URL.Query().Get("namespace")
 		prefix := ns
-		entries, err := mem.List(r.Context(), prefix)
+		ctx := memories.WithUserPath(r.Context())
+		entries, err := mem.List(ctx, prefix)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
 			return
@@ -166,7 +168,8 @@ func handleGetMemory(mem memory.Memory) http.HandlerFunc {
 		key := r.PathValue("key")
 		fullKey := ns + ":" + key
 
-		val, err := mem.Get(r.Context(), fullKey)
+		ctx := memories.WithUserPath(r.Context())
+		val, err := mem.Get(ctx, fullKey)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
 			return
@@ -191,13 +194,22 @@ func handleSetMemory(mem memory.Memory) http.HandlerFunc {
 		key := r.PathValue("key")
 		fullKey := ns + ":" + key
 
+		if !memories.IsSharedNamespace(ns) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"code":    "forbidden",
+				"message": fmt.Sprintf("namespace %q is session-private; HTTP memory endpoints are limited to shared namespaces", ns),
+			})
+			return
+		}
+
 		var req memorySetRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"code": "bad_request", "message": "invalid request body"})
 			return
 		}
 
-		if err := mem.Set(r.Context(), fullKey, req.Content, 0); err != nil {
+		ctx := memories.WithUserPath(r.Context())
+		if err := mem.Set(ctx, fullKey, req.Content, 0); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
 			return
 		}
@@ -216,8 +228,18 @@ func handleDeleteMemory(mem memory.Memory) http.HandlerFunc {
 		key := r.PathValue("key")
 		fullKey := ns + ":" + key
 
+		if !memories.IsSharedNamespace(ns) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"code":    "forbidden",
+				"message": fmt.Sprintf("namespace %q is session-private; HTTP memory endpoints are limited to shared namespaces", ns),
+			})
+			return
+		}
+
+		ctx := memories.WithUserPath(r.Context())
+
 		// Check existence first.
-		val, err := mem.Get(r.Context(), fullKey)
+		val, err := mem.Get(ctx, fullKey)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
 			return
@@ -227,7 +249,7 @@ func handleDeleteMemory(mem memory.Memory) http.HandlerFunc {
 			return
 		}
 
-		if err := mem.Delete(r.Context(), fullKey); err != nil {
+		if err := mem.Delete(ctx, fullKey); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})
 			return
 		}

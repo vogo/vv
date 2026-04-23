@@ -896,7 +896,10 @@ func TestIntegration_Agents_FileStoreCRUDViaPersistentMemory(t *testing.T) {
 	}
 
 	mem := memory.NewPersistentMemoryWithStore(store)
-	ctx := context.Background()
+	// Memory CRUD via the PersistentMemory wrapper is an administrative
+	// (user-side) path, so Clear and writes to shared namespaces must run
+	// under the user-path marker to pass session-binding checks.
+	ctx := vvmemory.WithUserPath(context.Background())
 
 	// Set a key-value pair.
 	if err := mem.Set(ctx, "project:conventions", "Use gofumpt", 0); err != nil {
