@@ -81,6 +81,10 @@ func RegisterCoder(reg *registries.Registry) {
 				taskOpts = append(taskOpts, taskagent.WithToolResultGuards(opts.ToolResultGuards...))
 			}
 
+			if opts.HookManager != nil {
+				taskOpts = append(taskOpts, taskagent.WithHookManager(opts.HookManager))
+			}
+
 			return taskagent.New(
 				agent.Config{ID: "coder", Name: "Coder Agent", Description: "Performs coding tasks: reads, writes, edits files, runs commands, and searches codebases"},
 				taskOpts...,

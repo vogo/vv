@@ -9,6 +9,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/guard"
+	"github.com/vogo/vage/hook"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/tool"
 )
@@ -38,6 +39,7 @@ type FactoryOptions struct {
 	PersistentMemory    memory.Memory // for coder's persistent memory prompt; nil if not available
 	ProjectInstructions string        // content from VV.md; empty if no file
 	ToolResultGuards    []guard.Guard // optional: scanners for tool-result injection; nil means not enabled
+	HookManager         *hook.Manager // optional: event bus for trace/observability hooks; nil disables dispatch
 }
 
 // Registry is a thread-safe agent descriptor store.

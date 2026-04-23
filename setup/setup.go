@@ -15,6 +15,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/guard"
+	"github.com/vogo/vage/hook"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
@@ -32,6 +33,7 @@ import (
 	"github.com/vogo/vv/registries"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
+	"github.com/vogo/vv/traces/tracelog"
 )
 
 // Result holds the assembled components for the application.
@@ -39,6 +41,7 @@ type Result struct {
 	Dispatcher   *dispatches.Dispatcher
 	PathGuard    *toolkit.PathGuard
 	PathGuardian *bash.PathGuardian
+	HookManager  *hook.Manager // nil when no hook-based features are enabled
 	registry     *registries.Registry
 	subAgents    map[string]agent.Agent
 }
@@ -69,6 +72,7 @@ type Options struct {
 	UserInteractor   askuser.UserInteractor                 // optional: interactor for ask_user tool
 	AskUserTimeout   time.Duration                          // optional: timeout for ask_user responses
 	DebugSink        *debugs.Sink                           // optional: debug sink (constructed only when cfg.Debug is true)
+	HookManager      *hook.Manager                          // optional: pre-built event bus; injected into every TaskAgent
 }
 
 // New reads config, registers all agents, and constructs the Dispatcher.
@@ -146,6 +150,7 @@ func New(
 			PersistentMemory:    persistentMem,
 			ProjectInstructions: cfg.ProjectInstructions,
 			ToolResultGuards:    buildToolResultGuards(cfg.Security.ToolResultInjection),
+			HookManager:         getHookManager(opts),
 		}
 
 		a, err := desc.Factory(factoryOpts)
@@ -183,6 +188,7 @@ func New(
 		ToolRegistry:        explorerFinalToolReg,
 		MaxIterations:       min(cfg.Agents.MaxIterations, 15),
 		ProjectInstructions: cfg.ProjectInstructions,
+		HookManager:         getHookManager(opts),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create explorer agent: %w", err)
@@ -199,18 +205,27 @@ func New(
 		Model:               cfg.LLM.Model,
 		MaxIterations:       1,
 		ProjectInstructions: cfg.ProjectInstructions,
+		HookManager:         getHookManager(opts),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create planner agent: %w", err)
 	}
 
 	// 5. Build plan summarizer.
-	planGen := taskagent.New(
-		agent.Config{ID: "plan-gen", Name: "Plan Generator", Description: "Summarizes execution plan results"},
+	planGenOpts := []taskagent.Option{
 		taskagent.WithChatCompleter(llm),
 		taskagent.WithModel(cfg.LLM.Model),
 		taskagent.WithSystemPrompt(prompt.StringPrompt(dispatches.PlanSummaryPrompt)),
 		taskagent.WithMaxIterations(1),
+	}
+
+	if mgr := getHookManager(opts); mgr != nil {
+		planGenOpts = append(planGenOpts, taskagent.WithHookManager(mgr))
+	}
+
+	planGen := taskagent.New(
+		agent.Config{ID: "plan-gen", Name: "Plan Generator", Description: "Summarizes execution plan results"},
+		planGenOpts...,
 	)
 
 	// 6. Configure hooks.
@@ -278,9 +293,19 @@ func New(
 		Dispatcher:   dispatcher,
 		PathGuard:    pathGuard,
 		PathGuardian: pathGuardian,
+		HookManager:  getHookManager(opts),
 		registry:     reg,
 		subAgents:    subAgents,
 	}, nil
+}
+
+// getHookManager safely extracts the optional hook manager from opts.
+func getHookManager(opts *Options) *hook.Manager {
+	if opts == nil {
+		return nil
+	}
+
+	return opts.HookManager
 }
 
 // buildPathEnforcement computes the canonical allow-list, opens a PathGuard,
@@ -384,6 +409,13 @@ type InitResult struct {
 	Compactor     *memory.ConversationCompactor // conversation context compactor
 	SessionBudget *budgets.Tracker              // nil if session budget disabled
 	DailyBudget   *budgets.Tracker              // nil if daily budget disabled
+
+	// Shutdown releases process-level resources owned by Init (currently the
+	// hook.Manager that drives trace logging). It is always non-nil — a no-op
+	// when there is nothing to release. Pass an independent context with a
+	// short timeout; the main context is typically already cancelled by the
+	// time defer fires.
+	Shutdown func(context.Context)
 }
 
 // Init creates the LLM client, memory subsystem, and all agents from a
@@ -444,9 +476,27 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		memory.WithCompressor(memory.NewSlidingWindowCompressor(cfg.Memory.SessionWindow)),
 	)
 
+	// Construct the process-level hook.Manager (currently driven by the
+	// optional trace logger). Built before agents so its handle can be
+	// injected into every TaskAgent factory via opts.HookManager.
+	hookManager, traceShutdown, err := buildHookManager(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("setup hooks: %w", err)
+	}
+
+	if hookManager != nil {
+		if opts == nil {
+			opts = &Options{}
+		}
+
+		opts.HookManager = hookManager
+	}
+
 	// Set up all agents using the (possibly debug-wrapped) LLM client.
 	result, err := New(cfg, wrappedLLM, memMgr, persistentMem, opts)
 	if err != nil {
+		traceShutdown(context.Background())
+
 		return nil, fmt.Errorf("setup agents: %w", err)
 	}
 
@@ -492,7 +542,49 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		Compactor:     compactor,
 		SessionBudget: sessionBudget,
 		DailyBudget:   dailyBudget,
+		Shutdown:      traceShutdown,
 	}, nil
+}
+
+// buildHookManager constructs the process-level hook.Manager and registers
+// configured async hooks (currently: trace logger). Returns nil manager and a
+// no-op shutdown when no hook-driven feature is enabled — that path remains
+// zero-cost. The shutdown closure starts the manager on first call only when
+// a manager exists; if the manager fails to start, the closure becomes a
+// no-op so callers can defer it unconditionally.
+func buildHookManager(cfg *configs.Config) (*hook.Manager, func(context.Context), error) {
+	noopShutdown := func(context.Context) {}
+
+	if !cfg.Trace.IsEnabled() {
+		return nil, noopShutdown, nil
+	}
+
+	tracer, err := tracelog.New(tracelog.Config{
+		BaseDir:      cfg.Trace.EffectiveDir(),
+		WorkingDir:   cfg.Tools.BashWorkingDir,
+		MaxFileBytes: cfg.Trace.MaxFileBytes,
+		BufferSize:   cfg.Trace.BufferSize,
+	})
+	if err != nil {
+		return nil, noopShutdown, fmt.Errorf("trace hook: %w", err)
+	}
+
+	mgr := hook.NewManager()
+	mgr.RegisterAsync(tracer)
+
+	if startErr := mgr.Start(context.Background()); startErr != nil {
+		return nil, noopShutdown, fmt.Errorf("start trace hook: %w", startErr)
+	}
+
+	slog.Info("vv: trace logging enabled", "dir", tracer.BaseDir())
+
+	shutdown := func(ctx context.Context) {
+		if err := mgr.Stop(ctx); err != nil {
+			slog.Warn("vv: stop trace hook", "error", err)
+		}
+	}
+
+	return mgr, shutdown, nil
 }
 
 // buildBudgetTrackers constructs session and daily budget trackers from cfg.
@@ -513,9 +605,10 @@ func buildBudgetTrackers(cfg configs.BudgetConfig) (*budgets.Tracker, *budgets.T
 }
 
 // budgetEventDispatcher returns a Dispatcher that forwards budget events to
-// slog. vv does not currently install a hook.Manager on the LLM call path,
-// so logging is the best-effort observability sink; CLI/HTTP render the
-// current snapshot via Tracker.Snapshot() on demand.
+// slog. The hook.Manager built by buildHookManager is opt-in (trace logging),
+// so when it is absent slog remains the only observability sink for budget
+// events; CLI/HTTP additionally render the current snapshot via
+// Tracker.Snapshot() on demand.
 func budgetEventDispatcher() budgets.Dispatcher {
 	return func(_ context.Context, e schema.Event) {
 		switch d := e.Data.(type) {

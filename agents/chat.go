@@ -27,16 +27,24 @@ func RegisterChat(reg *registries.Registry) {
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
 			sysPrompt := AppendProjectInstructions(ChatSystemPrompt, opts.ProjectInstructions)
 
+			taskOpts := []taskagent.Option{
+				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithModel(opts.Model),
+				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
+				taskagent.WithMaxIterations(1), // hardcoded to 1, preserving current behavior
+			}
+
+			if opts.HookManager != nil {
+				taskOpts = append(taskOpts, taskagent.WithHookManager(opts.HookManager))
+			}
+
 			return taskagent.New(
 				agent.Config{
 					ID:          "chat",
 					Name:        "Chat Agent",
 					Description: "Handles general conversation, questions, and non-coding tasks",
 				},
-				taskagent.WithChatCompleter(opts.LLM),
-				taskagent.WithModel(opts.Model),
-				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
-				taskagent.WithMaxIterations(1), // hardcoded to 1, preserving current behavior
+				taskOpts...,
 			), nil
 		},
 	})

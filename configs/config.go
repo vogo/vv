@@ -73,6 +73,7 @@ type Config struct {
 	Eval         EvalConfig                   `yaml:"eval,omitempty"`
 	ModelPricing map[string]ModelPricingEntry `yaml:"model_pricing,omitempty"`
 	Budget       BudgetConfig                 `yaml:"budget,omitempty"`
+	Trace        TraceConfig                  `yaml:"trace,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
@@ -309,6 +310,32 @@ func (b BudgetConfig) IsEnabled() bool {
 		b.DailyHardTokens > 0 || b.DailyHardCostUSD > 0
 }
 
+// TraceConfig controls structured conversation trace logging (JSONL) via an
+// AsyncHook on the vage event bus. Opt-in: when Enabled is nil or false,
+// no hook.Manager is installed and there is zero runtime cost. Trace files
+// land at <Dir>/<project-hash>/<session-id>.jsonl with size-based rotation.
+type TraceConfig struct {
+	Enabled      *bool  `yaml:"enabled,omitempty"`        // default false
+	Dir          string `yaml:"dir,omitempty"`            // default ~/.vv/traces
+	MaxFileBytes int64  `yaml:"max_file_bytes,omitempty"` // default 64 MiB; 0 = no rotation
+	BufferSize   int    `yaml:"buffer_size,omitempty"`    // default 1024
+}
+
+// IsEnabled returns true only when the user explicitly set `enabled: true`.
+func (t TraceConfig) IsEnabled() bool {
+	return t.Enabled != nil && *t.Enabled
+}
+
+// EffectiveDir returns the resolved trace directory, defaulting to
+// <DefaultDir>/traces when not set.
+func (t TraceConfig) EffectiveDir() string {
+	if t.Dir != "" {
+		return t.Dir
+	}
+
+	return filepath.Join(DefaultDir(), "traces")
+}
+
 // ModelPricingEntry defines cost rates for a model (USD per million tokens).
 type ModelPricingEntry struct {
 	InputPerMTokens  float64 `json:"input_per_m_tokens" yaml:"input_per_m_tokens"`
@@ -412,6 +439,18 @@ func Load(path string, explicit bool) (*Config, error) {
 		} else {
 			slog.Warn("vv: invalid VV_DEBUG, ignoring", "value", v)
 		}
+	}
+
+	if v := os.Getenv("VV_TRACE_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Trace.Enabled = &b
+		} else {
+			slog.Warn("vv: invalid VV_TRACE_ENABLED, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_TRACE_DIR"); v != "" {
+		cfg.Trace.Dir = v
 	}
 
 	if v := os.Getenv("VV_MCP_CREDFILTER_ENABLED"); v != "" {

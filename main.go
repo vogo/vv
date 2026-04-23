@@ -46,6 +46,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  VV_MODE             Run mode (cli, http, or mcp)\n")
 		fmt.Fprintf(os.Stderr, "  VV_DEBUG            Enable debug records (true/false). Equivalent to --debug.\n")
 		fmt.Fprintf(os.Stderr, "  VV_DEBUG_FILE       Override debug log file path (interactive CLI only).\n")
+		fmt.Fprintf(os.Stderr, "  VV_TRACE_ENABLED    Enable structured JSONL conversation trace logging (true/false).\n")
+		fmt.Fprintf(os.Stderr, "  VV_TRACE_DIR        Override trace file directory (default ~/.vv/traces).\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  vv                                          # interactive TUI mode\n")
 		fmt.Fprintf(os.Stderr, "  vv -p \"explain the main.go file\"             # single prompt, exit after response\n")
@@ -172,9 +174,11 @@ func main() {
 
 		if runErr := cli.RunPrompt(ctx, initResult.SetupResult.Dispatcher, trimmed, os.Stdout, os.Stderr); runErr != nil {
 			fmt.Fprintf(os.Stderr, "vv: %s\n", runErr)
+			shutdownInit(initResult)
 			os.Exit(1)
 		}
 
+		shutdownInit(initResult)
 		os.Exit(0)
 	}
 
@@ -212,6 +216,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "vv: %s\n", evalErr)
 		}
 
+		shutdownInit(initResult)
 		os.Exit(exitCode)
 	}
 
@@ -264,18 +269,20 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	exitCode := 0
+
 	switch cfg.Mode {
 	case "http":
 		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
 		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
-			os.Exit(1)
+			exitCode = 1
 		}
 
 	case "mcp":
 		if err := mcps.Serve(ctx, cfg, initResult); err != nil {
 			slog.Error("vv: MCP server error", "error", err)
-			os.Exit(1)
+			exitCode = 1
 		}
 
 	default: // "cli" or any other value defaults to CLI mode.
@@ -284,7 +291,28 @@ func main() {
 			cli.WithBudgetTrackers(initResult.SessionBudget, initResult.DailyBudget))
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vv: CLI error", "error", err)
-			os.Exit(1)
+			exitCode = 1
 		}
 	}
+
+	shutdownInit(initResult)
+
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
+
+// shutdownInit releases process-level resources owned by setup.Init (the
+// hook.Manager that drives trace logging). It uses an independent context
+// because the caller's main context is typically already cancelled by the
+// time we reach shutdown.
+func shutdownInit(initResult *setup.InitResult) {
+	if initResult == nil || initResult.Shutdown == nil {
+		return
+	}
+
+	sctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	initResult.Shutdown(sctx)
 }
