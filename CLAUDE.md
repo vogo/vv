@@ -61,7 +61,7 @@ YAML at `~/.vv/vv.yaml`. Key sections: `llm` (provider, model, api_key, base_url
 
 ## Conventions
 
-- Integration tests in `integrations/<area>_tests/` sub-packages (e.g., `agents_tests/`, `dispatches_tests/`, `cli_tests/`), unit tests colocated with source.
+- Integration tests in `integrations/<group>_tests/<scenario>_tests/` sub-packages (e.g., `cli_tests/permission_tests/`, `httpapis_tests/http_tests/`, `traces_tests/budget_tests/`), unit tests colocated with source.
 - Delete build binaries after tests.
 - Functional options pattern for tool/agent configuration.
 - All operations use `context.Context`.
