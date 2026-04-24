@@ -271,9 +271,9 @@ func TestIntegration_SetupNew_PromptCaching_DefaultOn_Researcher(t *testing.T) {
 	req := mock.requests[0]
 	assertExactlyOneSystemMarked(t, req)
 	assertLastToolMarked(t, req)
-	// Researcher should have exactly 3 tools (read, glob, grep).
-	if got := len(req.Tools); got != 3 {
-		t.Errorf("researcher tool count = %d, want 3", got)
+	// Researcher should have exactly 4 tools: read, glob, grep, todo_write.
+	if got := len(req.Tools); got != 4 {
+		t.Errorf("researcher tool count = %d, want 4", got)
 	}
 }
 

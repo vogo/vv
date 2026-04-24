@@ -23,6 +23,7 @@ import (
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vage/tool/bash"
+	"github.com/vogo/vage/tool/todo"
 	"github.com/vogo/vage/tool/toolkit"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
@@ -110,6 +111,12 @@ func New(
 	// 2. Build sub-agents from registry (dispatchable agents only).
 	subAgents := make(map[string]agent.Agent)
 
+	// One todo.Store per process — shared across every dispatchable agent so
+	// a multi-agent dispatcher plan (coder -> reviewer -> coder) sees one
+	// monotonic list per session. Skipped entirely when VV_DISABLE_TODO=true.
+	todoStore := todo.NewStore()
+	todoDisabled := os.Getenv("VV_DISABLE_TODO") == "true"
+
 	for _, desc := range reg.Dispatchable() {
 		toolReg, err := desc.ToolProfile.BuildRegistry(cfg.Tools, regOpts...)
 		if err != nil {
@@ -121,6 +128,15 @@ func New(
 		if opts != nil && opts.UserInteractor != nil && desc.ID != "chat" {
 			askuserTool := askuser.New(opts.UserInteractor, askuser.WithTimeout(opts.AskUserTimeout))
 			_ = toolReg.RegisterIfAbsent(askuserTool.ToolDef(), askuserTool.Handler())
+		}
+
+		// Register todo_write for agents that have any tool capability. Chat
+		// (ProfileNone) gets nothing; coder / researcher / reviewer get the
+		// same shared store.
+		if !todoDisabled && len(desc.ToolProfile.Capabilities) > 0 {
+			if err := todo.Register(toolReg, todoStore); err != nil {
+				return nil, fmt.Errorf("register todo_write for %q: %w", desc.ID, err)
+			}
 		}
 
 		// Apply optional tool registry wrapping (e.g., CLI confirmation).

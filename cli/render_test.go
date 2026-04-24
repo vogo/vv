@@ -2,9 +2,18 @@ package cli
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/vogo/vage/schema"
 )
+
+// stripANSI removes ANSI color escape sequences so assertions can match the
+// plain text content of styled output.
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiEscapeRe.ReplaceAllString(s, "") }
 
 func TestTruncate_Short(t *testing.T) {
 	result := truncate("hello", 10)
@@ -459,5 +468,74 @@ func TestIsExitCommand(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("isExitCommand(%q) = %v, want %v", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestRenderTodoList_AllStatuses(t *testing.T) {
+	data := schema.TodoUpdateData{
+		Version: 3,
+		Items: []schema.TodoItem{
+			{ID: "todo_1", Content: "Read existing code", ActiveForm: "Reading existing code", Status: "completed"},
+			{ID: "todo_2", Content: "Refactor foo module", ActiveForm: "Refactoring foo module", Status: "in_progress"},
+			{ID: "todo_3", Content: "Update unit tests", ActiveForm: "Updating unit tests", Status: "pending"},
+		},
+	}
+	rendered := renderTodoList(data, 0)
+	plain := stripANSI(rendered)
+
+	if !strings.Contains(plain, "Todos (v3, 3 items)") {
+		t.Errorf("missing header, got: %q", plain)
+	}
+	if !strings.Contains(plain, "[x] Read existing code") {
+		t.Errorf("missing completed marker, got: %q", plain)
+	}
+	// in_progress must show ActiveForm, not Content.
+	if !strings.Contains(plain, "[>] Refactoring foo module") {
+		t.Errorf("missing in_progress marker/active form, got: %q", plain)
+	}
+	if strings.Contains(plain, "Refactor foo module") {
+		t.Errorf("in_progress row must use active_form, not content, got: %q", plain)
+	}
+	if !strings.Contains(plain, "[ ] Update unit tests") {
+		t.Errorf("missing pending marker, got: %q", plain)
+	}
+}
+
+func TestRenderTodoList_Empty(t *testing.T) {
+	data := schema.TodoUpdateData{Version: 1}
+	rendered := renderTodoList(data, 0)
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "Todos (v1, 0 items)") {
+		t.Errorf("missing header for empty list, got: %q", plain)
+	}
+	// No checkbox markers should appear.
+	for _, marker := range []string{"[x]", "[>]", "[ ]"} {
+		if strings.Contains(plain, marker) {
+			t.Errorf("empty list should not render item marker %q; got: %q", marker, plain)
+		}
+	}
+}
+
+func TestRenderTodoList_IndentDepth(t *testing.T) {
+	data := schema.TodoUpdateData{Version: 1, Items: []schema.TodoItem{
+		{Content: "A", ActiveForm: "Doing A", Status: "pending"},
+	}}
+	// Depth 2 should prepend 2*indentUnit spaces to the first line.
+	rendered := renderTodoList(data, 2)
+	plain := stripANSI(rendered)
+	wantPrefix := strings.Repeat(" ", 2*indentUnit) + "Todos"
+	if !strings.HasPrefix(plain, wantPrefix) {
+		t.Errorf("expected depth-2 indent %q, got: %q", wantPrefix, plain)
+	}
+}
+
+// TestRenderToolCallResult_SuppressesTodoWrite is a regression guard for the
+// double-print suppression: renderTodoList is the canonical surface for
+// EventTodoUpdate, so the tool_result for "todo_write" must render as an
+// empty string and avoid a second, text-only row in the scrollback.
+func TestRenderToolCallResult_SuppressesTodoWrite(t *testing.T) {
+	got := renderToolCallResult("todo_write", "ok (v2, 3 items)", 1)
+	if got != "" {
+		t.Errorf("renderToolCallResult(todo_write) must return empty string, got %q", got)
 	}
 }

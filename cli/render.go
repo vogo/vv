@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vogo/vage/schema"
 )
 
 var (
@@ -144,6 +145,10 @@ func renderToolCallResult(toolName, resultText string, depth int) string {
 	switch toolName {
 	case "read":
 		// Suppress file content — the tool call start already shows the file path.
+	case "todo_write":
+		// Suppress — the EventTodoUpdate event renders a richer block. The
+		// tool_result text ("ok (vN, K items)") would otherwise be a noisy
+		// duplicate.
 	case "write", "edit":
 		summary := extractChangeSummary(resultText)
 		if summary != "" {
@@ -237,6 +242,45 @@ func renderTaskComplete(stats execStats) string {
 // renderPhaseSummary renders a phase summary (e.g., plan overview) with dim styling.
 func renderPhaseSummary(summary string, depth int) string {
 	return indentBlock(dimStyle.Render(summary), depth)
+}
+
+// Todo-list styling.
+var (
+	todoHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true) // yellow bold
+	todoDoneStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))            // green
+	todoActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true) // cyan bold
+	todoPendStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))             // dim gray
+)
+
+// renderTodoList renders a todo_update snapshot as a header + one line per item
+// with ASCII markers ([x] completed, [>] in_progress, [ ] pending). The item
+// text shows ActiveForm for the in_progress row and Content otherwise, so the
+// UI surfaces "Fixing X" while the model's canonical imperative form stays
+// stable across updates.
+func renderTodoList(data schema.TodoUpdateData, depth int) string {
+	var b strings.Builder
+
+	header := fmt.Sprintf("Todos (v%d, %d items)", data.Version, len(data.Items))
+	b.WriteString(todoHeaderStyle.Render(header))
+	b.WriteString("\n")
+
+	for _, it := range data.Items {
+		var marker, text string
+		switch it.Status {
+		case "completed":
+			marker = todoDoneStyle.Render("[x]")
+			text = todoDoneStyle.Render(it.Content)
+		case "in_progress":
+			marker = todoActiveStyle.Render("[>]")
+			text = todoActiveStyle.Render(it.ActiveForm)
+		default:
+			marker = todoPendStyle.Render("[ ]")
+			text = todoPendStyle.Render(it.Content)
+		}
+		fmt.Fprintf(&b, "  %s %s\n", marker, text)
+	}
+
+	return indentBlock(strings.TrimRight(b.String(), "\n"), depth)
 }
 
 // extractToolSummary extracts a compact summary from tool arguments.

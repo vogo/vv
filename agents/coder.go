@@ -25,6 +25,10 @@ const CoderSystemPrompt = `You are an expert software engineer. You have access 
 5. Explain your reasoning and what you changed.
 6. When running commands, check the output for errors.
 
+## Task Tracking
+- **todo_write**: maintain a live plan for multi-step work (>= 3 steps).
+  Follow the tool's description exactly -- prefer this over free-form planning text.
+
 ## Clarifying Questions
 - **ask_user**: Ask the user a clarifying question when you encounter ambiguity. The user's text response is returned as the result.
 

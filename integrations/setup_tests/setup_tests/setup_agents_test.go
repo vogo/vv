@@ -62,11 +62,13 @@ func TestIntegration_SetupNew_AllAgentsCreated(t *testing.T) {
 	}
 }
 
-// --- Test: setup.New() coder has correct tool count (6 tools via ProfileFull) ---
-// Verifies that the coder agent built through setup.New() has all 6 tools from ProfileFull.
+// --- Test: setup.New() coder has correct tool count (ProfileFull + todo_write) ---
+// Verifies that the coder agent built through setup.New() has all 6 tools from
+// ProfileFull plus todo_write which setup registers on every tool-carrying
+// agent.
 // Test cases:
-//   - Coder agent has exactly 6 tools
-//   - All expected tool names are present: bash, read, write, edit, glob, grep
+//   - Coder agent has exactly 7 tools
+//   - All expected tool names are present: bash, read, write, edit, glob, grep, todo_write
 func TestIntegration_SetupNew_CoderHasFullTools(t *testing.T) {
 	mock := &mockChatCompleter{}
 	cfg := &configs.Config{
@@ -91,8 +93,8 @@ func TestIntegration_SetupNew_CoderHasFullTools(t *testing.T) {
 	}
 
 	toolList := coder.Tools()
-	if len(toolList) != 6 {
-		t.Fatalf("coder has %d tools, want 6", len(toolList))
+	if len(toolList) != 7 {
+		t.Fatalf("coder has %d tools, want 7", len(toolList))
 	}
 
 	toolNames := make(map[string]bool)
@@ -100,17 +102,17 @@ func TestIntegration_SetupNew_CoderHasFullTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"bash", "read", "write", "edit", "glob", "grep"} {
+	for _, name := range []string{"bash", "read", "write", "edit", "glob", "grep", "todo_write"} {
 		if !toolNames[name] {
 			t.Errorf("coder missing tool %q", name)
 		}
 	}
 }
 
-// --- Test: setup.New() researcher has read-only tools (3 tools via ProfileReadOnly) ---
+// --- Test: setup.New() researcher has read-only tools plus todo_write ---
 // Test cases:
-//   - Researcher agent has exactly 3 tools
-//   - Expected tools: read, glob, grep
+//   - Researcher agent has exactly 4 tools (ProfileReadOnly + todo_write)
+//   - Expected tools: read, glob, grep, todo_write
 //   - Write/edit/bash tools are NOT present
 func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 	mock := &mockChatCompleter{}
@@ -136,8 +138,8 @@ func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 	}
 
 	toolList := researcher.Tools()
-	if len(toolList) != 3 {
-		t.Fatalf("researcher has %d tools, want 3", len(toolList))
+	if len(toolList) != 4 {
+		t.Fatalf("researcher has %d tools, want 4", len(toolList))
 	}
 
 	toolNames := make(map[string]bool)
@@ -145,7 +147,7 @@ func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"read", "glob", "grep"} {
+	for _, name := range []string{"read", "glob", "grep", "todo_write"} {
 		if !toolNames[name] {
 			t.Errorf("researcher missing tool %q", name)
 		}
@@ -158,10 +160,10 @@ func TestIntegration_SetupNew_ResearcherHasReadOnlyTools(t *testing.T) {
 	}
 }
 
-// --- Test: setup.New() reviewer has review tools (4 tools via ProfileReview) ---
+// --- Test: setup.New() reviewer has review tools plus todo_write ---
 // Test cases:
-//   - Reviewer agent has exactly 4 tools
-//   - Expected tools: bash, read, glob, grep
+//   - Reviewer agent has exactly 5 tools (ProfileReview + todo_write)
+//   - Expected tools: bash, read, glob, grep, todo_write
 //   - Write/edit tools are NOT present
 func TestIntegration_SetupNew_ReviewerHasReviewTools(t *testing.T) {
 	mock := &mockChatCompleter{}
@@ -187,8 +189,8 @@ func TestIntegration_SetupNew_ReviewerHasReviewTools(t *testing.T) {
 	}
 
 	toolList := reviewer.Tools()
-	if len(toolList) != 4 {
-		t.Fatalf("reviewer has %d tools, want 4", len(toolList))
+	if len(toolList) != 5 {
+		t.Fatalf("reviewer has %d tools, want 5", len(toolList))
 	}
 
 	toolNames := make(map[string]bool)
@@ -196,7 +198,7 @@ func TestIntegration_SetupNew_ReviewerHasReviewTools(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"bash", "read", "glob", "grep"} {
+	for _, name := range []string{"bash", "read", "glob", "grep", "todo_write"} {
 		if !toolNames[name] {
 			t.Errorf("reviewer missing tool %q", name)
 		}

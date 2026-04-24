@@ -671,6 +671,18 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			return m, m.printSystem(fmt.Sprintf("Token budget exhausted (used %d/%d in %d iterations)", data.Used, data.Budget, data.Iterations))
 		}
 
+	case schema.EventTodoUpdate:
+		if data, ok := event.Data.(schema.TodoUpdateData); ok {
+			rendered := renderTodoList(data, m.toolDepth())
+			m.app.messages = append(m.app.messages, DisplayMessage{
+				Role:      RoleTool,
+				Content:   rendered,
+				Timestamp: time.Now(),
+				Rendered:  true,
+			})
+			return m, tea.Println(rendered)
+		}
+
 	case schema.EventAgentEnd:
 		// Finalize any remaining text from the agent.
 		return m, m.flushAgentOutput()
