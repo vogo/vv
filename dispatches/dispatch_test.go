@@ -38,6 +38,7 @@ type stubAgent struct {
 	id       string
 	response *schema.RunResponse
 	err      error
+	runs     int // call counter, zero-initialised; read via ranCount()
 }
 
 var _ agent.Agent = (*stubAgent)(nil)
@@ -46,7 +47,14 @@ func (s *stubAgent) ID() string          { return s.id }
 func (s *stubAgent) Name() string        { return s.id }
 func (s *stubAgent) Description() string { return s.id }
 
+// ranCount returns how many times Run has been invoked on this stub.
+// Tests use it to prove sub-agents ran (delegate_to path) or did not
+// (answer_directly path).
+func (s *stubAgent) ranCount() int { return s.runs }
+
 func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
+	s.runs++
+
 	if s.err != nil {
 		return nil, s.err
 	}

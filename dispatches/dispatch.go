@@ -68,6 +68,12 @@ type Dispatcher struct {
 
 	// fastPath shorts-circuits trivial requests without invoking the intent LLM.
 	fastPath FastPathConfig
+
+	// unifiedIntent, when true, merges intent classification and direct
+	// answering into a single tool-calling LLM invocation (design M2). The
+	// model picks answer_directly / delegate_to / plan_task; answer_directly
+	// returns the response without invoking a sub-agent.
+	unifiedIntent bool
 }
 
 // Option configures a Dispatcher.
@@ -220,6 +226,16 @@ func WithFastPath(cfg FastPathConfig) Option {
 	}
 }
 
+// WithUnifiedIntent enables the tool-calling "unified intent" pathway (M2):
+// the Dispatcher issues a single LLM call whose tools are answer_directly,
+// delegate_to, and plan_task. When the model chooses answer_directly the
+// dispatcher returns immediately with one LLM call total. Off by default.
+func WithUnifiedIntent(enabled bool) Option {
+	return func(d *Dispatcher) {
+		d.unifiedIntent = enabled
+	}
+}
+
 // Run implements agent.Agent. Orchestrates: intent recognition -> execution -> optional summarization.
 func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	depth := DepthFrom(ctx)
@@ -241,6 +257,12 @@ func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.R
 		slog.Warn("orchestrator: intent recognition failed, falling back to chat", "error", err)
 
 		return d.fallbackRun(ctx, req, nil)
+	}
+
+	// Unified-intent short-circuit: the single tool-calling LLM call already
+	// produced the user-facing answer; skip executeTask and summarize.
+	if intent.Mode == IntentModeAnswered {
+		return d.runAnsweredDirect(req, intent, intentUsage), nil
 	}
 
 	// Phase 2: Execute.
@@ -284,9 +306,16 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 			return d.runFastPathStream(ctx, send, req, hit)
 		}
 
-		// Phase 1: Intent Recognition.
+		// Phase 1: Intent Recognition. Phase label switches to "unified_intent"
+		// when the tool-calling merge is active so dashboards can distinguish
+		// the two shapes.
+		intentPhase := "intent"
+		if d.useUnifiedIntent() {
+			intentPhase = UnifiedIntentPhase
+		}
+
 		if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-			Phase: "intent", PhaseIndex: 1, TotalPhase: 0,
+			Phase: intentPhase, PhaseIndex: 1, TotalPhase: 0,
 		})); err != nil {
 			return err
 		}
@@ -300,7 +329,7 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 		intentDuration := time.Since(intentStart).Milliseconds()
 
 		if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase:            "intent",
+			Phase:            intentPhase,
 			Duration:         intentDuration,
 			Summary:          intentSummary,
 			ToolCalls:        intentTracker.toolCalls,
@@ -314,6 +343,13 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 			slog.Warn("orchestrator: intent recognition failed, falling back to chat stream", "error", intentErr)
 
 			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+		}
+
+		// Unified-intent short-circuit: the single LLM call already answered.
+		// Emit the answer as a streamed assistant message and return without
+		// invoking any sub-agent or summarizer.
+		if intent.Mode == IntentModeAnswered {
+			return d.streamAnsweredDirect(send, req, intent, agentID, sessionID)
 		}
 
 		enrichedReq := d.enrichRequest(req, contextSummary)

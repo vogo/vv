@@ -76,6 +76,13 @@ func (d *Dispatcher) recognizeIntent(ctx context.Context, req *schema.RunRequest
 		return d.recognizeIntentViaPlanner(ctx, req)
 	}
 
+	// Unified intent (M2): a single tool-calling LLM invocation that may
+	// answer the user inline. Mutually exclusive with the planner-agent
+	// branch (above) by design — unified mode is a leaf path.
+	if d.useUnifiedIntent() {
+		return d.recognizeIntentUnified(ctx, req)
+	}
+
 	// Direct LLM call for intent recognition.
 	return d.recognizeIntentDirect(ctx, req)
 }
@@ -96,7 +103,18 @@ func (d *Dispatcher) recognizeIntentStream(ctx context.Context, req *schema.RunR
 		return d.recognizeIntentViaPlannerStream(ctx, req, send)
 	}
 
+	if d.useUnifiedIntent() {
+		return d.recognizeIntentUnified(ctx, req)
+	}
+
 	return d.recognizeIntentDirect(ctx, req)
+}
+
+// useUnifiedIntent reports whether the tool-calling unified-intent pathway
+// should take the next recognizeIntent call. The LLM guard (d.llm != nil)
+// is required because the unified path is inherently an LLM call.
+func (d *Dispatcher) useUnifiedIntent() bool {
+	return d.unifiedIntent && d.llm != nil
 }
 
 // recognizeIntentDirect makes a direct LLM call for intent recognition.
@@ -326,6 +344,10 @@ func (d *Dispatcher) fallbackAgentName() string {
 func buildIntentSummary(intent *IntentResult) string {
 	if intent == nil {
 		return ""
+	}
+
+	if intent.Mode == IntentModeAnswered {
+		return unifiedAnsweredSummary
 	}
 
 	if intent.Mode == "direct" {

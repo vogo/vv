@@ -311,6 +311,7 @@ func New(
 		dispatches.WithMaxRecursionDepth(maxRecursionDepth),
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
 		dispatches.WithFastPath(fastPath),
+		dispatches.WithUnifiedIntent(cfg.Orchestrate.UnifiedIntent),
 	)
 
 	return &Result{

@@ -72,14 +72,21 @@ const (
 )
 
 // IntentResult is the output of the intent recognition phase.
-// Mode uses string values "direct" (maps to IntentSimple) and "plan" (maps to IntentComplex)
-// for JSON compatibility with the LLM response format.
+// Mode uses string values "direct" (maps to IntentSimple), "plan" (maps to IntentComplex),
+// and "answered" (unified-intent answered inline; Answer carries the response text).
+// JSON compatibility is preserved for the two legacy values.
 type IntentResult struct {
 	NeedsExploration bool   `json:"needs_exploration"`
-	Mode             string `json:"mode"`            // "direct" or "plan"
-	Agent            string `json:"agent,omitempty"` // for direct mode
-	Plan             *Plan  `json:"plan,omitempty"`  // for plan mode
+	Mode             string `json:"mode"`             // "direct" | "plan" | "answered"
+	Agent            string `json:"agent,omitempty"`  // for direct mode
+	Plan             *Plan  `json:"plan,omitempty"`   // for plan mode
+	Answer           string `json:"answer,omitempty"` // for answered mode (unified intent)
 }
+
+// IntentModeAnswered is the Mode value produced by unified intent when the
+// model chooses answer_directly: Dispatcher.Run returns the Answer text
+// without invoking a sub-agent.
+const IntentModeAnswered = "answered"
 
 // validate checks that the intent result references valid agents.
 func (ir *IntentResult) validate(reg *registries.Registry, subAgents map[string]agent.Agent) error {
@@ -107,6 +114,10 @@ func (ir *IntentResult) validate(reg *registries.Registry, subAgents map[string]
 					return fmt.Errorf("unknown agent %q in plan step %q", step.Agent, step.ID)
 				}
 			}
+		}
+	case IntentModeAnswered:
+		if strings.TrimSpace(ir.Answer) == "" {
+			return fmt.Errorf("answered mode but empty answer")
 		}
 	default:
 		return fmt.Errorf("unknown intent mode %q", ir.Mode)

@@ -58,6 +58,14 @@ type OrchestrateConfig struct {
 	SummaryPolicy     string         `yaml:"summary_policy"`      // auto/always/never
 	Replan            ReplanConfig   `yaml:"replan"`
 	FastPath          FastPathConfig `yaml:"fast_path,omitempty"`
+
+	// UnifiedIntent, when true, folds intent classification and direct answering
+	// into a single tool-calling LLM invocation (design M2). The model picks one
+	// of three tools: answer_directly / delegate_to / plan_task. When it answers
+	// directly, the dispatcher skips executeTask, cutting the common
+	// greeting/Q&A path from two LLM calls to one. Default false; opt-in while
+	// the feature is under evaluation.
+	UnifiedIntent bool `yaml:"unified_intent,omitempty"`
 }
 
 // ReplanConfig holds replanning configuration.
