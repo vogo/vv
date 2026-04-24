@@ -529,4 +529,3 @@ func TestIntegration_ExplorerFactory_PromptCaching(t *testing.T) {
 		t.Errorf("cache_control leaked into canonical request JSON: %s", body)
 	}
 }
-

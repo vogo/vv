@@ -36,7 +36,7 @@ func findVVModuleRoot(t *testing.T) string {
 		t.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		goMod := filepath.Join(dir, "go.mod")
 		if data, err := os.ReadFile(goMod); err == nil {
 			if strings.Contains(string(data), "module github.com/vogo/vv") {

@@ -566,9 +566,7 @@ func TestSQLiteStore_ConcurrentWrites(t *testing.T) {
 	for i := range sessions {
 		sid := "session-" + string(rune('A'+i))
 		ctx := WithSessionID(context.Background(), sid)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range perWriter {
 				key := "scratch:k" + string(rune('0'+j/10)) + string(rune('0'+j%10))
 				if err := s.Set(ctx, key, "v", 0); err != nil {
@@ -576,7 +574,7 @@ func TestSQLiteStore_ConcurrentWrites(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

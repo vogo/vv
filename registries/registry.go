@@ -30,18 +30,18 @@ type AgentFactory func(opts FactoryOptions) (agent.Agent, error)
 
 // FactoryOptions holds the dependencies needed to create an agent.
 type FactoryOptions struct {
-	LLM                 aimodel.ChatCompleter
-	Model               string
-	ToolRegistry        tool.ToolRegistry // filtered by ToolProfile
-	MaxIterations       int
-	RunTokenBudget      int
+	LLM            aimodel.ChatCompleter
+	Model          string
+	ToolRegistry   tool.ToolRegistry // filtered by ToolProfile
+	MaxIterations  int
+	RunTokenBudget int
 	// MaxParallelToolCalls caps concurrent tool dispatch within an assistant
 	// message. 0 uses the taskagent default; values <= 1 force serial.
 	MaxParallelToolCalls int
 	// PromptCaching controls emission of prompt-cache boundary hints on
 	// the system message and last tool definition. True by default at the
 	// vv layer; false opts out.
-	PromptCaching bool
+	PromptCaching       bool
 	Memory              *memory.Manager
 	PersistentMemory    memory.Memory // for coder's persistent memory prompt; nil if not available
 	ProjectInstructions string        // content from VV.md; empty if no file
