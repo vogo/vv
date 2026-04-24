@@ -687,6 +687,7 @@ func TestRunStream_ZeroStatsPhase(t *testing.T) {
 		reg, subAgents, nil, plannerStub, nil,
 		WithLLM(&mockChatCompleter{}, "test-model"),
 		WithFallbackAgent(chatStub),
+		WithFastPath(DisabledFastPathConfig()),
 	)
 
 	stream, err := d.RunStream(context.Background(), &schema.RunRequest{

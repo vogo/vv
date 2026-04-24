@@ -65,6 +65,9 @@ type Dispatcher struct {
 	replanPolicy      ReplanPolicy
 	maxRecursionDepth int
 	summarizer        agent.Agent // agent for generating summaries (reuses planGen if nil)
+
+	// fastPath shorts-circuits trivial requests without invoking the intent LLM.
+	fastPath FastPathConfig
 }
 
 // Option configures a Dispatcher.
@@ -93,6 +96,7 @@ func New(
 		summaryPolicy:     SummaryAuto,
 		replanPolicy:      DefaultReplanPolicy(),
 		maxRecursionDepth: 2,
+		fastPath:          DefaultFastPathConfig(),
 	}
 
 	for _, opt := range opts {
@@ -208,6 +212,14 @@ func WithProjectInstructions(instructions string) Option {
 	}
 }
 
+// WithFastPath configures the heuristic short-circuit filter applied before
+// intent recognition. Pass DisabledFastPathConfig() to turn it off.
+func WithFastPath(cfg FastPathConfig) Option {
+	return func(d *Dispatcher) {
+		d.fastPath = cfg
+	}
+}
+
 // Run implements agent.Agent. Orchestrates: intent recognition -> execution -> optional summarization.
 func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	depth := DepthFrom(ctx)
@@ -215,6 +227,12 @@ func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.R
 	// Fast path: at max depth, execute directly with fallback agent.
 	if depth >= d.maxRecursionDepth {
 		return d.fallbackRun(ctx, req, nil)
+	}
+
+	// Heuristic short-circuit: greetings, small-talk, and obvious shell-like
+	// inputs bypass the intent LLM entirely.
+	if hit := d.fastPathClassify(req); hit.Hit {
+		return d.runFastPath(ctx, req, hit)
 	}
 
 	// Phase 1: Intent Recognition (may invoke explorer on-demand).
@@ -259,6 +277,11 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 		// Fast path: at max depth, execute directly.
 		if depth >= d.maxRecursionDepth {
 			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+		}
+
+		// Heuristic short-circuit: bypass intent LLM for trivial inputs.
+		if hit := d.fastPathClassify(req); hit.Hit {
+			return d.runFastPathStream(ctx, send, req, hit)
 		}
 
 		// Phase 1: Intent Recognition.

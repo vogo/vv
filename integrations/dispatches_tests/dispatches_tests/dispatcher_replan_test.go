@@ -216,6 +216,7 @@ func TestIntegration_RecursionDepthEnforcement(t *testing.T) {
 			dispatches.WithFallbackAgent(chatAgent),
 			dispatches.WithMaxRecursionDepth(2),
 			dispatches.WithIntentSystemPrompt(dispatches.BuildIntentSystemPrompt(reg)),
+			dispatches.WithFastPath(dispatches.DisabledFastPathConfig()),
 		)
 
 		ctx := dispatches.WithDepth(context.Background(), 0)

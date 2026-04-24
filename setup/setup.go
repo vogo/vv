@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -287,6 +288,8 @@ func New(
 		replanPolicy.MaxReplans = 2
 	}
 
+	fastPath := buildFastPath(cfg.Orchestrate.FastPath)
+
 	// 10. Construct dispatcher.
 	dispatcher := dispatches.New(
 		reg,
@@ -307,6 +310,7 @@ func New(
 		dispatches.WithReplanPolicy(replanPolicy),
 		dispatches.WithMaxRecursionDepth(maxRecursionDepth),
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
+		dispatches.WithFastPath(fastPath),
 	)
 
 	return &Result{
@@ -326,6 +330,75 @@ func getHookManager(opts *Options) *hook.Manager {
 	}
 
 	return opts.HookManager
+}
+
+// buildFastPath translates the YAML-facing FastPathConfig into a compiled
+// dispatches.FastPathConfig. Invalid user regexes are logged and dropped
+// without failing config load, mirroring the MCP credential filter behavior.
+//
+// Semantics for the pattern slices:
+//   - nil slice → keep built-in defaults for that category.
+//   - empty slice [] → disable the category (no rules).
+//   - non-empty slice → replace defaults with the user-provided patterns.
+func buildFastPath(cfg configs.FastPathConfig) dispatches.FastPathConfig {
+	if !cfg.IsEnabled() {
+		return dispatches.DisabledFastPathConfig()
+	}
+
+	out := dispatches.FastPathConfig{
+		Enabled:  true,
+		MaxChars: cfg.MaxChars,
+	}
+
+	if out.MaxChars <= 0 {
+		out.MaxChars = dispatches.DefaultFastPathMaxChars
+	}
+
+	out.Rules = append(out.Rules,
+		resolveFastPathRules(cfg.GreetingPatterns, dispatches.FastPathCategoryGreeting, "chat")...,
+	)
+	out.Rules = append(out.Rules,
+		resolveFastPathRules(cfg.ToolTriggerPatterns, dispatches.FastPathCategoryToolTrigger, "coder")...,
+	)
+
+	return out
+}
+
+// resolveFastPathRules returns the rules for one fast-path category. A nil
+// user slice yields the built-in defaults; otherwise the user patterns are
+// compiled and invalid ones are logged and dropped.
+func resolveFastPathRules(user []string, category, agentID string) []dispatches.FastPathRule {
+	if user == nil {
+		return filterRulesByCategory(dispatches.DefaultFastPathConfig().Rules, category)
+	}
+
+	rules := make([]dispatches.FastPathRule, 0, len(user))
+
+	for _, p := range user {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			slog.Warn("setup: invalid fast_path regex", "category", category, "pattern", p, "error", err)
+
+			continue
+		}
+
+		rules = append(rules, dispatches.FastPathRule{Category: category, Pattern: re, Agent: agentID})
+	}
+
+	return rules
+}
+
+// filterRulesByCategory returns only the rules matching category from src.
+func filterRulesByCategory(src []dispatches.FastPathRule, category string) []dispatches.FastPathRule {
+	out := make([]dispatches.FastPathRule, 0, len(src))
+
+	for _, r := range src {
+		if r.Category == category {
+			out = append(out, r)
+		}
+	}
+
+	return out
 }
 
 // buildPathEnforcement computes the canonical allow-list, opens a PathGuard,

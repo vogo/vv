@@ -53,10 +53,11 @@ func ValidateMemoryBackend(backend string) (string, error) {
 
 // OrchestrateConfig holds orchestration configuration.
 type OrchestrateConfig struct {
-	MaxConcurrency    int          `yaml:"max_concurrency"`     // DAG concurrency, default 2
-	MaxRecursionDepth int          `yaml:"max_recursion_depth"` // max nesting depth, default 2
-	SummaryPolicy     string       `yaml:"summary_policy"`      // auto/always/never
-	Replan            ReplanConfig `yaml:"replan"`
+	MaxConcurrency    int            `yaml:"max_concurrency"`     // DAG concurrency, default 2
+	MaxRecursionDepth int            `yaml:"max_recursion_depth"` // max nesting depth, default 2
+	SummaryPolicy     string         `yaml:"summary_policy"`      // auto/always/never
+	Replan            ReplanConfig   `yaml:"replan"`
+	FastPath          FastPathConfig `yaml:"fast_path,omitempty"`
 }
 
 // ReplanConfig holds replanning configuration.
@@ -64,6 +65,34 @@ type ReplanConfig struct {
 	TriggerOnFailure   bool `yaml:"trigger_on_failure"`
 	TriggerOnDeviation bool `yaml:"trigger_on_deviation"` // reserved for future use
 	MaxReplans         int  `yaml:"max_replans"`
+}
+
+// FastPathConfig controls the dispatcher's heuristic short-circuit. When
+// Enabled (default) and a greeting or shell-like prefix matches the user's
+// message, the dispatcher bypasses intent recognition and routes directly.
+//
+// Passing nil slices keeps the built-in defaults; passing explicit empty
+// slices disables that category.
+type FastPathConfig struct {
+	// Enabled gates the feature. nil means "use the default" (true).
+	Enabled *bool `yaml:"enabled,omitempty"`
+
+	// MaxChars caps the rune length of the matched user message. 0 uses the
+	// built-in default (60).
+	MaxChars int `yaml:"max_chars,omitempty"`
+
+	// GreetingPatterns overrides the default greeting regex set. nil keeps
+	// defaults; [] disables the category.
+	GreetingPatterns []string `yaml:"greeting_patterns,omitempty"`
+
+	// ToolTriggerPatterns overrides the default shell-trigger regex set.
+	// nil keeps defaults; [] disables the category.
+	ToolTriggerPatterns []string `yaml:"tool_trigger_patterns,omitempty"`
+}
+
+// IsEnabled returns true unless the user explicitly set enabled: false.
+func (c FastPathConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // DefaultDir returns the default vv config directory (~/.vv).

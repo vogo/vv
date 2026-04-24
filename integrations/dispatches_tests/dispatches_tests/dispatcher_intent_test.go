@@ -49,6 +49,7 @@ func TestIntegration_SimpleIntentFastPath(t *testing.T) {
 		dispatches.WithLLM(mockLLM, "test-model"),
 		dispatches.WithFallbackAgent(&stubAgent{id: "chat"}),
 		dispatches.WithIntentSystemPrompt(dispatches.BuildIntentSystemPrompt(reg)),
+		dispatches.WithFastPath(dispatches.DisabledFastPathConfig()),
 	)
 
 	resp, err := d.Run(context.Background(), &schema.RunRequest{
