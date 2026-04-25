@@ -45,6 +45,12 @@ func (d *Dispatcher) runPrimary(ctx context.Context, req *schema.RunRequest) (*s
 //
 // Token usage and tool-call counts are aggregated via phaseTracker (reused
 // from the classical pipeline) so cost dashboards keep working.
+//
+// When legacyPhaseEvents is enabled (M5 G2), the single unified_primary
+// phase pair is remapped to the classical intent + execute pairs so pre-M5
+// consumers that pinned to those phase labels keep working. The intent
+// pair carries zero work (the unified pipeline has no separate intent
+// phase); all real instrumentation lands on the execute pair.
 func (d *Dispatcher) runPrimaryStream(
 	ctx context.Context,
 	send func(schema.Event) error,
@@ -56,6 +62,10 @@ func (d *Dispatcher) runPrimaryStream(
 	}
 
 	ctx = debugs.WithAgentName(ctx, PrimaryAgentName)
+
+	if d.legacyPhaseEvents {
+		return d.runPrimaryStreamLegacy(ctx, send, req, agentID, sessionID)
+	}
 
 	if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
 		Phase:      PrimaryPhase,
@@ -80,6 +90,71 @@ func (d *Dispatcher) runPrimaryStream(
 		// If the EventPhaseEnd itself fails, surface that error unless the
 		// inner stream already failed — the inner error is the primary
 		// failure signal.
+		if streamErr == nil {
+			return err
+		}
+	}
+
+	return streamErr
+}
+
+// runPrimaryStreamLegacy is the M5 G2 shim path. It emits two phase pairs
+// shaped like the pre-M5 classical pipeline:
+//
+//  1. intent: instantaneous — the unified pipeline has no separate intent
+//     phase, but legacy consumers expect to see this start/end pair to
+//     drive their "classifying" UI state. Tool-call/token counters are
+//     zero by construction.
+//  2. execute: wraps the actual Primary stream; gets the real counters so
+//     cost dashboards keep seeing activity against the "execute" phase.
+//
+// The unified_primary pair is suppressed here on purpose — emitting both
+// shapes at once would double-count phases in any consumer that loops over
+// EventPhaseStart occurrences.
+func (d *Dispatcher) runPrimaryStreamLegacy(
+	ctx context.Context,
+	send func(schema.Event) error,
+	req *schema.RunRequest,
+	agentID, sessionID string,
+) error {
+	intentStart := time.Now()
+
+	if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
+		Phase:      "intent",
+		PhaseIndex: 1,
+		TotalPhase: 2,
+	})); err != nil {
+		return err
+	}
+
+	if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
+		Phase:    "intent",
+		Duration: time.Since(intentStart).Milliseconds(),
+		Summary:  "unified mode: intent absorbed into Primary",
+	})); err != nil {
+		return err
+	}
+
+	if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
+		Phase:      "execute",
+		PhaseIndex: 2,
+		TotalPhase: 2,
+	})); err != nil {
+		return err
+	}
+
+	executeStart := time.Now()
+
+	var tracker phaseTracker
+	streamErr := d.forwardSubAgentStream(ctx, tracker.wrap(send), d.primaryAssistant, req, PrimaryAgentName, "", sessionID)
+
+	if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
+		Phase:            "execute",
+		Duration:         time.Since(executeStart).Milliseconds(),
+		ToolCalls:        tracker.toolCalls,
+		PromptTokens:     tracker.promptTokens,
+		CompletionTokens: tracker.completionTokens,
+	})); err != nil {
 		if streamErr == nil {
 			return err
 		}

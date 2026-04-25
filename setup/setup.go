@@ -316,6 +316,7 @@ func New(
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
 		dispatches.WithFastPath(fastPath),
 		dispatches.WithUnifiedIntent(cfg.Orchestrate.UnifiedIntent),
+		dispatches.WithLegacyPhaseEvents(cfg.Orchestrate.LegacyPhaseEvents),
 	}
 
 	if opts != nil && opts.RouterLLM != nil && opts.RouterModel != "" {
@@ -345,6 +346,21 @@ func New(
 		}
 
 		dispatcher.SetPrimaryAssistant(primary)
+
+		// M5 G3: in unified mode the fallback path that fires when depth has
+		// already reached maxRecursionDepth or when intent classification
+		// fails mid-stream should keep the Primary persona rather than
+		// falling back to the classical chat agent. We attach a degraded
+		// Primary (same system prompt, no delegate/plan tools) so the
+		// fallback can still answer inline without risking another recursive
+		// delegate_to / plan_task dispatch cycle — the tools are stripped on
+		// purpose to cut the R2 infinite-recursion path dead.
+		fallbackPrimary, err := buildFallbackPrimary(cfg, llm, memMgr, opts)
+		if err != nil {
+			return nil, fmt.Errorf("build fallback primary: %w", err)
+		}
+
+		dispatcher.SetFallbackAgent(fallbackPrimary)
 	}
 
 	return &Result{
@@ -442,6 +458,47 @@ func buildPrimaryAssistant(
 		Model:                cfg.LLM.Model,
 		ToolRegistry:         finalToolReg,
 		MaxIterations:        cfg.Agents.MaxIterations,
+		RunTokenBudget:       cfg.Agents.RunTokenBudget,
+		MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
+		PromptCaching:        cfg.Agents.EffectivePromptCaching(),
+		Memory:               memMgr,
+		ProjectInstructions:  cfg.ProjectInstructions,
+		ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
+		HookManager:          getHookManager(opts),
+	})
+}
+
+// buildFallbackPrimary assembles a Primary Assistant with NO tools — the
+// read-only file tools, todo_write, ask_user, delegate_to_*, and plan_task
+// are all intentionally omitted. The resulting agent can only answer the
+// user inline through plain chat, which is exactly what the dispatcher's
+// fallback path needs: if we have already recursed to maxRecursionDepth or
+// we are salvaging a failed classification, re-entering any tool that could
+// call back into a sub-agent (and therefore back into the dispatcher) is a
+// silent infinite-recursion risk (see M5 spec R2).
+//
+// System prompt and identity stay aligned with the main Primary so the user
+// sees a consistent persona; the Factory wiring is reused via
+// agents.RegisterPrimary with ToolRegistry left nil.
+func buildFallbackPrimary(
+	cfg *configs.Config,
+	llm aimodel.ChatCompleter,
+	memMgr *memory.Manager,
+	opts *Options,
+) (agent.Agent, error) {
+	primaryReg := registries.New()
+	agents.RegisterPrimary(primaryReg)
+
+	desc, ok := primaryReg.Get(agents.PrimaryAgentID)
+	if !ok {
+		return nil, fmt.Errorf("fallback primary: descriptor missing after RegisterPrimary")
+	}
+
+	return desc.Factory(registries.FactoryOptions{
+		LLM:                  llm,
+		Model:                cfg.LLM.Model,
+		ToolRegistry:         nil, // tool-free by design
+		MaxIterations:        1,   // one turn — no tool loops to drive
 		RunTokenBudget:       cfg.Agents.RunTokenBudget,
 		MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
 		PromptCaching:        cfg.Agents.EffectivePromptCaching(),

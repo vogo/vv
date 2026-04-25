@@ -180,11 +180,168 @@ func TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase(t *testing.T) {
 	}
 }
 
+// TestRunStream_UnifiedMode_LegacyShim_EmitsIntentAndExecutePhases guards
+// the M5 G2 shim: with WithLegacyPhaseEvents(true) the unified stream must
+// emit [start:intent, end:intent, start:execute, end:execute] and no
+// unified_primary pair at all, so HTTP/CLI consumers that pinned to the
+// pre-M5 event shape keep working without a code change.
+func TestRunStream_UnifiedMode_LegacyShim_EmitsIntentAndExecutePhases(t *testing.T) {
+	reg := newTestRegistry()
+	chat := &stubAgent{id: "chat"}
+	primary := &streamableStubAgent{stubAgent: stubAgent{id: "primary"}}
+
+	d := New(
+		reg,
+		map[string]agent.Agent{"chat": chat},
+		nil, nil, nil,
+		WithFallbackAgent(chat),
+		WithPrimaryAssistant(primary),
+		WithLegacyPhaseEvents(true),
+	)
+
+	stream, err := d.RunStream(context.Background(), &schema.RunRequest{
+		Messages: []schema.Message{schema.NewUserMessage("hello")},
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+
+	defer func() { _ = stream.Close() }()
+
+	phases := make([]string, 0, 4)
+
+	for {
+		ev, recvErr := stream.Recv()
+		if recvErr == io.EOF {
+			break
+		}
+		if recvErr != nil {
+			t.Fatalf("Recv: %v", recvErr)
+		}
+
+		switch ev.Type {
+		case schema.EventPhaseStart:
+			if data, ok := ev.Data.(schema.PhaseStartData); ok {
+				phases = append(phases, "start:"+data.Phase)
+			}
+		case schema.EventPhaseEnd:
+			if data, ok := ev.Data.(schema.PhaseEndData); ok {
+				phases = append(phases, "end:"+data.Phase)
+			}
+		}
+	}
+
+	want := []string{"start:intent", "end:intent", "start:execute", "end:execute"}
+	if len(phases) != len(want) {
+		t.Fatalf("phase events = %v, want %v", phases, want)
+	}
+
+	for i, p := range phases {
+		if p != want[i] {
+			t.Errorf("phase[%d] = %q, want %q (full: %v)", i, p, want[i], phases)
+		}
+	}
+
+	for _, p := range phases {
+		if p == "start:"+PrimaryPhase || p == "end:"+PrimaryPhase {
+			t.Errorf("legacy shim must NOT emit %q: %v", PrimaryPhase, phases)
+		}
+	}
+
+	if primary.ranCount() != 1 {
+		t.Errorf("primary.ranCount = %d, want 1", primary.ranCount())
+	}
+}
+
 // TestRunPlan_ImplementsPlanExecutor locks the compile-time contract so a
 // future refactor that accidentally changes the signature fails the build
 // here instead of deep in a tool-handler closure.
 func TestRunPlan_ImplementsPlanExecutor(_ *testing.T) {
 	var _ PlanExecutor = (*Dispatcher)(nil)
+}
+
+// TestSetFallbackAgent_PostConstruction_AttachesAgent guards the M5 G3
+// setter: unified mode needs to swap the pre-M5 chat fallback for a
+// Primary-persona fallback after the dispatcher has been constructed (the
+// Primary itself needs a PlanExecutor handle on the dispatcher).
+func TestSetFallbackAgent_PostConstruction_AttachesAgent(t *testing.T) {
+	reg := newTestRegistry()
+	chat := &stubAgent{id: "chat"}
+	fallbackPrimary := &stubAgent{id: "primary-fallback"}
+
+	d := New(
+		reg,
+		map[string]agent.Agent{"chat": chat},
+		nil, nil, nil,
+		WithFallbackAgent(chat),
+	)
+
+	d.SetFallbackAgent(fallbackPrimary)
+
+	if d.fallbackAgent == nil || d.fallbackAgent.ID() != "primary-fallback" {
+		t.Fatalf("SetFallbackAgent did not attach the agent; got %v", d.fallbackAgent)
+	}
+}
+
+// TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback guards the M5 G3
+// wiring at the Run level. The dispatcher's depth guard fires before the
+// Primary dispatch branch — so whatever SetFallbackAgent attached becomes
+// the actual entry point when a nested Dispatcher call recurses back to
+// maxRecursionDepth. In unified mode that fallback is the Primary (or a
+// degraded variant of it), never the classical chat agent.
+func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
+	reg := newTestRegistry()
+
+	chat := &stubAgent{id: "chat"}
+	primary := &stubAgent{id: "primary"}
+	fallbackPrimary := &stubAgent{
+		id: "primary-fallback",
+		response: &schema.RunResponse{
+			Messages: []schema.Message{
+				schema.NewAssistantMessage(aimodel.Message{
+					Role:    aimodel.RoleAssistant,
+					Content: aimodel.NewTextContent("fallback primary answer"),
+				}, "primary-fallback"),
+			},
+		},
+	}
+
+	d := New(
+		reg,
+		map[string]agent.Agent{"chat": chat},
+		nil, nil, nil,
+		WithFallbackAgent(chat), // pre-M5 wiring (will be overwritten below)
+		WithPrimaryAssistant(primary),
+		WithMaxRecursionDepth(1),
+	)
+
+	d.SetFallbackAgent(fallbackPrimary) // M5 G3 override
+
+	// Inject depth=maxRecursionDepth so the early-return in Run triggers
+	// fallback instead of primary.
+	ctx := IncrementDepth(context.Background())
+
+	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("nested")}}
+	resp, err := d.Run(ctx, req)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if fallbackPrimary.ranCount() != 1 {
+		t.Errorf("fallback primary.ranCount = %d, want 1", fallbackPrimary.ranCount())
+	}
+
+	if chat.ranCount() != 0 {
+		t.Errorf("chat.ranCount = %d, want 0 (M5 must not fall back to chat in unified mode)", chat.ranCount())
+	}
+
+	if primary.ranCount() != 0 {
+		t.Errorf("primary.ranCount = %d, want 0 (depth guard must short-circuit before primary branch)", primary.ranCount())
+	}
+
+	if len(resp.Messages) == 0 || resp.Messages[0].Content.Text() != "fallback primary answer" {
+		t.Errorf("response = %+v, want fallback primary answer", resp.Messages)
+	}
 }
 
 // streamableStubAgent wraps stubAgent with a minimal RunStream so the

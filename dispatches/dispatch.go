@@ -90,6 +90,13 @@ type Dispatcher struct {
 	// nil by default so pre-M4 behaviour is preserved; set via
 	// WithPrimaryAssistant or SetPrimaryAssistant.
 	primaryAssistant agent.Agent
+
+	// legacyPhaseEvents, when true, rewrites the unified-mode stream's
+	// single `unified_primary` phase event pair into the classical `intent`
+	// + `execute` phase event pairs so pre-M5 HTTP / CLI consumers keep
+	// their event-shape contract (design M5, §G2). Only affects
+	// RunStream; Run is already phase-agnostic.
+	legacyPhaseEvents bool
 }
 
 // Option configures a Dispatcher.
@@ -281,6 +288,16 @@ func WithPrimaryAssistant(a agent.Agent) Option {
 	}
 }
 
+// WithLegacyPhaseEvents enables the M5 G2 shim: when the unified pipeline is
+// active, stream the classical `intent` + `execute` phase event pairs
+// instead of the single `unified_primary` pair. Designed for HTTP / CLI
+// consumers that pinned to the pre-M5 event shape. Off by default.
+func WithLegacyPhaseEvents(enabled bool) Option {
+	return func(d *Dispatcher) {
+		d.legacyPhaseEvents = enabled
+	}
+}
+
 // SetPrimaryAssistant installs or replaces the Primary Assistant after
 // construction. Used by setup.New because the Primary's plan_task tool
 // holds a PlanExecutor handle on the Dispatcher itself — the Dispatcher
@@ -290,6 +307,15 @@ func WithPrimaryAssistant(a agent.Agent) Option {
 // code only ever sets it once).
 func (d *Dispatcher) SetPrimaryAssistant(a agent.Agent) {
 	d.primaryAssistant = a
+}
+
+// SetFallbackAgent installs or replaces the fallback agent after construction.
+// Used by setup.New in unified mode (design M5) to swap the pre-M5 chat
+// fallback for a tool-free Primary, so the `depth >= maxRecursionDepth`
+// early-return keeps answering via the Primary persona rather than the
+// classical chat agent. Kept symmetrical with SetPrimaryAssistant.
+func (d *Dispatcher) SetFallbackAgent(a agent.Agent) {
+	d.fallbackAgent = a
 }
 
 // routerClient returns the LLM client to use for routing decisions: the

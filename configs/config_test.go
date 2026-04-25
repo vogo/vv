@@ -1292,7 +1292,8 @@ func TestValidateOrchestrateMode(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{"", OrchestrateModeClassical, false},
+		// M5 flipped the empty-string default from classical → unified.
+		{"", OrchestrateModeUnified, false},
 		{"classical", OrchestrateModeClassical, false},
 		{"  Classical ", OrchestrateModeClassical, false},
 		{"unified", OrchestrateModeUnified, false},
@@ -1369,7 +1370,7 @@ func TestLoad_OrchestrateModeRejectsUnknown(t *testing.T) {
 	}
 }
 
-func TestLoad_OrchestrateModeDefaultsToClassical(t *testing.T) {
+func TestLoad_OrchestrateModeDefaultsToUnified(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\n"), 0o644); err != nil {
@@ -1381,7 +1382,55 @@ func TestLoad_OrchestrateModeDefaultsToClassical(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
+	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
+		t.Errorf("mode = %q, want %q (M5 default)", cfg.Orchestrate.Mode, OrchestrateModeUnified)
+	}
+}
+
+func TestLoad_OrchestrateModeExplicitClassicalPreserved(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "llm:\n  model: gpt-4o\n  api_key: sk-main\norchestrate:\n  mode: classical\n"
+
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
 	if cfg.Orchestrate.Mode != OrchestrateModeClassical {
-		t.Errorf("mode = %q, want %q (default)", cfg.Orchestrate.Mode, OrchestrateModeClassical)
+		t.Errorf("mode = %q, want %q — explicit classical must not be overwritten by M5 default",
+			cfg.Orchestrate.Mode, OrchestrateModeClassical)
+	}
+}
+
+// TestYAMLHasExplicitOrchestrateMode pins the helper the M5 migration info
+// log relies on — it must correctly distinguish "no mode set" from "mode
+// set to any valid value" across comment/whitespace variants.
+func TestYAMLHasExplicitOrchestrateMode(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{"empty", "", false},
+		{"no orchestrate section", "llm:\n  model: gpt-4o\n", false},
+		{"orchestrate without mode", "orchestrate:\n  max_concurrency: 4\n", false},
+		{"orchestrate mode classical", "orchestrate:\n  mode: classical\n", true},
+		{"orchestrate mode unified", "orchestrate:\n  mode: unified\n", true},
+		{"orchestrate mode empty string", "orchestrate:\n  mode: \"\"\n", true},
+		{"orchestrate mode with comment", "orchestrate:\n  mode: classical # pin pre-M5\n", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := yamlHasExplicitOrchestrateMode([]byte(tc.yaml))
+			if got != tc.want {
+				t.Errorf("yamlHasExplicitOrchestrateMode(%q) = %v, want %v", tc.yaml, got, tc.want)
+			}
+		})
 	}
 }
