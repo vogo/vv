@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Local driver for the M6 G5 real-LLM golden baseline.
+# Local driver for the real-LLM golden baseline.
 #
 # What it does:
 #   1. Validates that one of the supported API key env vars is set.

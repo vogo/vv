@@ -84,7 +84,7 @@ func TestIntegration_NoVVMd_UnchangedBehavior(t *testing.T) {
 	}
 
 	// Verify all dispatchable agents were created.
-	expectedAgents := []string{"coder", "researcher", "reviewer"} // chat removed in M6 G2
+	expectedAgents := []string{"coder", "researcher", "reviewer"}
 	for _, id := range expectedAgents {
 		if a := result.Agent(id); a == nil {
 			t.Errorf("agent %q not found", id)
@@ -202,9 +202,8 @@ func TestIntegration_EndToEnd_WithVVMd(t *testing.T) {
 	}
 
 	// Run the researcher agent to trigger an LLM call and capture the
-	// system prompt (chat was removed in M6 G2; researcher is the
-	// minimal-tool dispatchable agent that still exercises the project
-	// instructions wiring).
+	// system prompt. It is the lightest dispatchable agent that still
+	// exercises the project instructions wiring.
 	subAgent := result.Agent("researcher")
 	if subAgent == nil {
 		t.Fatal("researcher agent not found")
@@ -324,8 +323,7 @@ func TestIntegration_PresetProjectInstructions_NotOverwritten(t *testing.T) {
 		t.Errorf("ProjectInstructions = %q, want %q", cfg.ProjectInstructions, presetInstructions)
 	}
 
-	// Run researcher agent and verify system prompt uses preset value
-	// (chat removed in M6 G2).
+	// Run researcher agent and verify system prompt uses the preset value.
 	subAgent := result.Agent("researcher")
 	if subAgent == nil {
 		t.Fatal("researcher agent not found")
@@ -479,7 +477,7 @@ func TestIntegration_AllAgentFactories_WithProjectInstructions(t *testing.T) {
 		t.Fatalf("setup.New() with project instructions failed: %v", err)
 	}
 
-	// Verify all dispatchable agents were created (chat removed in M6 G2).
+	// Verify all dispatchable agents were created.
 	dispatchable := []string{"coder", "researcher", "reviewer"}
 	for _, id := range dispatchable {
 		a := result.Agent(id)

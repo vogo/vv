@@ -285,7 +285,7 @@ func TestAggregateUsage(t *testing.T) {
 }
 
 // TestDispatcher_Explore_* / TestDispatcher_Classify_* /
-// TestDispatcher_Run_WithExplorerAndPlanner were removed in M6 G2 alongside
+// TestDispatcher_Run_WithExplorerAndPlanner were removed alongside
 // the explorer sub-agent and the planner-driven intent recognition path.
 // The unified Primary covers exploration directly via its read/glob/grep
 // tool set; the planner-as-intent path is gone.

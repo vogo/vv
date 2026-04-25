@@ -17,17 +17,17 @@ import (
 )
 
 // =============================================================================
-// Primary Assistant integration tests (design M4).
+// Primary Assistant integration tests.
 //
 // These exercise the full unified-mode pipeline: a real taskagent running on
 // a mock LLM that emits tool calls (delegate_to_*, plan_task, or none for a
-// direct answer), wired into a Dispatcher with mode=unified.
+// direct answer), wired into a Dispatcher configured for unified mode.
 // =============================================================================
 
 // primaryToolCallResponse builds an assistant message that invokes a tool by
-// name with pre-canned JSON arguments. Mirrors toolCallChatResponse from the
-// M2 suite but keeps the distinct call-ID prefix so side-by-side test
-// failures stay readable.
+// name with pre-canned JSON arguments. It mirrors toolCallChatResponse from
+// the earlier suite but keeps the distinct call-ID prefix so side-by-side
+// test failures stay readable.
 func primaryToolCallResponse(name, argsJSON string) *aimodel.ChatResponse {
 	return &aimodel.ChatResponse{
 		Choices: []aimodel.Choice{
@@ -52,7 +52,7 @@ func primaryToolCallResponse(name, argsJSON string) *aimodel.ChatResponse {
 }
 
 // primaryTextResponse builds a plain-text assistant message (no tool calls).
-// Used when the Primary's final iteration should fold an earlier tool result
+// Used when the Primary's final iteration should fold a previous tool result
 // into the user-visible response.
 func primaryTextResponse(text string) *aimodel.ChatResponse {
 	return &aimodel.ChatResponse{
@@ -95,8 +95,8 @@ func newPrimaryDispatcher(
 
 	// Build the Primary's tool registry: delegate_to_* + plan_task. We skip
 	// the read-only file tools (read/glob/grep) and todo/ask_user here
-	// because no test actually drives those; the dispatcher's plumbing of
-	// delegate_to/plan_task is what M4 asserts.
+	// because no test actually drives those; the dispatcher's delegate_to /
+	// plan_task plumbing is what this suite covers.
 	toolReg := tool.NewRegistry()
 	if err := dispatches.RegisterDelegateTools(toolReg, subAgents, []string{"coder", "researcher", "reviewer"}); err != nil {
 		t.Fatalf("RegisterDelegateTools: %v", err)
@@ -119,9 +119,9 @@ func newPrimaryDispatcher(
 	return d
 }
 
-// TestPrimary_AnswersDirectly confirms the core M4 fast-path: Primary LLM
-// returns plain text (no tool call), dispatcher returns that text in exactly
-// one LLM call, and no sub-agent runs.
+// TestPrimary_AnswersDirectly confirms the fast-path: Primary LLM returns
+// plain text (no tool call), dispatcher returns that text in exactly one
+// LLM call, and no sub-agent runs.
 func TestPrimary_AnswersDirectly(t *testing.T) {
 	coder := &callTrackingAgent{id: "coder"}
 	researcher := &callTrackingAgent{id: "researcher"}
@@ -282,9 +282,9 @@ func TestPrimary_PlanTask(t *testing.T) {
 	}
 }
 
-// TestPrimary_NilReturnsError guards the M7 contract: when no Primary is
+// TestPrimary_NilReturnsError guards the contract: when no Primary is
 // attached, the dispatcher must return an error rather than fall back to a
-// classical pipeline (which was retired in M7).
+// classical pipeline.
 func TestPrimary_NilReturnsError(t *testing.T) {
 	coder := &callTrackingAgent{id: "coder"}
 	researcher := &callTrackingAgent{id: "researcher"}
@@ -307,7 +307,7 @@ func TestPrimary_NilReturnsError(t *testing.T) {
 		SessionID: "m7-nil-primary",
 	})
 	if err == nil {
-		t.Fatal("Run with nil Primary must return an error after M7")
+		t.Fatal("Run with nil Primary must return an error")
 	}
 
 	if !strings.Contains(err.Error(), "primary assistant required") {

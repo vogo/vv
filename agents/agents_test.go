@@ -67,7 +67,7 @@ func TestRegisterAll_AgentIDs(t *testing.T) {
 	RegisterReviewer(reg)
 	RegisterPlanner(reg)
 
-	// Verify all expected agents are registered. As of M6 chat and
+	// Verify all expected agents are registered. Chat and
 	// explorer no longer exist — the unified Primary covers chat inline
 	// and exploration via its read/glob/grep tools.
 	for _, id := range []string{"coder", "researcher", "reviewer", "planner"} {
@@ -78,7 +78,7 @@ func TestRegisterAll_AgentIDs(t *testing.T) {
 
 	for _, id := range []string{"chat", "explorer"} {
 		if _, ok := reg.Get(id); ok {
-			t.Errorf("agent %q must not be registered after M6 G2 deletion", id)
+			t.Errorf("agent %q must not be registered", id)
 		}
 	}
 }

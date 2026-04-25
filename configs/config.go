@@ -61,14 +61,14 @@ type OrchestrateConfig struct {
 	// Config.LLM; an empty Router.Model leaves the feature disabled.
 	Router LLMConfig `yaml:"router,omitempty"`
 
-	// Mode is kept as a YAML field only for backwards compatibility with
-	// M4–M6 configs. As of M7 only the unified Primary Assistant pipeline
-	// exists and the field is silently normalised to "unified" by
-	// ValidateOrchestrateMode; any other value (including the long-removed
-	// "classical") emits a slog.Warn but does not abort startup. Other
-	// stale orchestrate.* keys (legacy_phase_events, fast_path,
-	// unified_intent, summary_policy, replan) trigger one slog.Warn per
-	// key during Load via the raw-YAML stale-key sweep.
+	// Mode is kept only for compatibility with older configs. The unified
+	// Primary Assistant pipeline is the only supported path now, and this
+	// field is normalised to "unified" by ValidateOrchestrateMode. Any other
+	// value (including the long-removed "classical") triggers a slog.Warn
+	// but does not abort startup. Other stale orchestrate.* keys
+	// (legacy_phase_events, fast_path, unified_intent, summary_policy,
+	// replan) trigger one slog.Warn per key during Load via the raw-YAML
+	// stale-key sweep.
 	Mode string `yaml:"mode,omitempty"`
 
 	// PrimaryAllowBash, when true, mounts the bash tool on the Primary
@@ -79,15 +79,15 @@ type OrchestrateConfig struct {
 	PrimaryAllowBash bool `yaml:"primary_allow_bash,omitempty"`
 }
 
-// OrchestrateModeUnified is the only supported orchestrate pipeline as of
-// M7. Empty `orchestrate.mode` normalises to this value.
+// OrchestrateModeUnified is the only supported orchestrate pipeline.
+// Empty `orchestrate.mode` normalises to this value.
 const OrchestrateModeUnified = "unified"
 
 // staleOrchestrateKeys lists YAML keys under `orchestrate:` that were
-// removed in M7 along with the classical pipeline. They are silently
-// dropped on unmarshal (the struct fields no longer exist), but Load
-// surfaces a slog.Warn per occurrence so existing vv.yaml files surface
-// the deprecation rather than vanish silently.
+// removed with the classical pipeline. They are silently dropped on
+// unmarshal (the struct fields no longer exist), but Load surfaces a
+// slog.Warn for each occurrence so existing vv.yaml files surface the
+// deprecation instead of failing quietly.
 var staleOrchestrateKeys = []string{
 	"summary_policy",
 	"replan",
@@ -111,32 +111,26 @@ func warnStaleOrchestrateKeys(data []byte) {
 
 	for _, key := range staleOrchestrateKeys {
 		if _, present := raw.Orchestrate[key]; present {
-			slog.Warn(
-				"vv: orchestrate."+key+" is deprecated as of M7; the key is silently ignored",
-				"key", key,
-			)
+			slog.Warn("vv: orchestrate."+key+" is deprecated; the key is ignored", "key", key)
 		}
 	}
 }
 
-// ValidateOrchestrateMode normalises mode strings. As of M7 the unified
-// pipeline is the sole supported path; "" / "unified" pass through, any
-// other value (including the long-removed "classical") is normalised to
+// ValidateOrchestrateMode normalises mode strings. The unified pipeline is
+// the only supported path; "" / "unified" pass through, and any other
+// value (including the long-removed "classical") is normalised to
 // OrchestrateModeUnified with a slog.Warn so misconfiguration is surfaced
 // without aborting startup.
 //
 // The error return is retained so the (string, error) signature stays
-// source-compatible with M5 callers; it is always nil.
+// source-compatible with older callers; it is always nil.
 func ValidateOrchestrateMode(mode string) (string, error) {
 	m := strings.ToLower(strings.TrimSpace(mode))
 	switch m {
 	case "", OrchestrateModeUnified:
 		return OrchestrateModeUnified, nil
 	default:
-		slog.Warn(
-			"vv: orchestrate.mode is deprecated as of M7; the field is ignored and the unified pipeline is always used",
-			"received", mode,
-		)
+		slog.Warn("vv: orchestrate.mode is deprecated; the field is ignored and the unified pipeline is always used", "received", mode)
 
 		return OrchestrateModeUnified, nil
 	}
@@ -617,7 +611,7 @@ func Load(path string, explicit bool) (*Config, error) {
 	}
 
 	if v := os.Getenv("VV_ORCHESTRATE_LEGACY_PHASE_EVENTS"); v != "" {
-		slog.Warn("vv: VV_ORCHESTRATE_LEGACY_PHASE_EVENTS is no longer supported as of M7; the env var is ignored", "value", v)
+		slog.Warn("vv: VV_ORCHESTRATE_LEGACY_PHASE_EVENTS is no longer supported; the env var is ignored", "value", v)
 	}
 
 	if v := os.Getenv("VV_PRIMARY_ALLOW_BASH"); v != "" {
@@ -1035,7 +1029,7 @@ func NewLLMClient(cfg LLMConfig) (*aimodel.Client, error) {
 	return aimodel.NewClient(opts...)
 }
 
-// EffectiveRouterConfig resolves the router LLM configuration for design M3.
+// EffectiveRouterConfig resolves the router LLM configuration.
 // Returns (_, false) when no router model is configured, signalling that the
 // dispatcher should keep using the main LLM for routing. When enabled, any
 // field left empty on Orchestrate.Router inherits from cfg.LLM so users can

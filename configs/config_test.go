@@ -1288,10 +1288,10 @@ func TestLoad_RouterEnvOverride(t *testing.T) {
 }
 
 func TestValidateOrchestrateMode(t *testing.T) {
-	// As of M6 every input normalises to OrchestrateModeUnified; classical
-	// and unknown values trigger a slog.Warn but the call still succeeds —
-	// the (string, error) signature is retained for source compatibility,
-	// and err is always nil.
+	// Every input normalises to OrchestrateModeUnified; classical and
+	// unknown values trigger a slog.Warn but the call still succeeds. The
+	// (string, error) signature is retained for source compatibility, and err
+	// is always nil.
 	cases := []struct {
 		in   string
 		want string
@@ -1364,7 +1364,7 @@ func TestLoad_OrchestrateModeEnvOverride(t *testing.T) {
 	}
 }
 
-// TestLoad_PrimaryAllowBashEnvOverride pins the M6 G1 env contract:
+// TestLoad_PrimaryAllowBashEnvOverride pins the env contract:
 // VV_PRIMARY_ALLOW_BASH=true|false flips the YAML default at Load time
 // without requiring a config edit. Invalid values warn and leave the
 // YAML setting intact.
@@ -1387,10 +1387,10 @@ func TestLoad_PrimaryAllowBashEnvOverride(t *testing.T) {
 	}
 }
 
-// TestLoad_OrchestrateModeUnknownDoesNotReject pins the M6 behaviour: an
-// unknown orchestrate.mode value (typo, removed mode, etc.) must NOT abort
-// Load — ValidateOrchestrateMode warns and falls back to unified so the
-// process keeps starting. This replaces the M5
+// TestLoad_OrchestrateModeUnknownDoesNotReject verifies that an unknown
+// orchestrate.mode value (typo, removed mode, etc.) must NOT abort Load —
+// ValidateOrchestrateMode warns and falls back to unified so the process
+// keeps starting. This replaces the earlier
 // TestLoad_OrchestrateModeRejectsUnknown.
 func TestLoad_OrchestrateModeUnknownDoesNotReject(t *testing.T) {
 	dir := t.TempDir()
@@ -1401,7 +1401,7 @@ func TestLoad_OrchestrateModeUnknownDoesNotReject(t *testing.T) {
 
 	cfg, err := Load(path, true)
 	if err != nil {
-		t.Fatalf("Load should not fail with unknown orchestrate.mode (M6 behaviour); got %v", err)
+		t.Fatalf("Load should not fail with unknown orchestrate.mode; got %v", err)
 	}
 
 	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
@@ -1422,12 +1422,12 @@ func TestLoad_OrchestrateModeDefaultsToUnified(t *testing.T) {
 	}
 
 	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
-		t.Errorf("mode = %q, want %q (M5 default)", cfg.Orchestrate.Mode, OrchestrateModeUnified)
+		t.Errorf("mode = %q, want %q (legacy default)", cfg.Orchestrate.Mode, OrchestrateModeUnified)
 	}
 }
 
-// TestLoad_WarnsOnStaleOrchestrateKeys pins the M8 contract: when a vv.yaml
-// carries any of the M7-removed orchestrate.* keys (legacy_phase_events,
+// TestLoad_WarnsOnStaleOrchestrateKeys verifies that when a vv.yaml carries
+// any of the removed orchestrate.* keys (legacy_phase_events,
 // summary_policy, replan, fast_path, unified_intent), Load succeeds (the
 // keys are silently ignored on unmarshal) but emits one slog.Warn per key
 // so users see the deprecation surface in their logs.
@@ -1475,10 +1475,10 @@ orchestrate:
 	}
 }
 
-// TestLoad_OrchestrateModeExplicitClassicalRoutesToUnified pins the M6
-// behaviour: an explicit `orchestrate.mode: classical` carried over from an
-// M5 config must normalise to unified at Load time (with a slog.Warn,
-// emitted by ValidateOrchestrateMode) rather than being preserved.
+// TestLoad_OrchestrateModeExplicitClassicalRoutesToUnified verifies that an
+// explicit `orchestrate.mode: classical` carried over from an older config
+// must normalise to unified at Load time (with a slog.Warn emitted by
+// ValidateOrchestrateMode) rather than being preserved.
 func TestLoad_OrchestrateModeExplicitClassicalRoutesToUnified(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -1494,7 +1494,7 @@ func TestLoad_OrchestrateModeExplicitClassicalRoutesToUnified(t *testing.T) {
 	}
 
 	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
-		t.Errorf("mode = %q, want %q — classical must normalise to unified as of M6",
+		t.Errorf("mode = %q, want %q — classical must normalise to unified",
 			cfg.Orchestrate.Mode, OrchestrateModeUnified)
 	}
 }

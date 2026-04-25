@@ -37,10 +37,10 @@ func (pt *phaseTracker) wrap(send func(schema.Event) error) func(schema.Event) e
 	}
 }
 
-// Dispatcher is the unified Primary Assistant entry point. As of M7 its sole
-// job is forwarding requests to the Primary, with a depth-exceed fallback to
-// the degraded (tool-free) Primary persona. The classical
-// fastPath/intent/execute/summarize pipeline retired in M7.
+// Dispatcher is the unified Primary Assistant entry point. Its sole job is
+// to forward requests to the Primary, with a fallback to the degraded
+// (tool-free) Primary persona when recursion depth is exceeded. The
+// classical fastPath/intent/execute/summarize pipeline has been retired.
 type Dispatcher struct {
 	agent.Base
 	llm            aimodel.ChatCompleter
@@ -60,9 +60,9 @@ type Dispatcher struct {
 
 	maxRecursionDepth int
 
-	// primaryAssistant carries the unified Primary; required as of M7 — Run
-	// and RunStream return an error when nil (set via WithPrimaryAssistant
-	// or SetPrimaryAssistant; setup.New always installs one).
+	// primaryAssistant carries the unified Primary; required now — Run and
+	// RunStream return an error when nil (set via WithPrimaryAssistant or
+	// SetPrimaryAssistant; setup.New always installs one).
 	primaryAssistant agent.Agent
 }
 
@@ -113,9 +113,9 @@ func WithMaxConcurrency(n int) Option {
 	}
 }
 
-// WithFallbackAgent sets the fallback agent used on the depth-exceed path.
-// setup.New installs the degraded (tool-free) Primary here so re-entering
-// the dispatcher cannot trigger another recursive cycle.
+// WithFallbackAgent sets the fallback agent used when recursion depth is
+// exceeded. setup.New installs the degraded (tool-free) Primary here so
+// re-entering the dispatcher cannot trigger another recursive cycle.
 func WithFallbackAgent(a agent.Agent) Option {
 	return func(d *Dispatcher) {
 		d.fallbackAgent = a
@@ -172,9 +172,9 @@ func WithProjectInstructions(instructions string) Option {
 	}
 }
 
-// WithPrimaryAssistant attaches the unified Primary Assistant. Required as
-// of M7 — the Dispatcher returns an error from Run / RunStream when no
-// Primary is attached.
+// WithPrimaryAssistant attaches the unified Primary Assistant. The
+// Dispatcher returns an error from Run / RunStream when no Primary is
+// attached.
 //
 // Tool wiring (delegate_to_<agent>, plan_task, read/glob/grep, todo_write,
 // ask_user) is the caller's responsibility — this Option only records the
@@ -194,9 +194,8 @@ func (d *Dispatcher) SetPrimaryAssistant(a agent.Agent) {
 }
 
 // SetFallbackAgent installs or replaces the fallback agent after
-// construction. Used by setup.New to swap in the degraded (tool-free)
-// Primary so the depth-exceed early-return keeps answering via the Primary
-// persona.
+// construction. setup.New uses it to swap in the degraded (tool-free)
+// Primary so the depth-exceeded path still answers in the Primary persona.
 func (d *Dispatcher) SetFallbackAgent(a agent.Agent) {
 	d.fallbackAgent = a
 }
@@ -226,7 +225,7 @@ func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.R
 	}
 
 	if d.primaryAssistant == nil {
-		return nil, fmt.Errorf("dispatcher: primary assistant required (classical pipeline removed in M7)")
+		return nil, fmt.Errorf("dispatcher: primary assistant required (classical pipeline removed)")
 	}
 
 	return d.runPrimary(ctx, req)
@@ -235,7 +234,7 @@ func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.R
 // RunStream implements agent.StreamAgent. Same semantics as Run; on the
 // depth-exceed fallback path a static `summarize` phase event is emitted
 // after the fallback stream so HTTP / SSE consumers see the same event-flow
-// shape as the main path (M7 G4 — zero LLM calls; the Summary text is a
+// shape as the main path (zero LLM calls; the Summary text is a
 // fixed sentinel rather than a real summarisation).
 func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
 	return schema.NewRunStream(ctx, agent.DefaultStreamBufferSize, func(ctx context.Context, send func(schema.Event) error) error {
@@ -247,7 +246,7 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 			if err := d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID); err != nil {
 				return err
 			}
-			// M7 G4: emit a static summarize phase pair so consumers that key
+			// Emit a static summarize phase pair so consumers that key
 			// off the main-path summarize event still see one on the
 			// fallback path. Zero LLM calls — keeping the "cheap fallback"
 			// invariant intact.
@@ -265,7 +264,7 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 		}
 
 		if d.primaryAssistant == nil {
-			return fmt.Errorf("dispatcher: primary assistant required (classical pipeline removed in M7)")
+			return fmt.Errorf("dispatcher: primary assistant required (classical pipeline removed)")
 		}
 
 		return d.runPrimaryStream(ctx, send, req, agentID, sessionID)

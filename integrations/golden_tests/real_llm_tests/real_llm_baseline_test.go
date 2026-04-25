@@ -89,7 +89,7 @@ type caseResult struct {
 	Reply            string `json:"reply_excerpt"`
 }
 
-// runRealCase boots a fresh dispatcher (always-unified after M6) and runs
+// runRealCase boots a fresh dispatcher in unified mode and runs
 // one user prompt end-to-end, recording timing and usage. Wrapped in a
 // 60-second context budget to avoid hanging CI.
 func runRealCase(t *testing.T, name, userPrompt string) caseResult {
@@ -227,7 +227,7 @@ func TestRealLLM_Golden(t *testing.T) {
 		}
 	}
 
-	// M7-3 drift gate: when baseline_committed.json carries non-zero P50
+	// Drift gate: when baseline_committed.json carries non-zero P50
 	// values for a case, fail if this run drifts by more than ±50%. Wide
 	// window because the committed baseline is currently a single
 	// data-point — once 4–8 weekly cron runs accumulate the maintainer can

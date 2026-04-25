@@ -270,8 +270,7 @@ func TestIntegration_AskUser_ToolRegistration(t *testing.T) {
 		}
 	}
 
-	// chat agent was removed in M6 G2; coder/researcher/reviewer above
-	// already cover the dispatchable surface.
+	// coder/researcher/reviewer above already cover the dispatchable surface.
 
 	// Verify dispatcher was created.
 	if result.Dispatcher == nil {

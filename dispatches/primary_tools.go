@@ -148,17 +148,17 @@ func newDelegateHandler(ag agent.Agent) tool.ToolHandler {
 	}
 }
 
-// planTaskArgs mirrors the M2 unified-intent plan_task parameters so the LLM
-// can pass identical structures whether it picks plan_task at the dispatcher
-// gate (M2) or as a Primary tool (M4).
+// planTaskArgs mirrors the unified plan_task parameters so the LLM can pass
+// identical structures whether it picks plan_task at the dispatcher gate or
+// as a Primary tool.
 type primaryPlanTaskArgs struct {
 	Goal  string     `json:"goal"`
 	Steps []PlanStep `json:"steps"`
 }
 
 // planTaskParameters returns the JSON Schema for the plan_task tool. Kept in
-// lockstep with the M2 unifiedIntentTools schema so prompt-cache friendly
-// schemas can be reused across both call sites.
+// lockstep with the dispatcher-side schema so prompt-cache friendly schemas
+// can be reused across both call sites.
 func planTaskParameters() map[string]any {
 	return map[string]any{
 		"type": "object",

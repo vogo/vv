@@ -10,10 +10,10 @@ import (
 	"github.com/vogo/vv/debugs"
 )
 
-// PrimaryPhase is the Phase label streamed for the single relay to the
-// Primary Assistant. Named apart from the classical "intent"/"execute"
-// phases so dashboards can cleanly distinguish unified-mode traffic from
-// the M1/M2/M3 pipeline shapes.
+// PrimaryPhase is the phase label streamed for the single relay to the
+// Primary Assistant. It stays distinct from the classical "intent" and
+// "execute" phases so dashboards can distinguish unified-mode traffic from
+// legacy pipeline shapes.
 const PrimaryPhase = "unified_primary"
 
 // runPrimary is the non-streaming unified-mode entry point. It forwards the
@@ -88,14 +88,14 @@ func (d *Dispatcher) runPrimaryStream(
 
 // RunPlan implements PlanExecutor, exposing the dispatcher's existing plan
 // execution path as a public interface so the Primary Assistant's plan_task
-// tool can drive a DAG through the same machinery the classical plan-mode
-// path uses. Kept as a thin wrapper around runPlan so there is a single
-// source of truth for DAG behaviour (aggregator, concurrency, replanning).
+// tool can drive a DAG through the same machinery the older plan-mode path
+// used. Kept as a thin wrapper around runPlan so there is a single source of
+// truth for DAG behaviour (aggregator, concurrency, replanning).
 //
-// classifyUsage is unused (no intent phase in unified mode), so it is passed
-// as nil. contextSummary is likewise empty; the Primary has already done any
-// investigation via its read tools and baked the relevant facts into the
-// plan's step descriptions.
+// classifyUsage is unused in unified mode, so it is passed as nil.
+// contextSummary is likewise empty; the Primary has already gathered the
+// relevant facts through its read tools and baked them into the plan step
+// descriptions.
 func (d *Dispatcher) RunPlan(ctx context.Context, plan *Plan, req *schema.RunRequest) (*schema.RunResponse, error) {
 	return d.runPlan(ctx, req, plan, nil, "")
 }

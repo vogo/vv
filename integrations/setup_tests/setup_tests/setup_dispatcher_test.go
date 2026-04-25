@@ -25,7 +25,7 @@ import (
 // Verifies that setup.New() produces agents and a Dispatcher that work with the HTTP service.
 // Test cases:
 //   - Health endpoint returns 200 OK
-//   - Agent listing returns 4 agents (orchestrator + 3 dispatchable; chat removed in M6 G2)
+//   - Agent listing returns 4 agents (orchestrator + 3 dispatchable)
 //   - Tools listing returns 6 tools
 //   - Agent detail for "orchestrator" returns correct ID
 func TestIntegration_SetupNew_FullWiringHTTP(t *testing.T) {
@@ -99,7 +99,7 @@ agents:
 		t.Errorf("health status = %d", healthResp.StatusCode)
 	}
 
-	// Agents listing -- 4 agents (orchestrator + coder + researcher + reviewer; chat removed in M6 G2).
+	// Agents listing -- 4 agents (orchestrator + coder + researcher + reviewer).
 	agentsResp, err := client.Get(ts.URL + "/v1/agents")
 	if err != nil {
 		t.Fatalf("agents: %v", err)

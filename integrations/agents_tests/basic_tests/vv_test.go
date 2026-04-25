@@ -45,7 +45,7 @@ func TestIntegration_VV_Init(t *testing.T) {
 		t.Errorf("Dispatcher ID = %q, want %q", initResult.SetupResult.Dispatcher.ID(), "orchestrator")
 	}
 
-	// Verify all dispatchable agents are available (chat removed in M6 G2).
+	// Verify all dispatchable agents are available.
 	for _, id := range []string{"coder", "researcher", "reviewer"} {
 		a := initResult.SetupResult.Agent(id)
 		if a == nil {
@@ -110,7 +110,7 @@ func TestIntegration_VV_RunPrompt(t *testing.T) {
 
 // TestIntegration_VV_RunSubAgent tests running a specific sub-agent
 // directly, bypassing the dispatcher's classify/explore phases. Researcher
-// is used as the smoke target because the chat agent was removed in M6.
+// is used as the smoke target because it is the lightest dispatchable agent.
 func TestIntegration_VV_RunSubAgent(t *testing.T) {
 	configPath := configs.DefaultPath()
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {

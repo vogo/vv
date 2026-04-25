@@ -7,9 +7,9 @@ import (
 	"github.com/vogo/vv/registries"
 )
 
-// PrimaryAgentID is the registry identifier for the Primary Assistant (design
-// M4). Kept as a constant so setup code, dispatcher wiring, and tests reference
-// the same key.
+// PrimaryAgentID is the registry identifier for the Primary Assistant. Kept
+// as a constant so setup code, dispatcher wiring, and tests reference the
+// same key.
 const PrimaryAgentID = "primary"
 
 // PrimarySystemPrompt is the system prompt for the Primary Assistant — the

@@ -2,8 +2,8 @@ package agents
 
 // FallbackChatPrompt is the system prompt for the degraded fallback Primary
 // (the no-tool agent attached via Dispatcher.SetFallbackAgent). It is also
-// the prompt the M5 chat sub-agent shipped with — kept under a more
-// accurate name now that chat itself is gone (design M6 G2).
+// this prompt originated in the earlier chat sub-agent and is kept under a
+// clearer name now that chat itself is gone.
 const FallbackChatPrompt = `You are a helpful, knowledgeable assistant. You provide accurate, clear, and well-structured responses.
 
 ## Guidelines

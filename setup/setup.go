@@ -76,11 +76,11 @@ type Options struct {
 	HookManager      *hook.Manager                          // optional: pre-built event bus; injected into every TaskAgent
 
 	// RouterLLM / RouterModel configure the Dispatcher's dedicated routing
-	// LLM client (design M3). When both are non-zero, Dispatcher routing
-	// calls (intent, unified_intent, classify, reassess) use this client
-	// instead of the main LLM. Populated by Init when
-	// cfg.Orchestrate.Router.Model is set; external callers of setup.New
-	// may leave both zero to keep the pre-M3 behaviour.
+	// LLM client. When both are non-zero, Dispatcher routing calls (intent,
+	// unified_intent, classify, reassess) use this client instead of the
+	// main LLM. Init populates them when cfg.Orchestrate.Router.Model is
+	// set; external callers of setup.New may leave both zero to keep the
+	// legacy behaviour.
 	RouterLLM   aimodel.ChatCompleter
 	RouterModel string
 }
@@ -108,9 +108,9 @@ func New(
 		regOpts = append(regOpts, registries.WithPathGuardian(pathGuardian))
 	}
 
-	// 1. Create registry and register all agents. As of M6 the chat and
-	// explorer agents are gone: the unified Primary Assistant covers chat
-	// inline (no tools) and exploration via its read/glob/grep tools.
+	// 1. Create the registry and register all agents. The chat and explorer
+	// agents are gone: the unified Primary Assistant handles chat inline (no
+	// tools) and exploration via its read/glob/grep tools.
 	reg := registries.New()
 	agents.RegisterCoder(reg)
 	agents.RegisterResearcher(reg)
@@ -226,11 +226,12 @@ func New(
 		maxRecursionDepth = 2
 	}
 
-	// 7. Construct dispatcher. As of M7 the dispatcher is unified-only: it
-	// forwards to the Primary Assistant (attached below) with a depth-exceed
-	// fallback to the degraded Primary. Stale orchestrate.* YAML keys
-	// (summary_policy, replan, fast_path, unified_intent, legacy_phase_events)
-	// are silently ignored — Load surfaces a slog.Warn for any stale key.
+	// 7. Construct the dispatcher. It is unified only: it forwards to the
+	// Primary Assistant (attached below) with a fallback to the degraded
+	// Primary when recursion depth is exceeded. Stale orchestrate.* YAML
+	// keys (summary_policy, replan, fast_path, unified_intent,
+	// legacy_phase_events) are silently ignored — Load surfaces a slog.Warn
+	// for any stale key.
 	dispatcher := dispatches.New(
 		reg,
 		subAgents,
@@ -246,9 +247,8 @@ func New(
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
 	)
 
-	// 11. Build the Primary Assistant and the fallback Primary, then
-	// attach both to the dispatcher (design M4 / M5 G3, made unconditional
-	// in M6: the classical mode branch was removed).
+	// 11. Build the Primary Assistant and the fallback Primary, then attach
+	// both to the dispatcher.
 	//
 	// Constructed AFTER the dispatcher because the plan_task tool that the
 	// Primary carries needs a PlanExecutor handle on the dispatcher, and
@@ -263,9 +263,8 @@ func New(
 
 	// The fallback path (depth >= maxRecursionDepth, or mid-stream
 	// classification failure) reuses the Primary persona via a degraded
-	// Primary that has NO tools — same system prompt, but no
-	// delegate/plan/bash so re-entering it cannot trigger another
-	// recursive dispatch cycle. This is the M5 G3 R2 guard, kept intact.
+	// Primary with no tools — same system prompt, but no delegate/plan/bash
+	// so re-entering it cannot trigger another recursive dispatch cycle.
 	fallbackPrimary, err := buildFallbackPrimary(cfg, llm, memMgr, opts)
 	if err != nil {
 		return nil, fmt.Errorf("build fallback primary: %w", err)
@@ -284,7 +283,7 @@ func New(
 }
 
 // buildPrimaryAssistant assembles the Primary Assistant agent for unified
-// mode (design M4). The tool set combines the read-only file tools
+// mode. The tool set combines the read-only file tools
 // (read/glob/grep) with todo_write, ask_user, the per-specialist
 // delegate_to_<agent> tools, and plan_task. The final registry passes
 // through the same permission / truncation / debug wrapping chain applied
@@ -382,7 +381,7 @@ func buildPrimaryAssistant(
 // Assistant's toolset is built from. Default = ProfileReadOnly
 // (read/glob/grep), matching the researcher agent's wiring so the
 // path-guard plumbing stays consistent. When
-// orchestrate.primary_allow_bash is set (design M6 G1) we promote to
+// orchestrate.primary_allow_bash is set we promote to
 // ProfileReview, the same capability set reviewer uses
 // (read/glob/grep + bash), so single-line shell tasks like
 // `calc`/`echo`/`ls` finish inline without a delegate_to_coder round-trip.
@@ -403,7 +402,7 @@ func primaryToolProfile(cfg *configs.Config) registries.ToolProfile {
 // fallback path needs: if we have already recursed to maxRecursionDepth or
 // we are salvaging a failed classification, re-entering any tool that could
 // call back into a sub-agent (and therefore back into the dispatcher) is a
-// silent infinite-recursion risk (see M5 spec R2).
+// silent infinite-recursion risk.
 //
 // System prompt and identity stay aligned with the main Primary so the user
 // sees a consistent persona; the Factory wiring is reused via
@@ -438,7 +437,7 @@ func buildFallbackPrimary(
 }
 
 // wrapLLMClient applies the same middleware chain (debug → budget) that Init
-// layers on top of every aimodel.Client it constructs. Extracted so the M3
+// layers on top of every aimodel.Client it constructs. Extracted so the
 // router client picks up identical observability and enforcement without
 // duplicating setup code.
 func wrapLLMClient(
@@ -615,8 +614,8 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	sessionBudget, dailyBudget := buildBudgetTrackers(cfg.Budget)
 	wrappedLLM := wrapLLMClient(llmClient, cfg, cfg.LLM.Model, opts, sessionBudget, dailyBudget)
 
-	// Router LLM (design M3) — when Orchestrate.Router.Model is set, build a
-	// second client dedicated to Dispatcher routing/classification calls. It
+	// Router LLM — when Orchestrate.Router.Model is set, build a second
+	// client dedicated to Dispatcher routing/classification calls. It
 	// receives the same debug + budget middleware wrap so observability and
 	// per-session spend limits cover both models; pricing is looked up
 	// against the router's model so the cheaper routing calls are billed

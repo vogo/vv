@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`vv` is a Go CLI/HTTP agent application built on the `vage` framework and `aimodel` SDK. As of M7 the dispatch pipeline is **unified-only**: every request flows through a single Primary Assistant that owns its own tool-driven decision loop (`answer_directly` / `delegate_to_<agent>` / `plan_task`). Specialist sub-agents (coder, researcher, reviewer) are reached only by the Primary delegating to them via tool calls; there is no separate intent recognition / execute / summarize pipeline anymore (those phases were retired in M7). This is one module in a multi-module monorepo; see the parent `CLAUDE.md` for the full picture.
+`vv` is a Go CLI/HTTP agent application built on the `vage` framework and `aimodel` SDK. The dispatch pipeline is unified only: every request flows through a single Primary Assistant that owns its own tool-driven control loop (`answer_directly` / `delegate_to_<agent>` / `plan_task`). Specialist sub-agents (coder, researcher, reviewer) are reached only when the Primary delegates to them via tool calls; there is no separate intent recognition / execute / summarize pipeline anymore. This is one module in a multi-module monorepo; see the parent `CLAUDE.md` for the full picture.
 
 ## Build & Test
 
@@ -29,11 +29,11 @@ Dependencies use local `replace` directives (`../aimodel`, `../vage`), so change
 
 ### Dispatch Pipeline (`dispatches/`)
 
-The `Dispatcher` implements `agent.StreamAgent`. As of M7 it is a thin forwarder:
+The `Dispatcher` implements `agent.StreamAgent`. It is a thin forwarder:
 
-1. **`Run` / `RunStream`** — depth-exceed fallback (degraded Primary, no tools) → otherwise → `runPrimary` / `runPrimaryStream` which forwards the whole request to `d.primaryAssistant`. Nil Primary returns an error; production code wires it through `setup.New`.
+1. **`Run` / `RunStream`** — when recursion depth is exceeded, it falls back to the degraded Primary (no tools); otherwise it calls `runPrimary` / `runPrimaryStream`, which forwards the whole request to `d.primaryAssistant`. Nil Primary returns an error; production code wires it through `setup.New`.
 2. **Plan execution** (`dag.go` + `primary_tools.go`) — exposed to the Primary as the `plan_task` tool; the Primary chooses to fan out a DAG when the task spans multiple capabilities. `Dispatcher.RunPlan` is the synchronous entry point used by `plan_task`'s tool handler.
-3. **Streaming on the depth-exceed path** emits a static `summarize` phase pair (M7 G4) so HTTP / SSE consumers see the same event-flow shape as the main path with zero LLM calls.
+3. **Streaming on the depth-exceed path** emits a static `summarize` phase pair so HTTP / SSE consumers see the same event flow as the main path, with zero LLM calls.
 
 Key files: `depth.go` (recursion depth control via context), `types.go` (`ClassifyResult`, `Plan`, `PlanStep`, `DynamicAgentSpec`, `PlanAggregator`, `SummaryPolicy`/`ReplanPolicy` retained as types but no longer wired into dispatch), `primary_tools.go` (`delegate_to_*` / `plan_task` tool registration).
 
@@ -59,7 +59,7 @@ Bubble Tea TUI with:
 
 YAML at `~/.vv/vv.yaml`. Key sections: `llm` (provider, model, api_key, base_url), `server` (addr), `tools` (bash_timeout, bash_working_dir), `agents` (max_iterations), `cli` (permission_mode, deprecated confirm_tools), `memory`, `orchestrate` (max_concurrency, max_recursion_depth, primary_allow_bash). Environment overrides: `VV_LLM_API_KEY`, `VV_LLM_BASE_URL`, `VV_LLM_MODEL`, `VV_LLM_PROVIDER`, `VV_MODE`, `VV_SERVER_ADDR`, `VV_PERMISSION_MODE`, `VV_PRIMARY_ALLOW_BASH`. CLI flag: `--permission-mode`.
 
-Stale orchestrate.* keys retained as YAML fields for backwards compatibility but **silently ignored** as of M7: `mode`, `legacy_phase_events`, `summary_policy`, `replan`, `fast_path`, `unified_intent`. `orchestrate.mode=classical` and `VV_ORCHESTRATE_LEGACY_PHASE_EVENTS=*` log a `slog.Warn` at Load.
+Legacy `orchestrate.*` keys remain in the YAML schema for compatibility, but they are **silently ignored**: `mode`, `legacy_phase_events`, `summary_policy`, `replan`, `fast_path`, `unified_intent`. `orchestrate.mode=classical` and `VV_ORCHESTRATE_LEGACY_PHASE_EVENTS=*` log a `slog.Warn` at Load.
 
 ## Conventions
 

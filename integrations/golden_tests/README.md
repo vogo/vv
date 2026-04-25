@@ -1,6 +1,6 @@
 # Golden Tests
 
-As of M7 the mock golden package was retired (it covered the now-removed
+The mock golden package was retired (it covered the now-removed
 classical pipeline). Coverage of the unified Primary path lives in the
 `dispatches` unit tests and `dispatches_tests` integration suite. The real
 LLM golden remains as the long-running performance baseline.
@@ -41,7 +41,7 @@ optional repo variables before enabling cron in earnest:
 Each run uploads `baseline.json` (per-case latency_ms + token counts) as
 an artifact retained for 90 days. Diff successive runs to spot drift.
 
-### Drift gate (M7)
+### Drift gate
 
 `real_llm_tests/baseline_committed.json` carries the **P50 reference**
 the test compares each run against. Out-of-window cases (default
@@ -69,7 +69,7 @@ or just committed without data yet.
 ## Maintainer runbook — keeping the drift gate honest
 
 This section is the operational playbook that turns `baseline_committed.json`
-from the empty-placeholder state shipped in M7 into a meaningful regression
+from the empty-placeholder state into a meaningful regression
 alarm. **Total maintainer effort: ~3 manual PRs over ~3 months**; everything
 else runs on the weekly cron unattended.
 
@@ -179,7 +179,7 @@ large.
   cron failures to repo watchers; you don't need to log in and check.
 - **Local script `scripts/run-golden-real-llm.sh`**: only used for one-off
   troubleshooting; the cron is the canonical signal source.
-- **Mock golden tests**: retired in M7; nothing to maintain there.
+- **Mock golden tests**: retired; nothing to maintain there.
 
 ### Reading `baseline.json` (artifact, per-run snapshot)
 

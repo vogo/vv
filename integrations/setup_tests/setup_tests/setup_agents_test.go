@@ -39,7 +39,7 @@ func TestIntegration_SetupNew_AllAgentsCreated(t *testing.T) {
 		t.Errorf("Dispatcher ID = %q, want %q", result.Dispatcher.ID(), "orchestrator")
 	}
 
-	// Verify the 3 dispatchable agents (chat removed in M6 G2).
+	// Verify the 3 dispatchable agents.
 	for _, id := range []string{"coder", "researcher", "reviewer"} {
 		a := result.Agent(id)
 		if a == nil {

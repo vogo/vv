@@ -58,9 +58,9 @@ func TestRun_UnifiedMode_ForwardsToPrimary(t *testing.T) {
 	}
 }
 
-// TestRun_NilPrimary_ReturnsError pins the M7 behavior: when no Primary is
+// TestRun_NilPrimary_ReturnsError verifies that when no Primary is
 // attached, Run must return an error rather than silently falling back to
-// any classical pipeline (which was removed in M7).
+// any classical pipeline.
 func TestRun_NilPrimary_ReturnsError(t *testing.T) {
 	reg := newTestRegistry()
 	chat := &stubAgent{id: "chat"}
@@ -84,7 +84,7 @@ func TestRun_NilPrimary_ReturnsError(t *testing.T) {
 	}
 
 	if chat.ranCount() != 0 {
-		t.Errorf("chat.ranCount = %d, want 0 (no classical fallback after M7)", chat.ranCount())
+		t.Errorf("chat.ranCount = %d, want 0 (no classical fallback)", chat.ranCount())
 	}
 }
 
@@ -306,11 +306,11 @@ func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 	}
 }
 
-// TestRunStream_DepthExceeded_EmitsStaticSummarizePhase pins the M7 G4
-// contract: when the recursion-depth fallback fires, the dispatcher emits
-// a static `summarize` phase pair after the fallback stream so HTTP / SSE
-// consumers see the same event-flow shape as the main path. The Summary
-// text is a fixed sentinel; no LLM call happens.
+// TestRunStream_DepthExceeded_EmitsStaticSummarizePhase verifies that when
+// the recursion-depth fallback fires, the dispatcher emits a static
+// `summarize` phase pair after the fallback stream so HTTP / SSE consumers
+// see the same event-flow shape as the main path. The Summary text is a
+// fixed sentinel; no LLM call happens.
 func TestRunStream_DepthExceeded_EmitsStaticSummarizePhase(t *testing.T) {
 	reg := newTestRegistry()
 	chat := &stubAgent{id: "chat"}

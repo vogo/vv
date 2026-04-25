@@ -52,7 +52,7 @@ func TestNew_AllAgentsCreated(t *testing.T) {
 		t.Errorf("Dispatcher ID = %q, want %q", result.Dispatcher.ID(), "orchestrator")
 	}
 
-	// Verify all dispatchable agents (chat removed in M6 G2).
+	// Verify all dispatchable agents.
 	for _, id := range []string{"coder", "researcher", "reviewer"} {
 		a := result.Agent(id)
 		if a == nil {
@@ -113,7 +113,7 @@ func TestNew_AgentsReturnsAllDispatchable(t *testing.T) {
 
 	agents := result.Agents()
 	if len(agents) != 3 {
-		t.Errorf("Agents() = %d, want 3 (coder, researcher, reviewer; chat removed in M6 G2)", len(agents))
+		t.Errorf("Agents() = %d, want 3 (coder, researcher, reviewer)", len(agents))
 	}
 }
 
@@ -371,7 +371,7 @@ func TestNew_AgentNotFound(t *testing.T) {
 	}
 }
 
-// TestPrimaryToolProfile_AllowBashSwitch pins the M6 G1 contract:
+// TestPrimaryToolProfile_AllowBashSwitch verifies the env contract:
 // orchestrate.primary_allow_bash gates whether the Primary Assistant's
 // tool registry is built from ProfileReadOnly (read/glob/grep) or the
 // promoted ProfileReview (read/glob/grep + bash). The fallback Primary
