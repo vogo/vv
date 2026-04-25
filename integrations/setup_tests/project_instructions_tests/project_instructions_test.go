@@ -53,8 +53,6 @@ func TestIntegration_NoVVMd_UnchangedBehavior(t *testing.T) {
 		Orchestrate: configs.OrchestrateConfig{
 			MaxConcurrency:    2,
 			MaxRecursionDepth: 2,
-			SummaryPolicy:     "auto",
-			Replan:            configs.ReplanConfig{MaxReplans: 2},
 		},
 	}
 
@@ -177,8 +175,6 @@ func TestIntegration_EndToEnd_WithVVMd(t *testing.T) {
 		Orchestrate: configs.OrchestrateConfig{
 			MaxConcurrency:    2,
 			MaxRecursionDepth: 2,
-			SummaryPolicy:     "auto",
-			Replan:            configs.ReplanConfig{MaxReplans: 2},
 		},
 		ProjectInstructions: vvmdContent,
 	}
@@ -301,8 +297,6 @@ func TestIntegration_PresetProjectInstructions_NotOverwritten(t *testing.T) {
 		Orchestrate: configs.OrchestrateConfig{
 			MaxConcurrency:    2,
 			MaxRecursionDepth: 2,
-			SummaryPolicy:     "auto",
-			Replan:            configs.ReplanConfig{MaxReplans: 2},
 		},
 		ProjectInstructions: presetInstructions,
 	}
@@ -463,8 +457,6 @@ func TestIntegration_AllAgentFactories_WithProjectInstructions(t *testing.T) {
 		Orchestrate: configs.OrchestrateConfig{
 			MaxConcurrency:    2,
 			MaxRecursionDepth: 2,
-			SummaryPolicy:     "auto",
-			Replan:            configs.ReplanConfig{MaxReplans: 2},
 		},
 		ProjectInstructions: instructions,
 	}

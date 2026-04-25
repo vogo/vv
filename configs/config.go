@@ -53,52 +53,71 @@ func ValidateMemoryBackend(backend string) (string, error) {
 
 // OrchestrateConfig holds orchestration configuration.
 type OrchestrateConfig struct {
-	MaxConcurrency    int            `yaml:"max_concurrency"`     // DAG concurrency, default 2
-	MaxRecursionDepth int            `yaml:"max_recursion_depth"` // max nesting depth, default 2
-	SummaryPolicy     string         `yaml:"summary_policy"`      // auto/always/never
-	Replan            ReplanConfig   `yaml:"replan"`
-	FastPath          FastPathConfig `yaml:"fast_path,omitempty"`
-
-	// UnifiedIntent, when true, folds intent classification and direct answering
-	// into a single tool-calling LLM invocation (design M2). The model picks one
-	// of three tools: answer_directly / delegate_to / plan_task. When it answers
-	// directly, the dispatcher skips executeTask, cutting the common
-	// greeting/Q&A path from two LLM calls to one. Default false; opt-in while
-	// the feature is under evaluation.
-	UnifiedIntent bool `yaml:"unified_intent,omitempty"`
+	MaxConcurrency    int `yaml:"max_concurrency"`     // DAG concurrency, default 2
+	MaxRecursionDepth int `yaml:"max_recursion_depth"` // max nesting depth, default 2
 
 	// Router optionally points the dispatcher's routing/classification LLM
-	// calls (intent recognition, unified-intent tool-calling, classify and
-	// reassess) at a cheaper/smaller model such as claude-haiku-4-5 (design
-	// M3). Any empty field inherits from Config.LLM; an empty Router.Model
-	// leaves the feature disabled and the main model keeps handling routing.
+	// calls at a cheaper/smaller model. Any empty field inherits from
+	// Config.LLM; an empty Router.Model leaves the feature disabled.
 	Router LLMConfig `yaml:"router,omitempty"`
 
 	// Mode is kept as a YAML field only for backwards compatibility with
 	// M4–M6 configs. As of M7 only the unified Primary Assistant pipeline
 	// exists and the field is silently normalised to "unified" by
 	// ValidateOrchestrateMode; any other value (including the long-removed
-	// "classical") emits a slog.Warn but does not abort startup. Stale
-	// orchestrate.* keys (legacy_phase_events, fast_path, unified_intent,
-	// summary_policy, replan) are ignored similarly — a single
-	// "stale orchestrate keys" warning surfaces in Load.
+	// "classical") emits a slog.Warn but does not abort startup. Other
+	// stale orchestrate.* keys (legacy_phase_events, fast_path,
+	// unified_intent, summary_policy, replan) trigger one slog.Warn per
+	// key during Load via the raw-YAML stale-key sweep.
 	Mode string `yaml:"mode,omitempty"`
 
 	// PrimaryAllowBash, when true, mounts the bash tool on the Primary
-	// Assistant so single-line shell tasks (calc, grep | wc, etc.) finish
-	// inline without having to delegate_to_coder for one round-trip
-	// (design M6). Off by default — keeping the Primary read-only mirrors
-	// the M5 ProfileReadOnly guarantee that surprised users by accident
-	// cannot run a destructive command from the Primary persona. The
-	// env override is `VV_PRIMARY_ALLOW_BASH=true|false`. The fallback
-	// (depth-exceeded) Primary never honours this flag — it stays
-	// tool-free regardless to keep the R2 recursion guard intact.
+	// Assistant so single-line shell tasks finish inline without
+	// delegate_to_coder. Off by default. Env override:
+	// VV_PRIMARY_ALLOW_BASH. The fallback (depth-exceeded) Primary
+	// always stays tool-free regardless.
 	PrimaryAllowBash bool `yaml:"primary_allow_bash,omitempty"`
 }
 
 // OrchestrateModeUnified is the only supported orchestrate pipeline as of
 // M7. Empty `orchestrate.mode` normalises to this value.
 const OrchestrateModeUnified = "unified"
+
+// staleOrchestrateKeys lists YAML keys under `orchestrate:` that were
+// removed in M7 along with the classical pipeline. They are silently
+// dropped on unmarshal (the struct fields no longer exist), but Load
+// surfaces a slog.Warn per occurrence so existing vv.yaml files surface
+// the deprecation rather than vanish silently.
+var staleOrchestrateKeys = []string{
+	"summary_policy",
+	"replan",
+	"fast_path",
+	"unified_intent",
+	"legacy_phase_events",
+}
+
+// warnStaleOrchestrateKeys re-parses raw YAML so it can detect `orchestrate.*`
+// keys that no longer have a struct field to land on. Anything other than a
+// well-formed YAML mapping is treated as "no warnings" — the strict
+// unmarshal in Load already surfaced syntax errors.
+func warnStaleOrchestrateKeys(data []byte) {
+	var raw struct {
+		Orchestrate map[string]any `yaml:"orchestrate"`
+	}
+
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return
+	}
+
+	for _, key := range staleOrchestrateKeys {
+		if _, present := raw.Orchestrate[key]; present {
+			slog.Warn(
+				"vv: orchestrate."+key+" is deprecated as of M7; the key is silently ignored",
+				"key", key,
+			)
+		}
+	}
+}
 
 // ValidateOrchestrateMode normalises mode strings. As of M7 the unified
 // pipeline is the sole supported path; "" / "unified" pass through, any
@@ -121,41 +140,6 @@ func ValidateOrchestrateMode(mode string) (string, error) {
 
 		return OrchestrateModeUnified, nil
 	}
-}
-
-// ReplanConfig holds replanning configuration.
-type ReplanConfig struct {
-	TriggerOnFailure   bool `yaml:"trigger_on_failure"`
-	TriggerOnDeviation bool `yaml:"trigger_on_deviation"` // reserved for future use
-	MaxReplans         int  `yaml:"max_replans"`
-}
-
-// FastPathConfig controls the dispatcher's heuristic short-circuit. When
-// Enabled (default) and a greeting or shell-like prefix matches the user's
-// message, the dispatcher bypasses intent recognition and routes directly.
-//
-// Passing nil slices keeps the built-in defaults; passing explicit empty
-// slices disables that category.
-type FastPathConfig struct {
-	// Enabled gates the feature. nil means "use the default" (true).
-	Enabled *bool `yaml:"enabled,omitempty"`
-
-	// MaxChars caps the rune length of the matched user message. 0 uses the
-	// built-in default (60).
-	MaxChars int `yaml:"max_chars,omitempty"`
-
-	// GreetingPatterns overrides the default greeting regex set. nil keeps
-	// defaults; [] disables the category.
-	GreetingPatterns []string `yaml:"greeting_patterns,omitempty"`
-
-	// ToolTriggerPatterns overrides the default shell-trigger regex set.
-	// nil keeps defaults; [] disables the category.
-	ToolTriggerPatterns []string `yaml:"tool_trigger_patterns,omitempty"`
-}
-
-// IsEnabled returns true unless the user explicitly set enabled: false.
-func (c FastPathConfig) IsEnabled() bool {
-	return c.Enabled == nil || *c.Enabled
 }
 
 // DefaultDir returns the default vv config directory (~/.vv).
@@ -511,6 +495,8 @@ func Load(path string, explicit bool) (*Config, error) {
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("parse config file %s: %w", path, err)
 		}
+
+		warnStaleOrchestrateKeys(data)
 	}
 
 	// Apply environment variable overrides.
@@ -933,14 +919,6 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.Orchestrate.MaxRecursionDepth == 0 {
 		cfg.Orchestrate.MaxRecursionDepth = 2
-	}
-
-	if cfg.Orchestrate.SummaryPolicy == "" {
-		cfg.Orchestrate.SummaryPolicy = "auto"
-	}
-
-	if cfg.Orchestrate.Replan.MaxReplans == 0 {
-		cfg.Orchestrate.Replan.MaxReplans = 2
 	}
 
 	// Context compression defaults.

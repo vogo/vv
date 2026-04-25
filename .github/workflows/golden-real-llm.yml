@@ -1,0 +1,63 @@
+name: golden-real-llm
+
+# M6 G5: weekly real-LLM golden baseline.
+#
+# Mock-LLM golden tests run on every PR (vv/integrations/golden_tests/golden_tests/).
+# THIS workflow is different: it executes the same five cases against the
+# real configured LLM and uploads a baseline.json artifact so latency /
+# token usage trends can be diffed week over week.
+#
+# Triggers:
+#   - schedule: every Monday at 03:00 UTC
+#   - workflow_dispatch: manually from the Actions tab
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Real-LLM golden baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Pulled from repository secrets. Keep one of these populated for the
+      # workflow to actually exercise the LLM; the test package skips
+      # cleanly when none is set so a missing secret is non-fatal.
+      VV_LLM_API_KEY: ${{ secrets.VV_LLM_API_KEY }}
+      AI_API_KEY: ${{ secrets.AI_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Optional model / provider / base-url overrides — wire as repo
+      # variables (not secrets) so they are visible in the run log.
+      VV_LLM_PROVIDER: ${{ vars.VV_LLM_PROVIDER }}
+      VV_LLM_MODEL: ${{ vars.VV_LLM_MODEL }}
+      VV_LLM_BASE_URL: ${{ vars.VV_LLM_BASE_URL }}
+      VV_GOLDEN_BASELINE_OUT: ${{ github.workspace }}/integrations/golden_tests/real_llm_tests/baseline.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run real-LLM golden suite
+        run: bash scripts/run-golden-real-llm.sh
+
+      - name: Upload baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-real-llm-baseline-${{ github.run_id }}
+          path: integrations/golden_tests/real_llm_tests/baseline.json
+          if-no-files-found: warn
+          retention-days: 90

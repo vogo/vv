@@ -2,6 +2,7 @@ package configs
 
 import (
 	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1422,6 +1423,55 @@ func TestLoad_OrchestrateModeDefaultsToUnified(t *testing.T) {
 
 	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
 		t.Errorf("mode = %q, want %q (M5 default)", cfg.Orchestrate.Mode, OrchestrateModeUnified)
+	}
+}
+
+// TestLoad_WarnsOnStaleOrchestrateKeys pins the M8 contract: when a vv.yaml
+// carries any of the M7-removed orchestrate.* keys (legacy_phase_events,
+// summary_policy, replan, fast_path, unified_intent), Load succeeds (the
+// keys are silently ignored on unmarshal) but emits one slog.Warn per key
+// so users see the deprecation surface in their logs.
+func TestLoad_WarnsOnStaleOrchestrateKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+llm:
+  model: gpt-4o
+  api_key: sk-main
+orchestrate:
+  legacy_phase_events: true
+  summary_policy: auto
+  replan:
+    max_replans: 3
+  fast_path:
+    enabled: false
+  unified_intent: true
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg == nil {
+		t.Fatal("cfg is nil")
+	}
+
+	out := buf.String()
+
+	for _, key := range []string{"legacy_phase_events", "summary_policy", "replan", "fast_path", "unified_intent"} {
+		if !strings.Contains(out, "orchestrate."+key+" is deprecated") {
+			t.Errorf("expected slog.Warn for stale key %q in log; got %q", key, out)
+		}
 	}
 }
 

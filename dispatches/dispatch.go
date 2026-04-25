@@ -157,24 +157,6 @@ func WithRunTokenBudget(n int) Option {
 	}
 }
 
-// WithIntentSystemPrompt is a no-op as of M7. Intent recognition was removed
-// when the classical pipeline retired; the Primary Assistant owns its own
-// system prompt.
-//
-// Deprecated: kept only so the deprecated agents/compat.go builder shim
-// keeps compiling for one cycle. Will be removed alongside compat.go.
-func WithIntentSystemPrompt(_ string) Option {
-	return func(_ *Dispatcher) {}
-}
-
-// WithPlannerSystemPrompt is a no-op as of M7.
-//
-// Deprecated: alias for WithIntentSystemPrompt; both will be removed
-// alongside agents/compat.go.
-func WithPlannerSystemPrompt(p string) Option {
-	return WithIntentSystemPrompt(p)
-}
-
 // WithMaxRecursionDepth sets the max recursion depth.
 func WithMaxRecursionDepth(n int) Option {
 	return func(d *Dispatcher) {
