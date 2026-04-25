@@ -17,25 +17,6 @@ import (
 	"github.com/vogo/vv/registries"
 )
 
-// runDirect dispatches to a single sub-agent and aggregates usage.
-func (d *Dispatcher) runDirect(ctx context.Context, req *schema.RunRequest, cr *ClassifyResult, classifyUsage *aimodel.Usage) (*schema.RunResponse, error) {
-	subAgent, ok := d.subAgents[cr.Agent]
-	if !ok {
-		return d.fallbackRun(ctx, req, classifyUsage)
-	}
-
-	resp, err := d.runWithHooks(ctx, cr.Agent, req, func() (*schema.RunResponse, error) {
-		return subAgent.Run(ctx, req)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("orchestrator: sub-agent %q failed: %w", cr.Agent, err)
-	}
-
-	resp.Usage = aggregateUsage(classifyUsage, resp.Usage)
-
-	return resp, nil
-}
-
 // runPlan builds and executes a DAG from the plan.
 func (d *Dispatcher) runPlan(ctx context.Context, req *schema.RunRequest, plan *Plan, classifyUsage *aimodel.Usage, contextSummary string) (*schema.RunResponse, error) {
 	nodes, err := d.buildNodes(plan, req, contextSummary)
@@ -313,20 +294,3 @@ func (h *hookedAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*s
 func (h *hookedAgent) ID() string          { return h.inner.ID() }
 func (h *hookedAgent) Name() string        { return h.inner.Name() }
 func (h *hookedAgent) Description() string { return h.inner.Description() }
-
-// runWithHooks executes fn with lifecycle hooks applied.
-func (d *Dispatcher) runWithHooks(ctx context.Context, agentID string, req *schema.RunRequest, fn func() (*schema.RunResponse, error)) (*schema.RunResponse, error) {
-	for _, h := range d.hooks {
-		if err := h.OnBeforeRun(ctx, agentID, req); err != nil {
-			return nil, fmt.Errorf("hook aborted run for %q: %w", agentID, err)
-		}
-	}
-
-	resp, err := fn()
-
-	for i := len(d.hooks) - 1; i >= 0; i-- {
-		d.hooks[i].OnAfterRun(ctx, agentID, resp, err)
-	}
-
-	return resp, err
-}

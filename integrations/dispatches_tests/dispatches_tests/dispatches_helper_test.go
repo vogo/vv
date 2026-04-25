@@ -45,19 +45,6 @@ func (m *sequentialMockLLM) ChatCompletionStream(_ context.Context, _ *aimodel.C
 	return nil, fmt.Errorf("not implemented")
 }
 
-// failingAgent always returns an error.
-type failingAgent struct {
-	id string
-}
-
-func (a *failingAgent) ID() string          { return a.id }
-func (a *failingAgent) Name() string        { return a.id }
-func (a *failingAgent) Description() string { return a.id }
-
-func (a *failingAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
-	return nil, fmt.Errorf("agent %s: simulated failure", a.id)
-}
-
 // callTrackingAgent records whether it was invoked.
 type callTrackingAgent struct {
 	id       string

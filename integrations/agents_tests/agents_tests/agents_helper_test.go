@@ -11,24 +11,6 @@ import (
 	"github.com/vogo/vage/schema"
 )
 
-// mockChatCompleter is a simple mock for testing.
-type mockChatCompleter struct {
-	response *aimodel.ChatResponse
-	err      error
-}
-
-func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-
-	return m.response, nil
-}
-
-func (m *mockChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
-	return nil, m.err
-}
-
 // stubAgent is a minimal agent implementation for testing.
 type stubAgent struct {
 	id       string
@@ -188,17 +170,6 @@ func (s *callbackStubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schem
 	}
 
 	return s.response, nil
-}
-
-func makeStubResponse(text, agentID string) *schema.RunResponse {
-	return &schema.RunResponse{
-		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(text),
-			}, agentID),
-		},
-	}
 }
 
 func containsString(s, substr string) bool {

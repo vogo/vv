@@ -74,22 +74,15 @@ type OrchestrateConfig struct {
 	// leaves the feature disabled and the main model keeps handling routing.
 	Router LLMConfig `yaml:"router,omitempty"`
 
-	// Mode is retained for backwards compatibility with M4–M5 configs. As of
-	// M6 only the unified Primary Assistant pipeline exists; any non-empty
-	// value (including the deprecated "classical") is normalised to
-	// "unified" with a slog.Warn. The field will be removed in a future
-	// milestone — see ValidateOrchestrateMode.
+	// Mode is kept as a YAML field only for backwards compatibility with
+	// M4–M6 configs. As of M7 only the unified Primary Assistant pipeline
+	// exists and the field is silently normalised to "unified" by
+	// ValidateOrchestrateMode; any other value (including the long-removed
+	// "classical") emits a slog.Warn but does not abort startup. Stale
+	// orchestrate.* keys (legacy_phase_events, fast_path, unified_intent,
+	// summary_policy, replan) are ignored similarly — a single
+	// "stale orchestrate keys" warning surfaces in Load.
 	Mode string `yaml:"mode,omitempty"`
-
-	// LegacyPhaseEvents, when true and the unified pipeline is active,
-	// remaps the single `unified_primary` phase event pair into the legacy
-	// `intent` + `execute` phase event pairs that the classical pipeline
-	// emits (design M5, §G2). The unified_primary event is suppressed so
-	// HTTP SSE / CLI consumers that key off `Phase == "intent"` keep
-	// working without a code change on their side. Default false: the
-	// unified pipeline keeps emitting `unified_primary` so M4 dashboards
-	// and the integration tests that pinned that label remain intact.
-	LegacyPhaseEvents bool `yaml:"legacy_phase_events,omitempty"`
 
 	// PrimaryAllowBash, when true, mounts the bash tool on the Primary
 	// Assistant so single-line shell tasks (calc, grep | wc, etc.) finish
@@ -104,22 +97,12 @@ type OrchestrateConfig struct {
 }
 
 // OrchestrateModeUnified is the only supported orchestrate pipeline as of
-// M6. Empty `orchestrate.mode` normalises to this value.
+// M7. Empty `orchestrate.mode` normalises to this value.
 const OrchestrateModeUnified = "unified"
 
-// OrchestrateModeClassical is retained for backwards compatibility with
-// M4–M5 configs.
-//
-// Deprecated: as of M6 the classical pipeline has been removed.
-// ValidateOrchestrateMode silently routes this value to
-// OrchestrateModeUnified with a slog.Warn. The constant will be removed in
-// a future milestone (M7+); existing call sites should switch to
-// OrchestrateModeUnified or simply leave the field empty.
-const OrchestrateModeClassical = "classical"
-
-// ValidateOrchestrateMode normalises mode strings. As of M6 the unified
-// pipeline is the sole supported path; "" / "unified" pass through, while
-// any other value (including the legacy "classical") is normalised to
+// ValidateOrchestrateMode normalises mode strings. As of M7 the unified
+// pipeline is the sole supported path; "" / "unified" pass through, any
+// other value (including the long-removed "classical") is normalised to
 // OrchestrateModeUnified with a slog.Warn so misconfiguration is surfaced
 // without aborting startup.
 //
@@ -130,17 +113,10 @@ func ValidateOrchestrateMode(mode string) (string, error) {
 	switch m {
 	case "", OrchestrateModeUnified:
 		return OrchestrateModeUnified, nil
-	case OrchestrateModeClassical:
-		slog.Warn(
-			"vv: orchestrate.mode=classical is deprecated as of M6 and now routes to unified; " +
-				"remove the setting from your config to silence this warning",
-		)
-
-		return OrchestrateModeUnified, nil
 	default:
 		slog.Warn(
-			"vv: unknown orchestrate.mode value; falling back to unified",
-			"value", mode,
+			"vv: orchestrate.mode is deprecated as of M7; the field is ignored and the unified pipeline is always used",
+			"received", mode,
 		)
 
 		return OrchestrateModeUnified, nil
@@ -655,11 +631,7 @@ func Load(path string, explicit bool) (*Config, error) {
 	}
 
 	if v := os.Getenv("VV_ORCHESTRATE_LEGACY_PHASE_EVENTS"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.Orchestrate.LegacyPhaseEvents = b
-		} else {
-			slog.Warn("vv: invalid VV_ORCHESTRATE_LEGACY_PHASE_EVENTS, ignoring", "value", v)
-		}
+		slog.Warn("vv: VV_ORCHESTRATE_LEGACY_PHASE_EVENTS is no longer supported as of M7; the env var is ignored", "value", v)
 	}
 
 	if v := os.Getenv("VV_PRIMARY_ALLOW_BASH"); v != "" {

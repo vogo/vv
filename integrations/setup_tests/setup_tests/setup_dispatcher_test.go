@@ -233,15 +233,16 @@ func TestIntegration_SetupNew_DispatcherStreaming(t *testing.T) {
 		"chat":       &stubAgent{id: "chat"},
 	}
 
+	primaryStub := &stubStreamAgent{id: "primary", response: "primary stream done"}
+
 	dispatcher := dispatches.New(
 		reg,
 		subAgents,
-		nil, // no explorer
-		nil, // no planner
 		nil, // no planGen
 		dispatches.WithLLM(mock, "test-model"),
 		dispatches.WithMaxConcurrency(2),
 		dispatches.WithFallbackAgent(&stubAgent{id: "chat"}),
+		dispatches.WithPrimaryAssistant(primaryStub),
 	)
 
 	// Verify interface compliance.

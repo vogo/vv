@@ -394,7 +394,6 @@ func TestIntegration_Dispatcher_ReceivesProjectInstructions(t *testing.T) {
 
 	coderAgent := &stubAgent{id: "coder"}
 	researcherAgent := &stubAgent{id: "researcher"}
-	plannerAgent := &stubAgent{id: "planner"}
 
 	subAgents := map[string]agent.Agent{
 		"coder":      coderAgent,
@@ -405,8 +404,6 @@ func TestIntegration_Dispatcher_ReceivesProjectInstructions(t *testing.T) {
 	d := dispatches.New(
 		reg,
 		subAgents,
-		nil, // explorer removed in M6 G2
-		plannerAgent,
 		nil,
 		dispatches.WithLLM(mock, "test-model"),
 		dispatches.WithFallbackAgent(researcherAgent),
@@ -428,8 +425,6 @@ func TestIntegration_Dispatcher_ReceivesProjectInstructions(t *testing.T) {
 	d2 := dispatches.New(
 		reg,
 		subAgents,
-		nil,
-		plannerAgent,
 		nil,
 		dispatches.WithLLM(mock, "test-model"),
 		dispatches.WithFallbackAgent(researcherAgent),

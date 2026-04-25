@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "generated_at": "",
+  "model": "",
+  "tolerance_pct": 50,
+  "cases": {
+    "Greeting_Hello":              {"latency_ms_p50": 0, "total_tokens_p50": 0},
+    "SimpleMath_Calc":              {"latency_ms_p50": 0, "total_tokens_p50": 0},
+    "SimpleRead_ExplainFile":       {"latency_ms_p50": 0, "total_tokens_p50": 0},
+    "SimpleEdit_DelegateToCoder":   {"latency_ms_p50": 0, "total_tokens_p50": 0},
+    "MultiStepRefactor_Plan":       {"latency_ms_p50": 0, "total_tokens_p50": 0}
+  }
+}

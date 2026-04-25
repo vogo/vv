@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vogo/aimodel"
-	"github.com/vogo/vv/agents"
 	vvcli "github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/tools"
@@ -105,56 +103,6 @@ func TestIntegration_CLI_PermissionExecutorReadOnlyPassthrough(t *testing.T) {
 			}
 		}
 		t.Errorf("expected successful passthrough, got error: %s", text)
-	}
-}
-
-// --- Test: agents.Create accepts tool.ToolRegistry interface ---
-// Verifies that agents.Create works with both the original registry and a wrapped one.
-func TestIntegration_CLI_AgentsCreateWithWrappedRegistry(t *testing.T) {
-	reg, err := tools.Register(configs.ToolsConfig{BashTimeout: 30})
-	if err != nil {
-		t.Fatalf("tools.Register: %v", err)
-	}
-
-	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("test")}},
-			},
-		},
-	}
-
-	cfg := &configs.Config{
-		LLM:    configs.LLMConfig{Model: "test-model"},
-		Agents: configs.AgentsConfig{MaxIterations: 10},
-		CLI:    configs.CLIConfig{PermissionMode: configs.PermissionModeDefault},
-	}
-
-	// Wrap registry (as main.go does).
-	ps := vvcli.NewPermissionState(cfg.CLI.PermissionMode)
-	wrapped := vvcli.WrapRegistryWithPermission(reg, ps)
-
-	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
-
-	// Create agents with wrapped registry -- should work without error.
-	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
-
-	if allAgents.Coder.ID() != "coder" {
-		t.Errorf("coder ID = %q, want %q", allAgents.Coder.ID(), "coder")
-	}
-
-	if allAgents.Chat.ID() != "chat" {
-		t.Errorf("chat ID = %q, want %q", allAgents.Chat.ID(), "chat")
-	}
-
-	// Coder should still have tools.
-	if len(allAgents.Coder.Tools()) != 6 {
-		t.Errorf("coder tool count = %d, want 6", len(allAgents.Coder.Tools()))
-	}
-
-	// Chat should have no tools.
-	if len(allAgents.Chat.Tools()) != 0 {
-		t.Errorf("chat tool count = %d, want 0", len(allAgents.Chat.Tools()))
 	}
 }
 

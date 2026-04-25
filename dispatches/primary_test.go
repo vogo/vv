@@ -1,10 +1,8 @@
 package dispatches
 
 import (
-	"bytes"
 	"context"
 	"io"
-	"log/slog"
 	"strings"
 	"testing"
 
@@ -13,14 +11,12 @@ import (
 	"github.com/vogo/vage/schema"
 )
 
-// TestRun_UnifiedMode_ForwardsToPrimary verifies that when a Primary Assistant
-// is attached, Dispatcher.Run bypasses fastPath + intent LLM + executeTask
-// entirely and relays the request to the Primary.
+// TestRun_UnifiedMode_ForwardsToPrimary verifies that the dispatcher relays
+// the request straight to the Primary Assistant.
 func TestRun_UnifiedMode_ForwardsToPrimary(t *testing.T) {
 	reg := newTestRegistry()
 
 	chat := &stubAgent{id: "chat"}
-	intentLLM := &countingChatCompleter{}
 
 	primary := &stubAgent{
 		id: "primary",
@@ -37,8 +33,7 @@ func TestRun_UnifiedMode_ForwardsToPrimary(t *testing.T) {
 	d := New(
 		reg,
 		map[string]agent.Agent{"chat": chat},
-		nil, nil, nil,
-		WithLLM(intentLLM, "test"),
+		nil,
 		WithFallbackAgent(chat),
 		WithPrimaryAssistant(primary),
 	)
@@ -55,11 +50,7 @@ func TestRun_UnifiedMode_ForwardsToPrimary(t *testing.T) {
 	}
 
 	if chat.ranCount() != 0 {
-		t.Errorf("chat.ranCount = %d, want 0 (fastPath/fallback must be skipped)", chat.ranCount())
-	}
-
-	if intentLLM.calls != 0 {
-		t.Errorf("intent LLM calls = %d, want 0 (unified mode must skip intent phase)", intentLLM.calls)
+		t.Errorf("chat.ranCount = %d, want 0 (fallback must be skipped when primary present)", chat.ranCount())
 	}
 
 	if len(resp.Messages) == 0 || resp.Messages[0].Content.Text() != "hello back" {
@@ -67,30 +58,76 @@ func TestRun_UnifiedMode_ForwardsToPrimary(t *testing.T) {
 	}
 }
 
-// TestRun_UnifiedMode_Disabled_ByDefault confirms the pre-M4 baseline: when
-// no primary is attached, the dispatcher walks the classical pipeline.
-func TestRun_UnifiedMode_Disabled_ByDefault(t *testing.T) {
+// TestRun_NilPrimary_ReturnsError pins the M7 behavior: when no Primary is
+// attached, Run must return an error rather than silently falling back to
+// any classical pipeline (which was removed in M7).
+func TestRun_NilPrimary_ReturnsError(t *testing.T) {
 	reg := newTestRegistry()
 	chat := &stubAgent{id: "chat"}
-	// No primary attached — fastPath / intent LLM should decide the path.
 
 	d := New(
 		reg,
 		map[string]agent.Agent{"chat": chat},
-		nil, nil, nil,
+		nil,
 		WithFallbackAgent(chat),
-		WithFastPath(DisabledFastPathConfig()),
-		WithMaxRecursionDepth(0), // force fallbackRun path without LLM
 	)
 
 	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("anything")}}
 
-	if _, err := d.Run(context.Background(), req); err != nil {
-		t.Fatalf("Run: %v", err)
+	_, err := d.Run(context.Background(), req)
+	if err == nil {
+		t.Fatal("Run with nil Primary must return error")
 	}
 
-	if chat.ranCount() != 1 {
-		t.Errorf("fallback chat.ranCount = %d, want 1 (classical path should run with no primary)", chat.ranCount())
+	if !strings.Contains(err.Error(), "primary assistant required") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "primary assistant required")
+	}
+
+	if chat.ranCount() != 0 {
+		t.Errorf("chat.ranCount = %d, want 0 (no classical fallback after M7)", chat.ranCount())
+	}
+}
+
+// TestRunStream_NilPrimary_ReturnsError mirrors TestRun_NilPrimary for the
+// streaming path.
+func TestRunStream_NilPrimary_ReturnsError(t *testing.T) {
+	reg := newTestRegistry()
+	chat := &stubAgent{id: "chat"}
+
+	d := New(
+		reg,
+		map[string]agent.Agent{"chat": chat},
+		nil,
+		WithFallbackAgent(chat),
+	)
+
+	stream, err := d.RunStream(context.Background(), &schema.RunRequest{
+		Messages: []schema.Message{schema.NewUserMessage("anything")},
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+
+	defer func() { _ = stream.Close() }()
+
+	var streamErr error
+	for {
+		_, recvErr := stream.Recv()
+		if recvErr == io.EOF {
+			break
+		}
+		if recvErr != nil {
+			streamErr = recvErr
+			break
+		}
+	}
+
+	if streamErr == nil {
+		t.Fatal("RunStream with nil Primary must surface an error")
+	}
+
+	if !strings.Contains(streamErr.Error(), "primary assistant required") {
+		t.Errorf("error = %q, want substring %q", streamErr.Error(), "primary assistant required")
 	}
 }
 
@@ -105,7 +142,7 @@ func TestSetPrimaryAssistant_PostConstruction_AttachesAgent(t *testing.T) {
 	d := New(
 		reg,
 		map[string]agent.Agent{"chat": chat},
-		nil, nil, nil,
+		nil,
 		WithFallbackAgent(chat),
 	)
 
@@ -128,7 +165,7 @@ func TestSetPrimaryAssistant_PostConstruction_AttachesAgent(t *testing.T) {
 
 // TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase checks that the
 // streaming path wraps Primary execution in a single EventPhaseStart/End
-// pair labelled unified_primary (no intent/execute/summarize bracketing).
+// pair labelled unified_primary.
 func TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase(t *testing.T) {
 	reg := newTestRegistry()
 	chat := &stubAgent{id: "chat"}
@@ -137,7 +174,7 @@ func TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase(t *testing.T) {
 	d := New(
 		reg,
 		map[string]agent.Agent{"chat": chat},
-		nil, nil, nil,
+		nil,
 		WithFallbackAgent(chat),
 		WithPrimaryAssistant(primary),
 	)
@@ -183,79 +220,6 @@ func TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase(t *testing.T) {
 	}
 }
 
-// TestRunStream_UnifiedMode_LegacyShim_EmitsIntentAndExecutePhases guards
-// the M5 G2 shim: with WithLegacyPhaseEvents(true) the unified stream must
-// emit [start:intent, end:intent, start:execute, end:execute] and no
-// unified_primary pair at all, so HTTP/CLI consumers that pinned to the
-// pre-M5 event shape keep working without a code change.
-func TestRunStream_UnifiedMode_LegacyShim_EmitsIntentAndExecutePhases(t *testing.T) {
-	reg := newTestRegistry()
-	chat := &stubAgent{id: "chat"}
-	primary := &streamableStubAgent{stubAgent: stubAgent{id: "primary"}}
-
-	d := New(
-		reg,
-		map[string]agent.Agent{"chat": chat},
-		nil, nil, nil,
-		WithFallbackAgent(chat),
-		WithPrimaryAssistant(primary),
-		WithLegacyPhaseEvents(true),
-	)
-
-	stream, err := d.RunStream(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("hello")},
-	})
-	if err != nil {
-		t.Fatalf("RunStream: %v", err)
-	}
-
-	defer func() { _ = stream.Close() }()
-
-	phases := make([]string, 0, 4)
-
-	for {
-		ev, recvErr := stream.Recv()
-		if recvErr == io.EOF {
-			break
-		}
-		if recvErr != nil {
-			t.Fatalf("Recv: %v", recvErr)
-		}
-
-		switch ev.Type {
-		case schema.EventPhaseStart:
-			if data, ok := ev.Data.(schema.PhaseStartData); ok {
-				phases = append(phases, "start:"+data.Phase)
-			}
-		case schema.EventPhaseEnd:
-			if data, ok := ev.Data.(schema.PhaseEndData); ok {
-				phases = append(phases, "end:"+data.Phase)
-			}
-		}
-	}
-
-	want := []string{"start:intent", "end:intent", "start:execute", "end:execute"}
-	if len(phases) != len(want) {
-		t.Fatalf("phase events = %v, want %v", phases, want)
-	}
-
-	for i, p := range phases {
-		if p != want[i] {
-			t.Errorf("phase[%d] = %q, want %q (full: %v)", i, p, want[i], phases)
-		}
-	}
-
-	for _, p := range phases {
-		if p == "start:"+PrimaryPhase || p == "end:"+PrimaryPhase {
-			t.Errorf("legacy shim must NOT emit %q: %v", PrimaryPhase, phases)
-		}
-	}
-
-	if primary.ranCount() != 1 {
-		t.Errorf("primary.ranCount = %d, want 1", primary.ranCount())
-	}
-}
-
 // TestRunPlan_ImplementsPlanExecutor locks the compile-time contract so a
 // future refactor that accidentally changes the signature fails the build
 // here instead of deep in a tool-handler closure.
@@ -263,54 +227,9 @@ func TestRunPlan_ImplementsPlanExecutor(_ *testing.T) {
 	var _ PlanExecutor = (*Dispatcher)(nil)
 }
 
-// TestWithLegacyPhaseEvents_DeprecationWarn pins the M6 deprecation signal:
-// WithLegacyPhaseEvents(true) emits a slog.Warn at Option-application time
-// so operators see the migration notice in the logs once per Dispatcher
-// construction; passing false stays silent so existing zero-config setups
-// produce no extra noise.
-func TestWithLegacyPhaseEvents_DeprecationWarn(t *testing.T) {
-	cases := []struct {
-		name      string
-		enabled   bool
-		wantWarn  bool
-		wantField string
-	}{
-		{name: "enabled emits deprecation warn", enabled: true, wantWarn: true, wantField: "deprecated"},
-		{name: "disabled stays silent", enabled: false, wantWarn: false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var buf bytes.Buffer
-
-			prev := slog.Default()
-			slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
-
-			t.Cleanup(func() { slog.SetDefault(prev) })
-
-			d := New(newTestRegistry(), map[string]agent.Agent{}, nil, nil, nil, WithLegacyPhaseEvents(tc.enabled))
-			if d == nil {
-				t.Fatal("New returned nil")
-			}
-
-			out := buf.String()
-			gotWarn := strings.Contains(out, tc.wantField) && strings.Contains(out, "level=WARN")
-
-			if tc.wantWarn && !gotWarn {
-				t.Errorf("expected deprecation warn containing %q in log; got %q", tc.wantField, out)
-			}
-
-			if !tc.wantWarn && out != "" {
-				t.Errorf("expected silent (disabled), got log output: %q", out)
-			}
-		})
-	}
-}
-
-// TestSetFallbackAgent_PostConstruction_AttachesAgent guards the M5 G3
-// setter: unified mode needs to swap the pre-M5 chat fallback for a
-// Primary-persona fallback after the dispatcher has been constructed (the
-// Primary itself needs a PlanExecutor handle on the dispatcher).
+// TestSetFallbackAgent_PostConstruction_AttachesAgent guards the setter
+// used by setup.New to swap in a degraded-Primary fallback after the
+// dispatcher has been constructed.
 func TestSetFallbackAgent_PostConstruction_AttachesAgent(t *testing.T) {
 	reg := newTestRegistry()
 	chat := &stubAgent{id: "chat"}
@@ -319,7 +238,7 @@ func TestSetFallbackAgent_PostConstruction_AttachesAgent(t *testing.T) {
 	d := New(
 		reg,
 		map[string]agent.Agent{"chat": chat},
-		nil, nil, nil,
+		nil,
 		WithFallbackAgent(chat),
 	)
 
@@ -330,12 +249,10 @@ func TestSetFallbackAgent_PostConstruction_AttachesAgent(t *testing.T) {
 	}
 }
 
-// TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback guards the M5 G3
-// wiring at the Run level. The dispatcher's depth guard fires before the
-// Primary dispatch branch — so whatever SetFallbackAgent attached becomes
-// the actual entry point when a nested Dispatcher call recurses back to
-// maxRecursionDepth. In unified mode that fallback is the Primary (or a
-// degraded variant of it), never the classical chat agent.
+// TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback guards the
+// depth-exceed early-return: when a nested Dispatcher call recurses back to
+// maxRecursionDepth, the configured fallback (a degraded Primary) becomes
+// the entry point — never the classical chat agent.
 func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 	reg := newTestRegistry()
 
@@ -356,16 +273,14 @@ func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 	d := New(
 		reg,
 		map[string]agent.Agent{"chat": chat},
-		nil, nil, nil,
-		WithFallbackAgent(chat), // pre-M5 wiring (will be overwritten below)
+		nil,
+		WithFallbackAgent(chat),
 		WithPrimaryAssistant(primary),
 		WithMaxRecursionDepth(1),
 	)
 
-	d.SetFallbackAgent(fallbackPrimary) // M5 G3 override
+	d.SetFallbackAgent(fallbackPrimary)
 
-	// Inject depth=maxRecursionDepth so the early-return in Run triggers
-	// fallback instead of primary.
 	ctx := IncrementDepth(context.Background())
 
 	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("nested")}}
@@ -379,7 +294,7 @@ func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 	}
 
 	if chat.ranCount() != 0 {
-		t.Errorf("chat.ranCount = %d, want 0 (M5 must not fall back to chat in unified mode)", chat.ranCount())
+		t.Errorf("chat.ranCount = %d, want 0 (must not fall back to chat in unified mode)", chat.ranCount())
 	}
 
 	if primary.ranCount() != 0 {
@@ -391,10 +306,83 @@ func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 	}
 }
 
+// TestRunStream_DepthExceeded_EmitsStaticSummarizePhase pins the M7 G4
+// contract: when the recursion-depth fallback fires, the dispatcher emits
+// a static `summarize` phase pair after the fallback stream so HTTP / SSE
+// consumers see the same event-flow shape as the main path. The Summary
+// text is a fixed sentinel; no LLM call happens.
+func TestRunStream_DepthExceeded_EmitsStaticSummarizePhase(t *testing.T) {
+	reg := newTestRegistry()
+	chat := &stubAgent{id: "chat"}
+	primary := &stubAgent{id: "primary"}
+	fallbackPrimary := &streamableStubAgent{stubAgent: stubAgent{id: "primary-fallback"}}
+
+	d := New(
+		reg,
+		map[string]agent.Agent{"chat": chat},
+		nil,
+		WithFallbackAgent(chat),
+		WithPrimaryAssistant(primary),
+		WithMaxRecursionDepth(1),
+	)
+	d.SetFallbackAgent(fallbackPrimary)
+
+	ctx := IncrementDepth(context.Background())
+
+	stream, err := d.RunStream(ctx, &schema.RunRequest{
+		Messages: []schema.Message{schema.NewUserMessage("nested")},
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+
+	defer func() { _ = stream.Close() }()
+
+	var phases []string
+	var summaryText string
+
+	for {
+		ev, recvErr := stream.Recv()
+		if recvErr == io.EOF {
+			break
+		}
+		if recvErr != nil {
+			t.Fatalf("Recv: %v", recvErr)
+		}
+
+		switch ev.Type {
+		case schema.EventPhaseStart:
+			if data, ok := ev.Data.(schema.PhaseStartData); ok {
+				phases = append(phases, "start:"+data.Phase)
+			}
+		case schema.EventPhaseEnd:
+			if data, ok := ev.Data.(schema.PhaseEndData); ok {
+				phases = append(phases, "end:"+data.Phase)
+				if data.Phase == "summarize" {
+					summaryText = data.Summary
+				}
+			}
+		}
+	}
+
+	hasSummarize := false
+	for _, p := range phases {
+		if p == "start:summarize" || p == "end:summarize" {
+			hasSummarize = true
+		}
+	}
+
+	if !hasSummarize {
+		t.Errorf("phase events = %v, want a summarize start/end pair on fallback path", phases)
+	}
+
+	if summaryText != "fallback path: no summarization performed" {
+		t.Errorf("summary text = %q, want %q", summaryText, "fallback path: no summarization performed")
+	}
+}
+
 // streamableStubAgent wraps stubAgent with a minimal RunStream so the
-// streaming dispatcher path can exercise it. Implementation mirrors the
-// production taskagent: emit a single text delta carrying the response,
-// then close.
+// streaming dispatcher path can exercise it.
 type streamableStubAgent struct {
 	stubAgent
 }

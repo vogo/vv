@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -189,31 +188,7 @@ func New(
 		subAgents[desc.ID] = a
 	}
 
-	// 3. Explorer is no longer built (M6 G2): the unified Primary covers
-	// codebase exploration directly via its read/glob/grep tool set, and
-	// the dispatcher accepts a nil explorerAgent — intent.go's
-	// classical-path explorer hooks are nil-checked and only fire under
-	// the legacy intent recognition flow that is also being retired.
-	var explorer agent.Agent
-
-	// 4. Build planner (non-dispatchable, no tools).
-	plannerDesc, ok := reg.Get("planner")
-	if !ok {
-		return nil, fmt.Errorf("planner agent not registered")
-	}
-
-	planner, err := plannerDesc.Factory(registries.FactoryOptions{
-		LLM:                 llm,
-		Model:               cfg.LLM.Model,
-		MaxIterations:       1,
-		ProjectInstructions: cfg.ProjectInstructions,
-		HookManager:         getHookManager(opts),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create planner agent: %w", err)
-	}
-
-	// 5. Build plan summarizer.
+	// 3. Build plan summarizer.
 	planGenOpts := []taskagent.Option{
 		taskagent.WithChatCompleter(llm),
 		taskagent.WithModel(cfg.LLM.Model),
@@ -245,42 +220,21 @@ func New(
 		maxConcurrency = 2
 	}
 
-	// 8. Build intent system prompt from registries.
-	intentPrompt := agents.BuildPlannerSystemPrompt(reg)
-
-	// 9. Resolve new config options.
+	// 6. Resolve max recursion depth.
 	maxRecursionDepth := cfg.Orchestrate.MaxRecursionDepth
 	if maxRecursionDepth == 0 {
 		maxRecursionDepth = 2
 	}
 
-	summaryPolicy := dispatches.SummaryPolicy(cfg.Orchestrate.SummaryPolicy)
-	if summaryPolicy == "" {
-		summaryPolicy = dispatches.SummaryAuto
-	}
-
-	replanPolicy := dispatches.ReplanPolicy{
-		TriggerOnFailure:   cfg.Orchestrate.Replan.TriggerOnFailure,
-		TriggerOnDeviation: cfg.Orchestrate.Replan.TriggerOnDeviation,
-		MaxReplans:         cfg.Orchestrate.Replan.MaxReplans,
-	}
-
-	if replanPolicy.MaxReplans == 0 {
-		replanPolicy.MaxReplans = 2
-	}
-
-	fastPath := buildFastPath(cfg.Orchestrate.FastPath)
-
-	// 10. Construct dispatcher.
-	//
-	// The dispatcher's fallback agent is intentionally NOT set in this
-	// option list: the fallback Primary built in step 11 below will be
-	// injected via SetFallbackAgent immediately after construction, so
-	// any earlier value here would be overwritten. Setting it twice was
-	// load-bearing in M5 (chat first, then Primary swap) but became dead
-	// code once classical was removed in M6 — the chat agent simply does
-	// not exist anymore.
-	dispatcherOpts := []dispatches.Option{
+	// 7. Construct dispatcher. As of M7 the dispatcher is unified-only: it
+	// forwards to the Primary Assistant (attached below) with a depth-exceed
+	// fallback to the degraded Primary. Stale orchestrate.* YAML keys
+	// (summary_policy, replan, fast_path, unified_intent, legacy_phase_events)
+	// are silently ignored — Load surfaces a slog.Warn for any stale key.
+	dispatcher := dispatches.New(
+		reg,
+		subAgents,
+		planGen,
 		dispatches.WithLLM(llm, cfg.LLM.Model),
 		dispatches.WithMaxConcurrency(maxConcurrency),
 		dispatches.WithWorkingDir(cfg.Tools.BashWorkingDir),
@@ -288,27 +242,8 @@ func New(
 		dispatches.WithHooks(hooks),
 		dispatches.WithMaxIterations(cfg.Agents.MaxIterations),
 		dispatches.WithRunTokenBudget(cfg.Agents.RunTokenBudget),
-		dispatches.WithIntentSystemPrompt(intentPrompt),
-		dispatches.WithSummaryPolicy(summaryPolicy),
-		dispatches.WithReplanPolicy(replanPolicy),
 		dispatches.WithMaxRecursionDepth(maxRecursionDepth),
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
-		dispatches.WithFastPath(fastPath),
-		dispatches.WithUnifiedIntent(cfg.Orchestrate.UnifiedIntent),
-		dispatches.WithLegacyPhaseEvents(cfg.Orchestrate.LegacyPhaseEvents), //nolint:staticcheck // SA1019: forwarding the user's config; the shim itself is deprecated and emits a runtime slog.Warn when enabled.
-	}
-
-	if opts != nil && opts.RouterLLM != nil && opts.RouterModel != "" {
-		dispatcherOpts = append(dispatcherOpts, dispatches.WithRouterLLM(opts.RouterLLM, opts.RouterModel))
-	}
-
-	dispatcher := dispatches.New(
-		reg,
-		subAgents,
-		explorer,
-		planner,
-		planGen,
-		dispatcherOpts...,
 	)
 
 	// 11. Build the Primary Assistant and the fallback Primary, then
@@ -535,75 +470,6 @@ func getHookManager(opts *Options) *hook.Manager {
 	}
 
 	return opts.HookManager
-}
-
-// buildFastPath translates the YAML-facing FastPathConfig into a compiled
-// dispatches.FastPathConfig. Invalid user regexes are logged and dropped
-// without failing config load, mirroring the MCP credential filter behavior.
-//
-// Semantics for the pattern slices:
-//   - nil slice → keep built-in defaults for that category.
-//   - empty slice [] → disable the category (no rules).
-//   - non-empty slice → replace defaults with the user-provided patterns.
-func buildFastPath(cfg configs.FastPathConfig) dispatches.FastPathConfig {
-	if !cfg.IsEnabled() {
-		return dispatches.DisabledFastPathConfig()
-	}
-
-	out := dispatches.FastPathConfig{
-		Enabled:  true,
-		MaxChars: cfg.MaxChars,
-	}
-
-	if out.MaxChars <= 0 {
-		out.MaxChars = dispatches.DefaultFastPathMaxChars
-	}
-
-	out.Rules = append(out.Rules,
-		resolveFastPathRules(cfg.GreetingPatterns, dispatches.FastPathCategoryGreeting, "chat")...,
-	)
-	out.Rules = append(out.Rules,
-		resolveFastPathRules(cfg.ToolTriggerPatterns, dispatches.FastPathCategoryToolTrigger, "coder")...,
-	)
-
-	return out
-}
-
-// resolveFastPathRules returns the rules for one fast-path category. A nil
-// user slice yields the built-in defaults; otherwise the user patterns are
-// compiled and invalid ones are logged and dropped.
-func resolveFastPathRules(user []string, category, agentID string) []dispatches.FastPathRule {
-	if user == nil {
-		return filterRulesByCategory(dispatches.DefaultFastPathConfig().Rules, category)
-	}
-
-	rules := make([]dispatches.FastPathRule, 0, len(user))
-
-	for _, p := range user {
-		re, err := regexp.Compile(p)
-		if err != nil {
-			slog.Warn("setup: invalid fast_path regex", "category", category, "pattern", p, "error", err)
-
-			continue
-		}
-
-		rules = append(rules, dispatches.FastPathRule{Category: category, Pattern: re, Agent: agentID})
-	}
-
-	return rules
-}
-
-// filterRulesByCategory returns only the rules matching category from src.
-func filterRulesByCategory(src []dispatches.FastPathRule, category string) []dispatches.FastPathRule {
-	out := make([]dispatches.FastPathRule, 0, len(src))
-
-	for _, r := range src {
-		if r.Category == category {
-			out = append(out, r)
-		}
-	}
-
-	return out
 }
 
 // buildPathEnforcement computes the canonical allow-list, opens a PathGuard,

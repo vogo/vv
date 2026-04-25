@@ -211,9 +211,8 @@ func TestRealLLM_Golden(t *testing.T) {
 		t.Fatal("no cases ran; check API key resolution")
 	}
 
-	// Loose floor sanity checks. Tightening these into a real regression
-	// gate is M7+ work; for M6 we just want non-zero token + bounded
-	// latency so a totally broken LLM client doesn't silently "pass".
+	// Sanity floor: non-zero token + bounded latency so a totally broken
+	// LLM client doesn't silently "pass".
 	for _, r := range results {
 		if r.TotalTokens == 0 {
 			t.Errorf("case %q: TotalTokens == 0; LLM client may not be reporting usage", r.Case)
@@ -228,7 +227,94 @@ func TestRealLLM_Golden(t *testing.T) {
 		}
 	}
 
+	// M7-3 drift gate: when baseline_committed.json carries non-zero P50
+	// values for a case, fail if this run drifts by more than ±50%. Wide
+	// window because the committed baseline is currently a single
+	// data-point — once 4–8 weekly cron runs accumulate the maintainer can
+	// tighten it (see README §Updating baseline_committed.json).
+	if base, ok := loadBaseline(t); ok {
+		applyDriftGate(t, base, results)
+	}
+
 	t.Logf("real-llm golden summary: %s", summarise(results))
+}
+
+// baselineDoc is the committed P50 reference. When a case is missing or its
+// P50 value is 0, the drift gate skips that case so a placeholder baseline
+// (initial commit, mid-update) does not produce false failures.
+type baselineDoc struct {
+	Version      int                    `json:"version"`
+	GeneratedAt  string                 `json:"generated_at,omitempty"`
+	Model        string                 `json:"model,omitempty"`
+	TolerancePct int                    `json:"tolerance_pct"`
+	Cases        map[string]baselineP50 `json:"cases"`
+}
+
+type baselineP50 struct {
+	LatencyMsP50   int64 `json:"latency_ms_p50"`
+	TotalTokensP50 int   `json:"total_tokens_p50"`
+}
+
+// loadBaseline reads baseline_committed.json from the package directory.
+// Returns (zero, false) when the file is absent or unparseable so callers
+// gracefully skip the drift gate.
+func loadBaseline(t *testing.T) (baselineDoc, bool) {
+	t.Helper()
+
+	data, err := os.ReadFile("baseline_committed.json")
+	if err != nil {
+		return baselineDoc{}, false
+	}
+
+	var doc baselineDoc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Logf("baseline_committed.json: parse failed: %v (drift gate disabled)", err)
+		return baselineDoc{}, false
+	}
+
+	if doc.TolerancePct <= 0 {
+		doc.TolerancePct = 50
+	}
+
+	return doc, true
+}
+
+// applyDriftGate compares each case against the committed P50. Per case:
+//   - missing entry → log notice, skip.
+//   - P50 == 0 → placeholder baseline, skip without error.
+//   - within ±tolerance% → pass.
+//   - outside window → t.Errorf so the workflow turns red.
+func applyDriftGate(t *testing.T, base baselineDoc, results []caseResult) {
+	t.Helper()
+
+	tol := float64(base.TolerancePct) / 100.0
+	lowF, highF := 1.0-tol, 1.0+tol
+
+	for _, r := range results {
+		ref, ok := base.Cases[r.Case]
+		if !ok {
+			t.Logf("drift gate: case %q has no baseline entry; skipping", r.Case)
+			continue
+		}
+
+		if ref.LatencyMsP50 > 0 {
+			lo := float64(ref.LatencyMsP50) * lowF
+			hi := float64(ref.LatencyMsP50) * highF
+			if float64(r.LatencyMs) < lo || float64(r.LatencyMs) > hi {
+				t.Errorf("drift gate: case=%q latency_ms=%d outside ±%d%% of baseline P50=%d (window=[%.0f, %.0f])",
+					r.Case, r.LatencyMs, base.TolerancePct, ref.LatencyMsP50, lo, hi)
+			}
+		}
+
+		if ref.TotalTokensP50 > 0 {
+			lo := float64(ref.TotalTokensP50) * lowF
+			hi := float64(ref.TotalTokensP50) * highF
+			if float64(r.TotalTokens) < lo || float64(r.TotalTokens) > hi {
+				t.Errorf("drift gate: case=%q total_tokens=%d outside ±%d%% of baseline P50=%d (window=[%.0f, %.0f])",
+					r.Case, r.TotalTokens, base.TolerancePct, ref.TotalTokensP50, lo, hi)
+			}
+		}
+	}
 }
 
 func summarise(results []caseResult) string {

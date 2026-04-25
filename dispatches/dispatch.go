@@ -2,7 +2,7 @@ package dispatches
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"time"
 
 	"github.com/vogo/aimodel"
@@ -37,77 +37,45 @@ func (pt *phaseTracker) wrap(send func(schema.Event) error) func(schema.Event) e
 	}
 }
 
-// Dispatcher is the main orchestration agent. It receives user requests,
-// performs intent recognition, and dispatches to sub-agents.
-// Behavioral equivalent of the former OrchestratorAgent.
+// Dispatcher is the unified Primary Assistant entry point. As of M7 its sole
+// job is forwarding requests to the Primary, with a depth-exceed fallback to
+// the degraded (tool-free) Primary persona. The classical
+// fastPath/intent/execute/summarize pipeline retired in M7.
 type Dispatcher struct {
 	agent.Base
-	llm                aimodel.ChatCompleter
-	model              string
-	registry           *registries.Registry
-	subAgents          map[string]agent.Agent // built from registry, keyed by descriptor ID
-	planGen            agent.Agent            // agent.Agent interface, not *taskagent.Agent
-	maxConcurrency     int
-	fallbackAgent      agent.Agent
-	workingDir         string
-	explorerAgent      agent.Agent
-	plannerAgent       agent.Agent
-	toolsCfg           configs.ToolsConfig // for dynamic agent tool registry construction
-	hooks              []hooks.Hook
-	maxIterations      int
-	runTokenBudget     int
-	intentSystemPrompt string // used for direct LLM intent recognition
+	llm            aimodel.ChatCompleter
+	model          string
+	registry       *registries.Registry
+	subAgents      map[string]agent.Agent
+	planGen        agent.Agent
+	maxConcurrency int
+	fallbackAgent  agent.Agent
+	workingDir     string
+	toolsCfg       configs.ToolsConfig
+	hooks          []hooks.Hook
+	maxIterations  int
+	runTokenBudget int
 
-	projectInstructions string // content from VV.md for intent recognition and dynamic agents
+	projectInstructions string
 
-	// New fields for adaptive decision loop.
-	summaryPolicy     SummaryPolicy
-	replanPolicy      ReplanPolicy
 	maxRecursionDepth int
-	summarizer        agent.Agent // agent for generating summaries (reuses planGen if nil)
 
-	// fastPath shorts-circuits trivial requests without invoking the intent LLM.
-	fastPath FastPathConfig
-
-	// unifiedIntent, when true, merges intent classification and direct
-	// answering into a single tool-calling LLM invocation (design M2). The
-	// model picks answer_directly / delegate_to / plan_task; answer_directly
-	// returns the response without invoking a sub-agent.
-	unifiedIntent bool
-
-	// routerLLM, when non-nil, is used for the dispatcher's routing /
-	// classification calls (intent recognition, unified-intent, classify and
-	// reassess) instead of llm (design M3). Sub-agent execution and
-	// summarization keep using llm. When nil, routing falls back to llm so
-	// pre-M3 behaviour is preserved.
-	routerLLM   aimodel.ChatCompleter
-	routerModel string
-
-	// primaryAssistant, when non-nil, replaces the classical
-	// fastPath/intent/execute/summarize pipeline with a single Primary
-	// Assistant invocation (design M4). The dispatcher forwards the request
-	// to primaryAssistant.Run / RunStream and returns its output unchanged.
-	// nil by default so pre-M4 behaviour is preserved; set via
-	// WithPrimaryAssistant or SetPrimaryAssistant.
+	// primaryAssistant carries the unified Primary; required as of M7 — Run
+	// and RunStream return an error when nil (set via WithPrimaryAssistant
+	// or SetPrimaryAssistant; setup.New always installs one).
 	primaryAssistant agent.Agent
-
-	// legacyPhaseEvents, when true, rewrites the unified-mode stream's
-	// single `unified_primary` phase event pair into the classical `intent`
-	// + `execute` phase event pairs so pre-M5 HTTP / CLI consumers keep
-	// their event-shape contract (design M5, §G2). Only affects
-	// RunStream; Run is already phase-agnostic.
-	legacyPhaseEvents bool
 }
 
 // Option configures a Dispatcher.
 type Option func(*Dispatcher)
 
-// New creates a Dispatcher with required parameters and optional configuration.
+// New creates a Dispatcher with required parameters and optional
+// configuration. The Primary Assistant must be attached via
+// WithPrimaryAssistant or SetPrimaryAssistant before Run/RunStream are
+// called — production code wires it through setup.New.
 func New(
 	reg *registries.Registry,
 	subAgents map[string]agent.Agent,
-	explorerAgent agent.Agent,
-	plannerAgent agent.Agent,
 	planGen agent.Agent,
 	opts ...Option,
 ) *Dispatcher {
@@ -115,17 +83,12 @@ func New(
 		Base: agent.NewBase(agent.Config{
 			ID:          "orchestrator",
 			Name:        "Orchestrator Agent",
-			Description: "Orchestrates user requests: recognizes intent, dispatches to agents",
+			Description: "Forwards user requests to the unified Primary Assistant",
 		}),
 		registry:          reg,
 		subAgents:         subAgents,
-		explorerAgent:     explorerAgent,
-		plannerAgent:      plannerAgent,
 		planGen:           planGen,
-		summaryPolicy:     SummaryAuto,
-		replanPolicy:      DefaultReplanPolicy(),
 		maxRecursionDepth: 2,
-		fastPath:          DefaultFastPathConfig(),
 	}
 
 	for _, opt := range opts {
@@ -135,7 +98,7 @@ func New(
 	return d
 }
 
-// WithLLM sets the LLM client for direct classification calls and dynamic agent creation.
+// WithLLM sets the LLM client used for dynamic agent creation in plan steps.
 func WithLLM(llm aimodel.ChatCompleter, model string) Option {
 	return func(d *Dispatcher) {
 		d.llm = llm
@@ -143,14 +106,16 @@ func WithLLM(llm aimodel.ChatCompleter, model string) Option {
 	}
 }
 
-// WithMaxConcurrency sets DAG concurrency limit.
+// WithMaxConcurrency sets DAG concurrency limit for plan_task.
 func WithMaxConcurrency(n int) Option {
 	return func(d *Dispatcher) {
 		d.maxConcurrency = n
 	}
 }
 
-// WithFallbackAgent sets the fallback agent for failed classifications.
+// WithFallbackAgent sets the fallback agent used on the depth-exceed path.
+// setup.New installs the degraded (tool-free) Primary here so re-entering
+// the dispatcher cannot trigger another recursive cycle.
 func WithFallbackAgent(a agent.Agent) Option {
 	return func(d *Dispatcher) {
 		d.fallbackAgent = a
@@ -192,31 +157,22 @@ func WithRunTokenBudget(n int) Option {
 	}
 }
 
-// WithIntentSystemPrompt sets the system prompt for intent recognition.
-func WithIntentSystemPrompt(p string) Option {
-	return func(d *Dispatcher) {
-		d.intentSystemPrompt = p
-	}
+// WithIntentSystemPrompt is a no-op as of M7. Intent recognition was removed
+// when the classical pipeline retired; the Primary Assistant owns its own
+// system prompt.
+//
+// Deprecated: kept only so the deprecated agents/compat.go builder shim
+// keeps compiling for one cycle. Will be removed alongside compat.go.
+func WithIntentSystemPrompt(_ string) Option {
+	return func(_ *Dispatcher) {}
 }
 
-// WithPlannerSystemPrompt sets the system prompt for intent recognition.
-// Deprecated: Use WithIntentSystemPrompt. Kept for backward compatibility.
+// WithPlannerSystemPrompt is a no-op as of M7.
+//
+// Deprecated: alias for WithIntentSystemPrompt; both will be removed
+// alongside agents/compat.go.
 func WithPlannerSystemPrompt(p string) Option {
 	return WithIntentSystemPrompt(p)
-}
-
-// WithSummaryPolicy sets the summary policy.
-func WithSummaryPolicy(p SummaryPolicy) Option {
-	return func(d *Dispatcher) {
-		d.summaryPolicy = p
-	}
-}
-
-// WithReplanPolicy sets the replan policy.
-func WithReplanPolicy(p ReplanPolicy) Option {
-	return func(d *Dispatcher) {
-		d.replanPolicy = p
-	}
 }
 
 // WithMaxRecursionDepth sets the max recursion depth.
@@ -226,58 +182,17 @@ func WithMaxRecursionDepth(n int) Option {
 	}
 }
 
-// WithSummarizer sets the agent used for generating summaries.
-func WithSummarizer(a agent.Agent) Option {
-	return func(d *Dispatcher) {
-		d.summarizer = a
-	}
-}
-
-// WithProjectInstructions sets the project instructions for intent recognition
-// and dynamic agent creation.
+// WithProjectInstructions sets the project instructions used by dynamic
+// agents in plan steps.
 func WithProjectInstructions(instructions string) Option {
 	return func(d *Dispatcher) {
 		d.projectInstructions = instructions
 	}
 }
 
-// WithFastPath configures the heuristic short-circuit filter applied before
-// intent recognition. Pass DisabledFastPathConfig() to turn it off.
-func WithFastPath(cfg FastPathConfig) Option {
-	return func(d *Dispatcher) {
-		d.fastPath = cfg
-	}
-}
-
-// WithUnifiedIntent enables the tool-calling "unified intent" pathway (M2):
-// the Dispatcher issues a single LLM call whose tools are answer_directly,
-// delegate_to, and plan_task. When the model chooses answer_directly the
-// dispatcher returns immediately with one LLM call total. Off by default.
-func WithUnifiedIntent(enabled bool) Option {
-	return func(d *Dispatcher) {
-		d.unifiedIntent = enabled
-	}
-}
-
-// WithRouterLLM points the dispatcher's routing/classification LLM calls
-// (design M3) at a separate (typically smaller/cheaper) model while keeping
-// sub-agent execution on the main LLM. Passing a nil client or empty model
-// leaves routing on the main LLM — this is the default.
-func WithRouterLLM(llm aimodel.ChatCompleter, model string) Option {
-	return func(d *Dispatcher) {
-		if llm == nil || model == "" {
-			return
-		}
-
-		d.routerLLM = llm
-		d.routerModel = model
-	}
-}
-
-// WithPrimaryAssistant attaches a Primary Assistant agent (design M4). When
-// non-nil the dispatcher bypasses fastPath/intent/execute/summarize and
-// forwards every request to the Primary instead. Nil is the default and
-// preserves pre-M4 behaviour.
+// WithPrimaryAssistant attaches the unified Primary Assistant. Required as
+// of M7 — the Dispatcher returns an error from Run / RunStream when no
+// Primary is attached.
 //
 // Tool wiring (delegate_to_<agent>, plan_task, read/glob/grep, todo_write,
 // ask_user) is the caller's responsibility — this Option only records the
@@ -288,50 +203,30 @@ func WithPrimaryAssistant(a agent.Agent) Option {
 	}
 }
 
-// WithLegacyPhaseEvents enables the M5 G2 shim: when the unified pipeline is
-// active, stream the classical `intent` + `execute` phase event pairs
-// instead of the single `unified_primary` pair. Designed for HTTP / CLI
-// consumers that pinned to the pre-M5 event shape. Off by default.
-//
-// Deprecated: as of M6 the shim emits a slog.Warn on each Dispatcher that
-// enables it; the option will be removed in M7+. HTTP consumers should
-// migrate to the `unified_primary` phase event pair.
-func WithLegacyPhaseEvents(enabled bool) Option {
-	return func(d *Dispatcher) {
-		d.legacyPhaseEvents = enabled
-		if enabled {
-			slog.Warn(
-				"vv: dispatches.WithLegacyPhaseEvents is deprecated as of M6 and will be removed in M7+; " +
-					"migrate HTTP / SSE consumers from `intent` + `execute` phase events to the unified_primary phase event pair",
-			)
-		}
-	}
-}
-
 // SetPrimaryAssistant installs or replaces the Primary Assistant after
 // construction. Used by setup.New because the Primary's plan_task tool
 // holds a PlanExecutor handle on the Dispatcher itself — the Dispatcher
-// must exist before the Primary can be built, so the wiring has to happen
-// post-construction. Safe to call with nil to remove a previously attached
-// primary (exported for test parity with WithPrimaryAssistant; production
-// code only ever sets it once).
+// must exist before the Primary can be built.
 func (d *Dispatcher) SetPrimaryAssistant(a agent.Agent) {
 	d.primaryAssistant = a
 }
 
+// SetFallbackAgent installs or replaces the fallback agent after
+// construction. Used by setup.New to swap in the degraded (tool-free)
+// Primary so the depth-exceed early-return keeps answering via the Primary
+// persona.
+func (d *Dispatcher) SetFallbackAgent(a agent.Agent) {
+	d.fallbackAgent = a
+}
+
 // fallbackAgentName returns the agent ID label used in stream events / logs
-// when the dispatcher routes through the fallback agent. Migrated to
-// dispatch.go from intent.go in M6 G6 because it's a cross-cutting
-// dispatcher helper that fastpath, execute, stream, and the
-// classical-only intent path all consume.
+// when the dispatcher routes through the fallback agent (depth-exceeded
+// path).
 func (d *Dispatcher) fallbackAgentName() string {
 	if d.fallbackAgent != nil {
 		return d.fallbackAgent.ID()
 	}
 
-	// No fallback agent configured: pick any registered sub-agent so the
-	// emitted phase label still names a real ID instead of a literal that
-	// might not exist anymore (chat was removed in M6 G2).
 	for id := range d.subAgents {
 		return id
 	}
@@ -339,236 +234,59 @@ func (d *Dispatcher) fallbackAgentName() string {
 	return "fallback"
 }
 
-// SetFallbackAgent installs or replaces the fallback agent after construction.
-// Used by setup.New in unified mode (design M5) to swap the pre-M5 chat
-// fallback for a tool-free Primary, so the `depth >= maxRecursionDepth`
-// early-return keeps answering via the Primary persona rather than the
-// classical chat agent. Kept symmetrical with SetPrimaryAssistant.
-func (d *Dispatcher) SetFallbackAgent(a agent.Agent) {
-	d.fallbackAgent = a
-}
-
-// routerClient returns the LLM client to use for routing decisions: the
-// dedicated router client when configured, otherwise the main LLM. Never
-// returns nil when d.llm is non-nil; callers still need their usual nil
-// guard on the returned completer.
-func (d *Dispatcher) routerClient() aimodel.ChatCompleter {
-	if d.routerLLM != nil {
-		return d.routerLLM
-	}
-
-	return d.llm
-}
-
-// routerModelName returns the model name paired with routerClient().
-func (d *Dispatcher) routerModelName() string {
-	if d.routerLLM != nil && d.routerModel != "" {
-		return d.routerModel
-	}
-
-	return d.model
-}
-
-// Run implements agent.Agent. Orchestrates: intent recognition -> execution -> optional summarization.
+// Run implements agent.Agent. Forwards to the Primary Assistant; falls back
+// to the fallback agent only when recursion depth is exceeded.
 func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	depth := DepthFrom(ctx)
 
-	// Fast path: at max depth, execute directly with fallback agent.
 	if depth >= d.maxRecursionDepth {
 		return d.fallbackRun(ctx, req, nil)
 	}
 
-	// Unified mode (design M4): hand the request entirely to the Primary
-	// Assistant when one is attached. Primary owns its own tool-driven flow
-	// (answer_directly / delegate_to_<agent> / plan_task) so the classical
-	// fastPath/intent/execute/summarize pipeline is skipped outright.
-	if d.primaryAssistant != nil {
-		return d.runPrimary(ctx, req)
+	if d.primaryAssistant == nil {
+		return nil, fmt.Errorf("dispatcher: primary assistant required (classical pipeline removed in M7)")
 	}
 
-	// Heuristic short-circuit: greetings, small-talk, and obvious shell-like
-	// inputs bypass the intent LLM entirely.
-	if hit := d.fastPathClassify(req); hit.Hit {
-		return d.runFastPath(ctx, req, hit)
-	}
-
-	// Phase 1: Intent Recognition (may invoke explorer on-demand).
-	intent, contextSummary, intentUsage, err := d.recognizeIntent(ctx, req)
-	if err != nil {
-		slog.Warn("orchestrator: intent recognition failed, falling back to chat", "error", err)
-
-		return d.fallbackRun(ctx, req, nil)
-	}
-
-	// Unified-intent short-circuit: the single tool-calling LLM call already
-	// produced the user-facing answer; skip executeTask and summarize.
-	if intent.Mode == IntentModeAnswered {
-		return d.runAnsweredDirect(req, intent, intentUsage), nil
-	}
-
-	// Phase 2: Execute.
-	enrichedReq := d.enrichRequest(req, contextSummary)
-	childCtx := IncrementDepth(ctx)
-
-	resp, execUsage, err := d.executeTask(childCtx, enrichedReq, intent, contextSummary)
-	if err != nil {
-		return nil, err
-	}
-
-	totalUsage := aggregateUsage(intentUsage, execUsage)
-	resp.Usage = totalUsage
-
-	// Phase 3: Summarize (optional).
-	if d.shouldSummarize(req) && len(resp.Messages) > 0 {
-		summaryResp, summaryErr := d.summarize(ctx, req, []*schema.RunResponse{resp})
-		if summaryErr == nil {
-			summaryResp.Usage = aggregateUsage(totalUsage, summaryResp.Usage)
-			resp = summaryResp
-		}
-	}
-
-	return resp, nil
+	return d.runPrimary(ctx, req)
 }
 
-// RunStream implements agent.StreamAgent. Same flow as Run but with streaming events.
+// RunStream implements agent.StreamAgent. Same semantics as Run; on the
+// depth-exceed fallback path a static `summarize` phase event is emitted
+// after the fallback stream so HTTP / SSE consumers see the same event-flow
+// shape as the main path (M7 G4 — zero LLM calls; the Summary text is a
+// fixed sentinel rather than a real summarisation).
 func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
 	return schema.NewRunStream(ctx, agent.DefaultStreamBufferSize, func(ctx context.Context, send func(schema.Event) error) error {
 		agentID := d.ID()
 		sessionID := req.SessionID
 		depth := DepthFrom(ctx)
 
-		// Fast path: at max depth, execute directly.
 		if depth >= d.maxRecursionDepth {
-			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID)
-		}
-
-		// Unified mode (design M4): forward the whole request to the Primary
-		// Assistant and skip fastPath/intent/execute/summarize.
-		if d.primaryAssistant != nil {
-			return d.runPrimaryStream(ctx, send, req, agentID, sessionID)
-		}
-
-		// Heuristic short-circuit: bypass intent LLM for trivial inputs.
-		if hit := d.fastPathClassify(req); hit.Hit {
-			return d.runFastPathStream(ctx, send, req, hit)
-		}
-
-		// Phase 1: Intent Recognition. Phase label switches to "unified_intent"
-		// when the tool-calling merge is active so dashboards can distinguish
-		// the two shapes.
-		intentPhase := "intent"
-		if d.useUnifiedIntent() {
-			intentPhase = UnifiedIntentPhase
-		}
-
-		if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-			Phase: intentPhase, PhaseIndex: 1, TotalPhase: 0,
-		})); err != nil {
-			return err
-		}
-
-		intentStart := time.Now()
-
-		var intentTracker phaseTracker
-		intent, contextSummary, _, intentErr := d.recognizeIntentStream(ctx, req, intentTracker.wrap(send))
-
-		intentSummary := buildIntentSummary(intent)
-		intentDuration := time.Since(intentStart).Milliseconds()
-
-		if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase:            intentPhase,
-			Duration:         intentDuration,
-			Summary:          intentSummary,
-			ToolCalls:        intentTracker.toolCalls,
-			PromptTokens:     intentTracker.promptTokens,
-			CompletionTokens: intentTracker.completionTokens,
-		})); err != nil {
-			return err
-		}
-
-		if intentErr != nil {
-			slog.Warn("orchestrator: intent recognition failed, falling back to chat stream", "error", intentErr)
-
-			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID)
-		}
-
-		// Unified-intent short-circuit: the single LLM call already answered.
-		// Emit the answer as a streamed assistant message and return without
-		// invoking any sub-agent or summarizer.
-		if intent.Mode == IntentModeAnswered {
-			return d.streamAnsweredDirect(send, req, intent, agentID, sessionID)
-		}
-
-		enrichedReq := d.enrichRequest(req, contextSummary)
-		childCtx := IncrementDepth(ctx)
-
-		// Phase 2: Execute.
-		if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-			Phase: "execute", PhaseIndex: 2, TotalPhase: 0,
-		})); err != nil {
-			return err
-		}
-
-		executeStart := time.Now()
-
-		var executeTracker phaseTracker
-		dagUsage, executeErr := d.executeTaskStream(childCtx, enrichedReq, intent, contextSummary, executeTracker.wrap(send))
-
-		// Augment execute phase stats from DAG result usage.
-		if dagUsage != nil {
-			executeTracker.promptTokens += dagUsage.PromptTokens
-			executeTracker.completionTokens += dagUsage.CompletionTokens
-		}
-
-		executeDuration := time.Since(executeStart).Milliseconds()
-
-		if sendErr := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase:            "execute",
-			Duration:         executeDuration,
-			ToolCalls:        executeTracker.toolCalls,
-			PromptTokens:     executeTracker.promptTokens,
-			CompletionTokens: executeTracker.completionTokens,
-		})); sendErr != nil {
-			return sendErr
-		}
-
-		if executeErr != nil {
-			return executeErr
-		}
-
-		// Phase 3: Summarize (optional).
-		if d.shouldSummarize(req) {
+			if err := d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID); err != nil {
+				return err
+			}
+			// M7 G4: emit a static summarize phase pair so consumers that key
+			// off the main-path summarize event still see one on the
+			// fallback path. Zero LLM calls — keeping the "cheap fallback"
+			// invariant intact.
+			start := time.Now()
 			if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-				Phase: "summarize", PhaseIndex: 3, TotalPhase: 0,
+				Phase: "summarize", PhaseIndex: 0, TotalPhase: 0,
 			})); err != nil {
 				return err
 			}
-
-			summarizeStart := time.Now()
-
-			summarizer := d.summarizer
-			if summarizer == nil {
-				summarizer = d.planGen
-			}
-
-			if summarizer != nil {
-				err := d.forwardSubAgentStream(ctx, send, summarizer, req, "summarizer", "", sessionID)
-				if err != nil {
-					slog.Warn("orchestrator: summarization stream failed", "error", err)
-				}
-			}
-
-			summarizeDuration := time.Since(summarizeStart).Milliseconds()
-
-			if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
+			return send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
 				Phase:    "summarize",
-				Duration: summarizeDuration,
-			})); err != nil {
-				return err
-			}
+				Duration: time.Since(start).Milliseconds(),
+				Summary:  "fallback path: no summarization performed",
+			}))
 		}
 
-		return nil
+		if d.primaryAssistant == nil {
+			return fmt.Errorf("dispatcher: primary assistant required (classical pipeline removed in M7)")
+		}
+
+		return d.runPrimaryStream(ctx, send, req, agentID, sessionID)
 	}), nil
 }
 

@@ -88,44 +88,6 @@ type IntentResult struct {
 // without invoking a sub-agent.
 const IntentModeAnswered = "answered"
 
-// validate checks that the intent result references valid agents.
-func (ir *IntentResult) validate(reg *registries.Registry, subAgents map[string]agent.Agent) error {
-	switch ir.Mode {
-	case "direct":
-		if _, ok := subAgents[ir.Agent]; !ok {
-			return fmt.Errorf("unknown agent %q in direct dispatch", ir.Agent)
-		}
-	case "plan":
-		if ir.Plan == nil || len(ir.Plan.Steps) == 0 {
-			return fmt.Errorf("plan mode but no steps provided")
-		}
-
-		for _, step := range ir.Plan.Steps {
-			if step.DynamicSpec != nil {
-				if err := step.DynamicSpec.validate(reg); err != nil {
-					return fmt.Errorf("plan step %q: %w", step.ID, err)
-				}
-
-				if step.Agent != step.DynamicSpec.BaseType {
-					return fmt.Errorf("plan step %q: agent %q must match dynamic_spec base_type %q", step.ID, step.Agent, step.DynamicSpec.BaseType)
-				}
-			} else {
-				if _, ok := subAgents[step.Agent]; !ok {
-					return fmt.Errorf("unknown agent %q in plan step %q", step.Agent, step.ID)
-				}
-			}
-		}
-	case IntentModeAnswered:
-		if strings.TrimSpace(ir.Answer) == "" {
-			return fmt.Errorf("answered mode but empty answer")
-		}
-	default:
-		return fmt.Errorf("unknown intent mode %q", ir.Mode)
-	}
-
-	return nil
-}
-
 // ReplanPolicy controls dynamic replanning behavior.
 type ReplanPolicy struct {
 	TriggerOnFailure   bool `yaml:"trigger_on_failure"`

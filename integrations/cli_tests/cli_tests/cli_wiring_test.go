@@ -2,22 +2,13 @@ package cli_tests
 
 import (
 	"context"
-	"encoding/json"
 	"io"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vage/service"
-	"github.com/vogo/vv/agents"
 	vvcli "github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
-	"github.com/vogo/vv/tools"
 )
 
 // --- Test: CLI App construction with valid config ---
@@ -34,178 +25,6 @@ func TestIntegration_CLI_AppConstruction(t *testing.T) {
 	app := vvcli.New(orchestrator, cfg, nil, nil, nil)
 	if app == nil {
 		t.Fatal("cli.New returned nil")
-	}
-}
-
-// --- Test: Full wiring with CLI mode config ---
-// Verifies that the full initialization path works correctly with CLI mode,
-// including config loading, tool registration, agent creation, and registry wrapping.
-func TestIntegration_CLI_FullWiringCLIMode(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "test-configs.yaml")
-	configContent := `
-llm:
-  provider: "openai"
-  model: "test-model"
-  api_key: "test-key"
-mode: "cli"
-cli:
-  confirm_tools:
-    - bash
-    - write
-agents:
-  max_iterations: 5
-tools:
-  bash_timeout: 10
-`
-	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := configs.Load(configPath, true)
-	if err != nil {
-		t.Fatalf("configs.Load: %v", err)
-	}
-
-	if cfg.Mode != "cli" {
-		t.Errorf("mode = %q, want %q", cfg.Mode, "cli")
-	}
-
-	toolRegistry, err := tools.Register(cfg.Tools)
-	if err != nil {
-		t.Fatalf("tools.Register: %v", err)
-	}
-
-	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("test")}},
-			},
-		},
-	}
-
-	// Wrap registry as main.go does.
-	ps := vvcli.NewPermissionState(cfg.CLI.PermissionMode)
-	wrapped := vvcli.WrapRegistryWithPermission(toolRegistry, ps)
-
-	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
-	allAgents := agents.Create(cfg, mock, wrapped, wrapped, wrapped, nil, nil)
-
-	if allAgents.Orchestrator.ID() != "orchestrator" {
-		t.Errorf("orchestrator ID = %q, want %q", allAgents.Orchestrator.ID(), "orchestrator")
-	}
-
-	if allAgents.Coder.ID() != "coder" {
-		t.Errorf("coder ID = %q, want %q", allAgents.Coder.ID(), "coder")
-	}
-
-	if allAgents.Chat.ID() != "chat" {
-		t.Errorf("chat ID = %q, want %q", allAgents.Chat.ID(), "chat")
-	}
-
-	// Verify wrapped registry preserves tool list.
-	if len(wrapped.List()) != 6 {
-		t.Errorf("wrapped tool count = %d, want 6", len(wrapped.List()))
-	}
-}
-
-// --- Test: HTTP mode still works identically with mode=http ---
-// Verifies that the HTTP service path is unaffected by CLI mode additions.
-func TestIntegration_CLI_HTTPModeUnchanged(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "test-configs.yaml")
-	configContent := `
-llm:
-  provider: "openai"
-  model: "test-model"
-  api_key: "test-key"
-mode: "http"
-server:
-  addr: ":0"
-tools:
-  bash_timeout: 10
-agents:
-  max_iterations: 5
-`
-	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := configs.Load(configPath, true)
-	if err != nil {
-		t.Fatalf("configs.Load: %v", err)
-	}
-
-	if cfg.Mode != "http" {
-		t.Fatalf("mode = %q, want %q", cfg.Mode, "http")
-	}
-
-	toolRegistry, err := tools.Register(cfg.Tools)
-	if err != nil {
-		t.Fatalf("tools.Register: %v", err)
-	}
-
-	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("http response")}},
-			},
-		},
-	}
-
-	cfg.Memory = configs.MemoryConfig{MaxConcurrency: 2}
-	allAgents := agents.Create(cfg, mock, toolRegistry, toolRegistry, toolRegistry, nil, nil)
-
-	svc := service.New(
-		service.Config{Addr: ":0"},
-		service.WithToolRegistry(toolRegistry),
-	)
-	svc.RegisterAgent(allAgents.Orchestrator)
-	svc.RegisterAgent(allAgents.Coder)
-	svc.RegisterAgent(allAgents.Chat)
-	svc.RegisterAgent(allAgents.Researcher)
-	svc.RegisterAgent(allAgents.Reviewer)
-
-	ts := httptest.NewServer(svc.Handler())
-	defer ts.Close()
-
-	// Verify health endpoint works.
-	healthResp, err := ts.Client().Get(ts.URL + "/v1/health")
-	if err != nil {
-		t.Fatalf("GET /v1/health: %v", err)
-	}
-	defer func() { _ = healthResp.Body.Close() }()
-
-	if healthResp.StatusCode != http.StatusOK {
-		t.Errorf("health status = %d, want %d", healthResp.StatusCode, http.StatusOK)
-	}
-
-	// Verify agent listing returns 5 agents (orchestrator, coder, chat, researcher, reviewer).
-	agentsResp, err := ts.Client().Get(ts.URL + "/v1/agents")
-	if err != nil {
-		t.Fatalf("GET /v1/agents: %v", err)
-	}
-	defer func() { _ = agentsResp.Body.Close() }()
-
-	var agentList []struct{ ID string }
-	_ = json.NewDecoder(agentsResp.Body).Decode(&agentList)
-	if len(agentList) != 5 {
-		t.Errorf("agent count = %d, want 5", len(agentList))
-	}
-
-	// Verify sync run still works.
-	reqBody, _ := json.Marshal(schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("test")},
-	})
-	runResp, err := ts.Client().Post(ts.URL+"/v1/agents/chat/run", "application/json", strings.NewReader(string(reqBody)))
-	if err != nil {
-		t.Fatalf("POST /v1/agents/chat/run: %v", err)
-	}
-	defer func() { _ = runResp.Body.Close() }()
-
-	if runResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(runResp.Body)
-		t.Fatalf("run status = %d, body: %s", runResp.StatusCode, string(body))
 	}
 }
 

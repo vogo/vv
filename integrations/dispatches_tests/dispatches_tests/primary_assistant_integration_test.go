@@ -88,11 +88,9 @@ func newPrimaryDispatcher(
 	})
 
 	d := dispatches.New(
-		reg, subAgents, nil, nil, nil,
+		reg, subAgents, nil,
 		dispatches.WithLLM(mockLLM, "test-model"),
 		dispatches.WithFallbackAgent(chat),
-		dispatches.WithSummaryPolicy(dispatches.SummaryNever),
-		dispatches.WithFastPath(dispatches.DisabledFastPathConfig()),
 	)
 
 	// Build the Primary's tool registry: delegate_to_* + plan_task. We skip
@@ -284,23 +282,14 @@ func TestPrimary_PlanTask(t *testing.T) {
 	}
 }
 
-// TestPrimary_DisabledInClassicalMode guards the opt-in gate: when no
-// Primary is attached, the dispatcher must walk the classical path. We use
-// a UnifiedIntent(answer_directly) mock so the classical result is
-// trivially distinguishable from the Primary result.
-func TestPrimary_DisabledInClassicalMode(t *testing.T) {
+// TestPrimary_NilReturnsError guards the M7 contract: when no Primary is
+// attached, the dispatcher must return an error rather than fall back to a
+// classical pipeline (which was retired in M7).
+func TestPrimary_NilReturnsError(t *testing.T) {
 	coder := &callTrackingAgent{id: "coder"}
 	researcher := &callTrackingAgent{id: "researcher"}
 	reviewer := &callTrackingAgent{id: "reviewer"}
 	chat := &callTrackingAgent{id: "chat"}
-
-	// Classical + unified_intent on so a single LLM call answers and we
-	// don't need two round-trips through mock LLMs.
-	mockLLM := &sequentialMockLLM{
-		responses: []*aimodel.ChatResponse{
-			toolCallChatResponse(dispatches.UnifiedToolAnswerDirectly, `{"text":"classical path"}`),
-		},
-	}
 
 	reg := newIntegrationRegistry()
 	subAgents := makeSubAgents(map[string]agent.Agent{
@@ -308,28 +297,20 @@ func TestPrimary_DisabledInClassicalMode(t *testing.T) {
 	})
 
 	d := dispatches.New(
-		reg, subAgents, nil, nil, nil,
-		dispatches.WithLLM(mockLLM, "test-model"),
+		reg, subAgents, nil,
 		dispatches.WithFallbackAgent(chat),
-		dispatches.WithSummaryPolicy(dispatches.SummaryNever),
-		dispatches.WithFastPath(dispatches.DisabledFastPathConfig()),
-		dispatches.WithUnifiedIntent(true),
 	)
-	// Deliberately NO SetPrimaryAssistant — classical path.
+	// Deliberately NO SetPrimaryAssistant — must error.
 
-	resp, err := d.Run(context.Background(), &schema.RunRequest{
+	_, err := d.Run(context.Background(), &schema.RunRequest{
 		Messages:  []schema.Message{schema.NewUserMessage("hi")},
-		SessionID: "m4-classical",
+		SessionID: "m7-nil-primary",
 	})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	if err == nil {
+		t.Fatal("Run with nil Primary must return an error after M7")
 	}
 
-	if got := int(mockLLM.callCount.Load()); got != 1 {
-		t.Errorf("classical M2 path LLM calls = %d, want 1", got)
-	}
-
-	if len(resp.Messages) == 0 || !strings.Contains(resp.Messages[0].Content.Text(), "classical path") {
-		t.Errorf("classical path did not produce expected response: %+v", resp.Messages)
+	if !strings.Contains(err.Error(), "primary assistant required") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "primary assistant required")
 	}
 }

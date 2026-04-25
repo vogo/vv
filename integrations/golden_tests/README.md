@@ -1,18 +1,17 @@
 # Golden Tests
 
-Two adjacent packages, two different jobs:
+As of M7 the mock golden package was retired (it covered the now-removed
+classical pipeline). Coverage of the unified Primary path lives in the
+`dispatches` unit tests and `dispatches_tests` integration suite. The real
+LLM golden remains as the long-running performance baseline.
 
-| Package | Runs on | LLM | Purpose |
-|---------|---------|-----|---------|
-| `golden_tests/` | every CI / `make test` | mock | Contract regression — pins dispatcher shape (LLM call counts, sub-agent invocation order) for the five canonical cases. Cheap, deterministic. |
-| `real_llm_tests/` | weekly cron + manual | real | Performance baseline — records latency and token usage against a real model. Skipped when no API key is set. |
+## Real-LLM baseline
 
-## Real-LLM baseline (M6 G5)
-
-The real-LLM suite exercises the same five cases (`Greeting_Hello`,
+`real_llm_tests/` exercises five canonical cases — `Greeting_Hello`,
 `SimpleMath_Calc`, `SimpleRead_ExplainFile`, `SimpleEdit_DelegateToCoder`,
-`MultiStepRefactor_Plan`) end-to-end through `setup.New` against whatever
-LLM the environment is pointed at.
+`MultiStepRefactor_Plan` — end-to-end through `setup.New` against whatever
+LLM the environment is pointed at, then compares the run to a checked-in
+P50 baseline.
 
 ### Local
 
@@ -42,22 +41,44 @@ optional repo variables before enabling cron in earnest:
 Each run uploads `baseline.json` (per-case latency_ms + token counts) as
 an artifact retained for 90 days. Diff successive runs to spot drift.
 
-### Reading the baseline
+### Drift gate (M7)
+
+`real_llm_tests/baseline_committed.json` carries the **P50 reference**
+the test compares each run against. Out-of-window cases (default
+`±50%` per case, both for `latency_ms` and `total_tokens`) cause the
+workflow to fail.
 
 ```jsonc
-[
-  {
-    "case": "Greeting_Hello",
-    "prompt": "hello",
-    "latency_ms": 612,
-    "prompt_tokens": 312,
-    "completion_tokens": 18,
-    "total_tokens": 330,
-    "reply_excerpt": "Hello! How can I help you today?"
-  },
-  // ...
-]
+{
+  "version": 1,
+  "generated_at": "<ISO-8601>",
+  "model": "<llm-model-id>",
+  "tolerance_pct": 50,
+  "cases": {
+    "Greeting_Hello":            {"latency_ms_p50": 612, "total_tokens_p50": 330},
+    "SimpleMath_Calc":           {"latency_ms_p50": 0,   "total_tokens_p50": 0},
+    // ...
+  }
+}
 ```
 
-The mock golden suite still owns "did this regress". The real-LLM suite
-owns "is the model getting slower / more expensive over time".
+A `latency_ms_p50: 0` or `total_tokens_p50: 0` entry **disables the gate
+for that metric on that case** — useful when the baseline is mid-update
+or just committed without data yet.
+
+#### Updating `baseline_committed.json`
+
+1. Trigger a clean weekly cron (or run `scripts/run-golden-real-llm.sh`
+   locally) and download `baseline.json` from the artifacts.
+2. Take the median of at least 4 successful runs per case for both
+   `latency_ms` and `total_tokens`. (If only one run is available, set
+   `tolerance_pct` to a wider value while collecting more samples.)
+3. Write the medians into `baseline_committed.json` with the matching
+   `model` field, commit, and verify the next workflow run is green.
+4. Recommended timeline for narrowing the window:
+   - week 1–2: `tolerance_pct: 50` (current default)
+   - week 4+:  `tolerance_pct: 30` once trend is stable
+   - month 2+: `tolerance_pct: 20` for a meaningful regression alert.
+
+The artifact `baseline.json` is the per-run snapshot; `baseline_committed.json`
+is the long-lived reference checked into the repo.
