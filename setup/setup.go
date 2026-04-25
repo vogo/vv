@@ -75,6 +75,15 @@ type Options struct {
 	AskUserTimeout   time.Duration                          // optional: timeout for ask_user responses
 	DebugSink        *debugs.Sink                           // optional: debug sink (constructed only when cfg.Debug is true)
 	HookManager      *hook.Manager                          // optional: pre-built event bus; injected into every TaskAgent
+
+	// RouterLLM / RouterModel configure the Dispatcher's dedicated routing
+	// LLM client (design M3). When both are non-zero, Dispatcher routing
+	// calls (intent, unified_intent, classify, reassess) use this client
+	// instead of the main LLM. Populated by Init when
+	// cfg.Orchestrate.Router.Model is set; external callers of setup.New
+	// may leave both zero to keep the pre-M3 behaviour.
+	RouterLLM   aimodel.ChatCompleter
+	RouterModel string
 }
 
 // New reads config, registers all agents, and constructs the Dispatcher.
@@ -291,12 +300,7 @@ func New(
 	fastPath := buildFastPath(cfg.Orchestrate.FastPath)
 
 	// 10. Construct dispatcher.
-	dispatcher := dispatches.New(
-		reg,
-		subAgents,
-		explorer,
-		planner,
-		planGen,
+	dispatcherOpts := []dispatches.Option{
 		dispatches.WithLLM(llm, cfg.LLM.Model),
 		dispatches.WithMaxConcurrency(maxConcurrency),
 		dispatches.WithFallbackAgent(subAgents["chat"]),
@@ -312,7 +316,36 @@ func New(
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
 		dispatches.WithFastPath(fastPath),
 		dispatches.WithUnifiedIntent(cfg.Orchestrate.UnifiedIntent),
+	}
+
+	if opts != nil && opts.RouterLLM != nil && opts.RouterModel != "" {
+		dispatcherOpts = append(dispatcherOpts, dispatches.WithRouterLLM(opts.RouterLLM, opts.RouterModel))
+	}
+
+	dispatcher := dispatches.New(
+		reg,
+		subAgents,
+		explorer,
+		planner,
+		planGen,
+		dispatcherOpts...,
 	)
+
+	// 11. Unified mode (design M4): build Primary Assistant and attach.
+	//
+	// Constructed AFTER the dispatcher because the plan_task tool that the
+	// Primary carries needs a PlanExecutor handle on the dispatcher, and
+	// SetPrimaryAssistant is the post-construction setter that closes the
+	// cycle. classical mode skips this block entirely — Primary is a pure
+	// opt-in feature with zero startup cost when disabled.
+	if cfg.Orchestrate.Mode == configs.OrchestrateModeUnified {
+		primary, err := buildPrimaryAssistant(cfg, llm, memMgr, regOpts, subAgents, dispatcher, todoStore, todoDisabled, opts)
+		if err != nil {
+			return nil, fmt.Errorf("build primary assistant: %w", err)
+		}
+
+		dispatcher.SetPrimaryAssistant(primary)
+	}
 
 	return &Result{
 		Dispatcher:   dispatcher,
@@ -322,6 +355,127 @@ func New(
 		registry:     reg,
 		subAgents:    subAgents,
 	}, nil
+}
+
+// buildPrimaryAssistant assembles the Primary Assistant agent for unified
+// mode (design M4). The tool set combines the read-only file tools
+// (read/glob/grep) with todo_write, ask_user, the per-specialist
+// delegate_to_<agent> tools, and plan_task. The final registry passes
+// through the same permission / truncation / debug wrapping chain applied
+// to sub-agents so CLI confirmation prompts and tool-output limits cover
+// the Primary unchanged.
+func buildPrimaryAssistant(
+	cfg *configs.Config,
+	llm aimodel.ChatCompleter,
+	memMgr *memory.Manager,
+	regOpts []registries.RegistryOption,
+	subAgents map[string]agent.Agent,
+	planExec dispatches.PlanExecutor,
+	todoStore *todo.Store,
+	todoDisabled bool,
+	opts *Options,
+) (agent.Agent, error) {
+	// Base tool registry — same ProfileReadOnly builder the researcher agent
+	// uses, so path-guard wiring stays consistent.
+	toolReg, err := registries.ProfileReadOnly.BuildRegistry(cfg.Tools, regOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("primary: build read-only registry: %w", err)
+	}
+
+	// ask_user — optional, mirrors the coder/researcher/reviewer wiring.
+	if opts != nil && opts.UserInteractor != nil {
+		askuserTool := askuser.New(opts.UserInteractor, askuser.WithTimeout(opts.AskUserTimeout))
+		_ = toolReg.RegisterIfAbsent(askuserTool.ToolDef(), askuserTool.Handler())
+	}
+
+	// todo_write — share the same process-level store so Primary's plan
+	// items are visible to any specialist it delegates to.
+	if !todoDisabled {
+		if err := todo.Register(toolReg, todoStore); err != nil {
+			return nil, fmt.Errorf("primary: register todo_write: %w", err)
+		}
+	}
+
+	// delegate_to_<agent> tools — one per dispatchable specialist present in
+	// subAgents. chat is omitted deliberately: the Primary replaces the
+	// chat agent's responsibilities.
+	delegateIDs := []string{"coder", "researcher", "reviewer"}
+	if err := dispatches.RegisterDelegateTools(toolReg, subAgents, delegateIDs); err != nil {
+		return nil, fmt.Errorf("primary: register delegate tools: %w", err)
+	}
+
+	// plan_task — drives the dispatcher's existing DAG machinery.
+	if err := dispatches.RegisterPlanTaskTool(toolReg, planExec); err != nil {
+		return nil, fmt.Errorf("primary: register plan_task: %w", err)
+	}
+
+	// Apply the same wrapping chain sub-agents get: permission wrap →
+	// truncation → debug (outermost).
+	var finalToolReg tool.ToolRegistry = toolReg
+
+	if opts != nil && opts.WrapToolRegistry != nil {
+		finalToolReg = opts.WrapToolRegistry(toolReg)
+	}
+
+	if cfg.Context.ToolOutputMaxTokens > 0 {
+		finalToolReg = tool.NewTruncatingToolRegistry(finalToolReg, cfg.Context.ToolOutputMaxTokens)
+	}
+
+	if cfg.Debug && opts != nil && opts.DebugSink != nil {
+		finalToolReg = debugs.NewDebuggingToolRegistry(finalToolReg, opts.DebugSink)
+	}
+
+	// Register the Primary descriptor lazily so callers that pre-populated
+	// reg earlier in setup.New do not see a duplicate ID error on re-init.
+	// The descriptor itself is shared state in vv/agents, but registry
+	// Register is idempotent on duplicate ID via the !exists check.
+	primaryReg := registries.New()
+	agents.RegisterPrimary(primaryReg)
+
+	desc, ok := primaryReg.Get(agents.PrimaryAgentID)
+	if !ok {
+		return nil, fmt.Errorf("primary: descriptor missing after RegisterPrimary")
+	}
+
+	return desc.Factory(registries.FactoryOptions{
+		LLM:                  llm,
+		Model:                cfg.LLM.Model,
+		ToolRegistry:         finalToolReg,
+		MaxIterations:        cfg.Agents.MaxIterations,
+		RunTokenBudget:       cfg.Agents.RunTokenBudget,
+		MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
+		PromptCaching:        cfg.Agents.EffectivePromptCaching(),
+		Memory:               memMgr,
+		ProjectInstructions:  cfg.ProjectInstructions,
+		ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
+		HookManager:          getHookManager(opts),
+	})
+}
+
+// wrapLLMClient applies the same middleware chain (debug → budget) that Init
+// layers on top of every aimodel.Client it constructs. Extracted so the M3
+// router client picks up identical observability and enforcement without
+// duplicating setup code.
+func wrapLLMClient(
+	client aimodel.ChatCompleter,
+	cfg *configs.Config,
+	pricingModel string,
+	opts *Options,
+	sessionBudget, dailyBudget *budgets.Tracker,
+) aimodel.ChatCompleter {
+	wrapped := client
+
+	if cfg.Debug && opts != nil && opts.DebugSink != nil {
+		wrapped = largemodel.Chain(wrapped, largemodel.NewDebugMiddleware(debugs.SinkAdapter{S: opts.DebugSink}))
+	}
+
+	if sessionBudget != nil || dailyBudget != nil {
+		pricing := costtraces.LookupPricing(pricingModel, configs.ConvertPricing(cfg.ModelPricing))
+		preCheck, postRecord := budgets.Wire(sessionBudget, dailyBudget, pricing, budgetEventDispatcher())
+		wrapped = largemodel.Chain(wrapped, largemodel.NewBudgetMiddleware(preCheck, postRecord))
+	}
+
+	return wrapped
 }
 
 // getHookManager safely extracts the optional hook manager from opts.
@@ -540,19 +694,29 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	// Wrap with debug middleware BEFORE compactor and BEFORE setup.New so that
 	// every LLM call (sub-agents, compactor summarizer, dispatcher intent/plan-gen)
 	// is captured. Default OFF: when cfg.Debug is false the wrapper is not constructed.
-	var wrappedLLM aimodel.ChatCompleter = llmClient
-	if cfg.Debug && opts != nil && opts.DebugSink != nil {
-		wrappedLLM = largemodel.Chain(llmClient, largemodel.NewDebugMiddleware(debugs.SinkAdapter{S: opts.DebugSink}))
-	}
-
 	// Budget middleware — enforces session/daily hard limits across every LLM
-	// call (sub-agents, compactor summarizer, dispatcher intent/plan-gen).
-	// Skipped entirely when no budget limits are configured.
+	// call. Skipped entirely when no budget limits are configured.
 	sessionBudget, dailyBudget := buildBudgetTrackers(cfg.Budget)
-	if sessionBudget != nil || dailyBudget != nil {
-		pricing := costtraces.LookupPricing(cfg.LLM.Model, configs.ConvertPricing(cfg.ModelPricing))
-		preCheck, postRecord := budgets.Wire(sessionBudget, dailyBudget, pricing, budgetEventDispatcher())
-		wrappedLLM = largemodel.Chain(wrappedLLM, largemodel.NewBudgetMiddleware(preCheck, postRecord))
+	wrappedLLM := wrapLLMClient(llmClient, cfg, cfg.LLM.Model, opts, sessionBudget, dailyBudget)
+
+	// Router LLM (design M3) — when Orchestrate.Router.Model is set, build a
+	// second client dedicated to Dispatcher routing/classification calls. It
+	// receives the same debug + budget middleware wrap so observability and
+	// per-session spend limits cover both models; pricing is looked up
+	// against the router's model so the cheaper routing calls are billed
+	// correctly.
+	var routerWrappedLLM aimodel.ChatCompleter
+	var routerModel string
+	if routerCfg, ok := configs.EffectiveRouterConfig(cfg); ok {
+		routerClient, err := configs.NewLLMClient(routerCfg)
+		if err != nil {
+			return nil, fmt.Errorf("create router LLM client: %w", err)
+		}
+
+		routerWrappedLLM = wrapLLMClient(routerClient, cfg, routerCfg.Model, opts, sessionBudget, dailyBudget)
+		routerModel = routerCfg.Model
+
+		slog.Info("vv: router LLM enabled", "model", routerCfg.Model, "provider", routerCfg.Provider)
 	}
 
 	// Create persistent memory. Backend is selected by cfg.Memory.Backend;
@@ -588,6 +752,15 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		}
 
 		opts.HookManager = hookManager
+	}
+
+	if routerWrappedLLM != nil {
+		if opts == nil {
+			opts = &Options{}
+		}
+
+		opts.RouterLLM = routerWrappedLLM
+		opts.RouterModel = routerModel
 	}
 
 	// Set up all agents using the (possibly debug-wrapped) LLM client.

@@ -1149,3 +1149,239 @@ func TestLoad_BudgetDefaults(t *testing.T) {
 		t.Errorf("default warn_percent: want 0.8, got %v", cfg.Budget.WarnPercent)
 	}
 }
+
+func TestEffectiveRouterConfig_Disabled(t *testing.T) {
+	cfg := &Config{
+		LLM: LLMConfig{Provider: "openai", Model: "gpt-4o", APIKey: "sk-main", BaseURL: "https://api.openai.com/v1"},
+	}
+
+	if got, ok := EffectiveRouterConfig(cfg); ok || got.Model != "" {
+		t.Errorf("router unset must report disabled, got (%+v, %v)", got, ok)
+	}
+}
+
+func TestEffectiveRouterConfig_InheritsFromMain(t *testing.T) {
+	cfg := &Config{
+		LLM: LLMConfig{Provider: "openai", Model: "gpt-4o", APIKey: "sk-main", BaseURL: "https://api.openai.com/v1"},
+	}
+	cfg.Orchestrate.Router = LLMConfig{Model: "gpt-4o-mini"}
+
+	got, ok := EffectiveRouterConfig(cfg)
+	if !ok {
+		t.Fatal("router should be enabled when model is set")
+	}
+
+	if got.Model != "gpt-4o-mini" {
+		t.Errorf("model = %q, want gpt-4o-mini", got.Model)
+	}
+
+	if got.Provider != "openai" || got.APIKey != "sk-main" || got.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("missing fields did not inherit from main LLM: %+v", got)
+	}
+}
+
+func TestEffectiveRouterConfig_OverridesMain(t *testing.T) {
+	cfg := &Config{
+		LLM: LLMConfig{Provider: "openai", Model: "gpt-4o", APIKey: "sk-main", BaseURL: "https://api.openai.com/v1"},
+	}
+	cfg.Orchestrate.Router = LLMConfig{
+		Provider: "anthropic",
+		Model:    "claude-haiku-4-5",
+		APIKey:   "sk-router",
+		BaseURL:  "https://api.anthropic.com/v1",
+	}
+
+	got, ok := EffectiveRouterConfig(cfg)
+	if !ok {
+		t.Fatal("router should be enabled")
+	}
+
+	if got.Provider != "anthropic" || got.Model != "claude-haiku-4-5" ||
+		got.APIKey != "sk-router" || got.BaseURL != "https://api.anthropic.com/v1" {
+		t.Errorf("explicit router fields should not be clobbered by main: %+v", got)
+	}
+}
+
+func TestEffectiveRouterConfig_WhitespaceModelIsDisabled(t *testing.T) {
+	cfg := &Config{
+		LLM: LLMConfig{Model: "gpt-4o"},
+	}
+	cfg.Orchestrate.Router = LLMConfig{Model: "   "}
+
+	if _, ok := EffectiveRouterConfig(cfg); ok {
+		t.Error("whitespace-only router model must be treated as disabled")
+	}
+}
+
+func TestEffectiveRouterConfig_NilConfig(t *testing.T) {
+	if _, ok := EffectiveRouterConfig(nil); ok {
+		t.Error("nil config should be treated as disabled")
+	}
+}
+
+func TestLoad_RouterFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "sk-main"
+  base_url: "https://api.openai.com/v1"
+orchestrate:
+  router:
+    model: "gpt-4o-mini"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Orchestrate.Router.Model != "gpt-4o-mini" {
+		t.Errorf("router.model = %q, want gpt-4o-mini", cfg.Orchestrate.Router.Model)
+	}
+
+	got, ok := EffectiveRouterConfig(cfg)
+	if !ok {
+		t.Fatal("router should be enabled after YAML load")
+	}
+
+	if got.APIKey != "sk-main" {
+		t.Errorf("router APIKey should inherit from main, got %q", got.APIKey)
+	}
+}
+
+func TestLoad_RouterEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_ROUTER_MODEL", "claude-haiku-4-5")
+	t.Setenv("VV_ROUTER_PROVIDER", "anthropic")
+	t.Setenv("VV_ROUTER_API_KEY", "sk-env-router")
+	t.Setenv("VV_ROUTER_BASE_URL", "https://api.anthropic.com/v1")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Orchestrate.Router.Model != "claude-haiku-4-5" {
+		t.Errorf("env VV_ROUTER_MODEL did not take effect, got %q", cfg.Orchestrate.Router.Model)
+	}
+	if cfg.Orchestrate.Router.Provider != "anthropic" {
+		t.Errorf("env VV_ROUTER_PROVIDER did not take effect, got %q", cfg.Orchestrate.Router.Provider)
+	}
+	if cfg.Orchestrate.Router.APIKey != "sk-env-router" {
+		t.Errorf("env VV_ROUTER_API_KEY did not take effect, got %q", cfg.Orchestrate.Router.APIKey)
+	}
+	if cfg.Orchestrate.Router.BaseURL != "https://api.anthropic.com/v1" {
+		t.Errorf("env VV_ROUTER_BASE_URL did not take effect, got %q", cfg.Orchestrate.Router.BaseURL)
+	}
+}
+
+func TestValidateOrchestrateMode(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"", OrchestrateModeClassical, false},
+		{"classical", OrchestrateModeClassical, false},
+		{"  Classical ", OrchestrateModeClassical, false},
+		{"unified", OrchestrateModeUnified, false},
+		{"UNIFIED", OrchestrateModeUnified, false},
+		{"unifiec", "", true},
+		{"primary", "", true},
+	}
+
+	for _, tc := range cases {
+		got, err := ValidateOrchestrateMode(tc.in)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("ValidateOrchestrateMode(%q) err=%v wantErr=%v", tc.in, err, tc.wantErr)
+		}
+
+		if !tc.wantErr && got != tc.want {
+			t.Errorf("ValidateOrchestrateMode(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestLoad_OrchestrateModeFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "sk-main"
+orchestrate:
+  mode: "unified"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
+		t.Errorf("mode = %q, want %q", cfg.Orchestrate.Mode, OrchestrateModeUnified)
+	}
+}
+
+func TestLoad_OrchestrateModeEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\norchestrate:\n  mode: classical\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_ORCHESTRATE_MODE", "unified")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
+		t.Errorf("env VV_ORCHESTRATE_MODE did not take effect, got %q", cfg.Orchestrate.Mode)
+	}
+}
+
+func TestLoad_OrchestrateModeRejectsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\norchestrate:\n  mode: bogus\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path, true); err == nil {
+		t.Fatal("Load should fail with unknown orchestrate.mode, got nil")
+	}
+}
+
+func TestLoad_OrchestrateModeDefaultsToClassical(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Orchestrate.Mode != OrchestrateModeClassical {
+		t.Errorf("mode = %q, want %q (default)", cfg.Orchestrate.Mode, OrchestrateModeClassical)
+	}
+}

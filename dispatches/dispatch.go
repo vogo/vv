@@ -74,6 +74,22 @@ type Dispatcher struct {
 	// model picks answer_directly / delegate_to / plan_task; answer_directly
 	// returns the response without invoking a sub-agent.
 	unifiedIntent bool
+
+	// routerLLM, when non-nil, is used for the dispatcher's routing /
+	// classification calls (intent recognition, unified-intent, classify and
+	// reassess) instead of llm (design M3). Sub-agent execution and
+	// summarization keep using llm. When nil, routing falls back to llm so
+	// pre-M3 behaviour is preserved.
+	routerLLM   aimodel.ChatCompleter
+	routerModel string
+
+	// primaryAssistant, when non-nil, replaces the classical
+	// fastPath/intent/execute/summarize pipeline with a single Primary
+	// Assistant invocation (design M4). The dispatcher forwards the request
+	// to primaryAssistant.Run / RunStream and returns its output unchanged.
+	// nil by default so pre-M4 behaviour is preserved; set via
+	// WithPrimaryAssistant or SetPrimaryAssistant.
+	primaryAssistant agent.Agent
 }
 
 // Option configures a Dispatcher.
@@ -236,6 +252,67 @@ func WithUnifiedIntent(enabled bool) Option {
 	}
 }
 
+// WithRouterLLM points the dispatcher's routing/classification LLM calls
+// (design M3) at a separate (typically smaller/cheaper) model while keeping
+// sub-agent execution on the main LLM. Passing a nil client or empty model
+// leaves routing on the main LLM — this is the default.
+func WithRouterLLM(llm aimodel.ChatCompleter, model string) Option {
+	return func(d *Dispatcher) {
+		if llm == nil || model == "" {
+			return
+		}
+
+		d.routerLLM = llm
+		d.routerModel = model
+	}
+}
+
+// WithPrimaryAssistant attaches a Primary Assistant agent (design M4). When
+// non-nil the dispatcher bypasses fastPath/intent/execute/summarize and
+// forwards every request to the Primary instead. Nil is the default and
+// preserves pre-M4 behaviour.
+//
+// Tool wiring (delegate_to_<agent>, plan_task, read/glob/grep, todo_write,
+// ask_user) is the caller's responsibility — this Option only records the
+// agent handle.
+func WithPrimaryAssistant(a agent.Agent) Option {
+	return func(d *Dispatcher) {
+		d.primaryAssistant = a
+	}
+}
+
+// SetPrimaryAssistant installs or replaces the Primary Assistant after
+// construction. Used by setup.New because the Primary's plan_task tool
+// holds a PlanExecutor handle on the Dispatcher itself — the Dispatcher
+// must exist before the Primary can be built, so the wiring has to happen
+// post-construction. Safe to call with nil to remove a previously attached
+// primary (exported for test parity with WithPrimaryAssistant; production
+// code only ever sets it once).
+func (d *Dispatcher) SetPrimaryAssistant(a agent.Agent) {
+	d.primaryAssistant = a
+}
+
+// routerClient returns the LLM client to use for routing decisions: the
+// dedicated router client when configured, otherwise the main LLM. Never
+// returns nil when d.llm is non-nil; callers still need their usual nil
+// guard on the returned completer.
+func (d *Dispatcher) routerClient() aimodel.ChatCompleter {
+	if d.routerLLM != nil {
+		return d.routerLLM
+	}
+
+	return d.llm
+}
+
+// routerModelName returns the model name paired with routerClient().
+func (d *Dispatcher) routerModelName() string {
+	if d.routerLLM != nil && d.routerModel != "" {
+		return d.routerModel
+	}
+
+	return d.model
+}
+
 // Run implements agent.Agent. Orchestrates: intent recognition -> execution -> optional summarization.
 func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	depth := DepthFrom(ctx)
@@ -243,6 +320,14 @@ func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.R
 	// Fast path: at max depth, execute directly with fallback agent.
 	if depth >= d.maxRecursionDepth {
 		return d.fallbackRun(ctx, req, nil)
+	}
+
+	// Unified mode (design M4): hand the request entirely to the Primary
+	// Assistant when one is attached. Primary owns its own tool-driven flow
+	// (answer_directly / delegate_to_<agent> / plan_task) so the classical
+	// fastPath/intent/execute/summarize pipeline is skipped outright.
+	if d.primaryAssistant != nil {
+		return d.runPrimary(ctx, req)
 	}
 
 	// Heuristic short-circuit: greetings, small-talk, and obvious shell-like
@@ -299,6 +384,12 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 		// Fast path: at max depth, execute directly.
 		if depth >= d.maxRecursionDepth {
 			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+		}
+
+		// Unified mode (design M4): forward the whole request to the Primary
+		// Assistant and skip fastPath/intent/execute/summarize.
+		if d.primaryAssistant != nil {
+			return d.runPrimaryStream(ctx, send, req, agentID, sessionID)
 		}
 
 		// Heuristic short-circuit: bypass intent LLM for trivial inputs.

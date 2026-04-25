@@ -111,10 +111,11 @@ func (d *Dispatcher) recognizeIntentStream(ctx context.Context, req *schema.RunR
 }
 
 // useUnifiedIntent reports whether the tool-calling unified-intent pathway
-// should take the next recognizeIntent call. The LLM guard (d.llm != nil)
-// is required because the unified path is inherently an LLM call.
+// should take the next recognizeIntent call. A routing LLM (the dedicated
+// router client if configured via M3, otherwise the main LLM) is required
+// because the unified path is inherently an LLM call.
 func (d *Dispatcher) useUnifiedIntent() bool {
-	return d.unifiedIntent && d.llm != nil
+	return d.unifiedIntent && d.routerClient() != nil
 }
 
 // recognizeIntentDirect makes a direct LLM call for intent recognition.
@@ -138,11 +139,11 @@ func (d *Dispatcher) recognizeIntentDirect(ctx context.Context, req *schema.RunR
 	msgs = append(msgs, schema.ToAIModelMessages(req.Messages)...)
 
 	chatReq := &aimodel.ChatRequest{
-		Model:    d.model,
+		Model:    d.routerModelName(),
 		Messages: msgs,
 	}
 
-	resp, err := d.llm.ChatCompletion(ctx, chatReq)
+	resp, err := d.routerClient().ChatCompletion(ctx, chatReq)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -219,11 +220,11 @@ func (d *Dispatcher) reassessIntent(ctx context.Context, req *schema.RunRequest,
 	msgs = append(msgs, schema.ToAIModelMessages(req.Messages)...)
 
 	chatReq := &aimodel.ChatRequest{
-		Model:    d.model,
+		Model:    d.routerModelName(),
 		Messages: msgs,
 	}
 
-	resp, err := d.llm.ChatCompletion(ctx, chatReq)
+	resp, err := d.routerClient().ChatCompletion(ctx, chatReq)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -683,11 +684,11 @@ func (d *Dispatcher) classifyDirect(ctx context.Context, req *schema.RunRequest)
 	msgs = append(msgs, schema.ToAIModelMessages(req.Messages)...)
 
 	chatReq := &aimodel.ChatRequest{
-		Model:    d.model,
+		Model:    d.routerModelName(),
 		Messages: msgs,
 	}
 
-	resp, err := d.llm.ChatCompletion(ctx, chatReq)
+	resp, err := d.routerClient().ChatCompletion(ctx, chatReq)
 	if err != nil {
 		return nil, nil, err
 	}

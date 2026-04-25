@@ -191,13 +191,13 @@ func (d *Dispatcher) recognizeIntentUnified(ctx context.Context, req *schema.Run
 	msgs = append(msgs, schema.ToAIModelMessages(req.Messages)...)
 
 	chatReq := &aimodel.ChatRequest{
-		Model:      d.model,
+		Model:      d.routerModelName(),
 		Messages:   msgs,
 		Tools:      unifiedIntentTools(),
 		ToolChoice: "auto",
 	}
 
-	resp, err := d.llm.ChatCompletion(ctx, chatReq)
+	resp, err := d.routerClient().ChatCompletion(ctx, chatReq)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("unified intent LLM call: %w", err)
 	}

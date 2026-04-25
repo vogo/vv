@@ -66,6 +66,43 @@ type OrchestrateConfig struct {
 	// greeting/Q&A path from two LLM calls to one. Default false; opt-in while
 	// the feature is under evaluation.
 	UnifiedIntent bool `yaml:"unified_intent,omitempty"`
+
+	// Router optionally points the dispatcher's routing/classification LLM
+	// calls (intent recognition, unified-intent tool-calling, classify and
+	// reassess) at a cheaper/smaller model such as claude-haiku-4-5 (design
+	// M3). Any empty field inherits from Config.LLM; an empty Router.Model
+	// leaves the feature disabled and the main model keeps handling routing.
+	Router LLMConfig `yaml:"router,omitempty"`
+
+	// Mode selects between the classical fastPath/intent/execute/summarize
+	// pipeline and the unified Primary Assistant pipeline (design M4).
+	// Valid values: "" (== classical, default), "classical", "unified".
+	// Unknown values fail Load with a clear error so typos surface at startup
+	// rather than silently degrading to the wrong pipeline.
+	Mode string `yaml:"mode,omitempty"`
+}
+
+// Orchestrate mode constants. "" is treated as OrchestrateModeClassical.
+const (
+	OrchestrateModeClassical = "classical"
+	OrchestrateModeUnified   = "unified"
+)
+
+// ValidateOrchestrateMode normalises mode strings; an empty value maps to
+// "classical" so existing configs continue to work unchanged.
+func ValidateOrchestrateMode(mode string) (string, error) {
+	m := strings.ToLower(strings.TrimSpace(mode))
+	switch m {
+	case "", OrchestrateModeClassical:
+		return OrchestrateModeClassical, nil
+	case OrchestrateModeUnified:
+		return OrchestrateModeUnified, nil
+	default:
+		return "", fmt.Errorf(
+			"unknown orchestrate.mode %q (expected %q or %q)",
+			mode, OrchestrateModeClassical, OrchestrateModeUnified,
+		)
+	}
 }
 
 // ReplanConfig holds replanning configuration.
@@ -571,6 +608,26 @@ func Load(path string, explicit bool) (*Config, error) {
 		}
 	}
 
+	if v := os.Getenv("VV_ORCHESTRATE_MODE"); v != "" {
+		cfg.Orchestrate.Mode = v
+	}
+
+	if v := os.Getenv("VV_ROUTER_MODEL"); v != "" {
+		cfg.Orchestrate.Router.Model = v
+	}
+
+	if v := os.Getenv("VV_ROUTER_PROVIDER"); v != "" {
+		cfg.Orchestrate.Router.Provider = v
+	}
+
+	if v := os.Getenv("VV_ROUTER_API_KEY"); v != "" {
+		cfg.Orchestrate.Router.APIKey = v
+	}
+
+	if v := os.Getenv("VV_ROUTER_BASE_URL"); v != "" {
+		cfg.Orchestrate.Router.BaseURL = v
+	}
+
 	if v := os.Getenv("VV_MCP_TRANSPORT"); v != "" {
 		cfg.MCP.Server.Transport = v
 	}
@@ -618,6 +675,12 @@ func Load(path string, explicit bool) (*Config, error) {
 		return nil, err
 	}
 	cfg.Memory.Backend = normalized
+
+	normalizedMode, err := ValidateOrchestrateMode(cfg.Orchestrate.Mode)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Orchestrate.Mode = normalizedMode
 
 	if len(cfg.CLI.ConfirmTools) > 0 {
 		slog.Warn("vv: confirm_tools is deprecated; use permission_mode instead")
@@ -962,4 +1025,42 @@ func NewLLMClient(cfg LLMConfig) (*aimodel.Client, error) {
 	}
 
 	return aimodel.NewClient(opts...)
+}
+
+// EffectiveRouterConfig resolves the router LLM configuration for design M3.
+// Returns (_, false) when no router model is configured, signalling that the
+// dispatcher should keep using the main LLM for routing. When enabled, any
+// field left empty on Orchestrate.Router inherits from cfg.LLM so users can
+// typically just set `orchestrate.router.model: <small-model>` and share the
+// main provider/api_key/base_url.
+func EffectiveRouterConfig(cfg *Config) (LLMConfig, bool) {
+	if cfg == nil {
+		return LLMConfig{}, false
+	}
+
+	r := cfg.Orchestrate.Router
+	if strings.TrimSpace(r.Model) == "" {
+		return LLMConfig{}, false
+	}
+
+	eff := LLMConfig{
+		Provider: r.Provider,
+		Model:    r.Model,
+		APIKey:   r.APIKey,
+		BaseURL:  r.BaseURL,
+	}
+
+	if eff.Provider == "" {
+		eff.Provider = cfg.LLM.Provider
+	}
+
+	if eff.APIKey == "" {
+		eff.APIKey = cfg.LLM.APIKey
+	}
+
+	if eff.BaseURL == "" {
+		eff.BaseURL = cfg.LLM.BaseURL
+	}
+
+	return eff, true
 }
