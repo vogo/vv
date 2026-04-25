@@ -1,8 +1,11 @@
 package dispatches
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/vogo/aimodel"
@@ -258,6 +261,50 @@ func TestRunStream_UnifiedMode_LegacyShim_EmitsIntentAndExecutePhases(t *testing
 // here instead of deep in a tool-handler closure.
 func TestRunPlan_ImplementsPlanExecutor(_ *testing.T) {
 	var _ PlanExecutor = (*Dispatcher)(nil)
+}
+
+// TestWithLegacyPhaseEvents_DeprecationWarn pins the M6 deprecation signal:
+// WithLegacyPhaseEvents(true) emits a slog.Warn at Option-application time
+// so operators see the migration notice in the logs once per Dispatcher
+// construction; passing false stays silent so existing zero-config setups
+// produce no extra noise.
+func TestWithLegacyPhaseEvents_DeprecationWarn(t *testing.T) {
+	cases := []struct {
+		name      string
+		enabled   bool
+		wantWarn  bool
+		wantField string
+	}{
+		{name: "enabled emits deprecation warn", enabled: true, wantWarn: true, wantField: "deprecated"},
+		{name: "disabled stays silent", enabled: false, wantWarn: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
+			d := New(newTestRegistry(), map[string]agent.Agent{}, nil, nil, nil, WithLegacyPhaseEvents(tc.enabled))
+			if d == nil {
+				t.Fatal("New returned nil")
+			}
+
+			out := buf.String()
+			gotWarn := strings.Contains(out, tc.wantField) && strings.Contains(out, "level=WARN")
+
+			if tc.wantWarn && !gotWarn {
+				t.Errorf("expected deprecation warn containing %q in log; got %q", tc.wantField, out)
+			}
+
+			if !tc.wantWarn && out != "" {
+				t.Errorf("expected silent (disabled), got log output: %q", out)
+			}
+		})
+	}
 }
 
 // TestSetFallbackAgent_PostConstruction_AttachesAgent guards the M5 G3

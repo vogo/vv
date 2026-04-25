@@ -44,6 +44,11 @@ var defaultToolTriggerPatterns = []string{
 }
 
 // FastPathRule matches a user prompt and routes it to a sub-agent.
+//
+// Agent is a registered sub-agent ID. As of M6 an empty Agent value means
+// "use the Dispatcher's fallback agent at execution time" — late-bound so
+// the rule does not have to hard-code the historical "chat" name; the
+// fallback is resolved by Dispatcher.fallbackAgentName when the rule fires.
 type FastPathRule struct {
 	Category string
 	Pattern  *regexp.Regexp
@@ -60,7 +65,8 @@ type FastPathConfig struct {
 }
 
 // DefaultFastPathConfig returns the built-in defaults: enabled, MaxChars=60,
-// greetings → chat, tool triggers → coder.
+// greetings → fallback (empty Agent, late-bound per M6 G6), tool triggers
+// → coder.
 func DefaultFastPathConfig() FastPathConfig {
 	rules := make([]FastPathRule, 0, len(defaultGreetingPatterns)+len(defaultToolTriggerPatterns))
 
@@ -68,7 +74,7 @@ func DefaultFastPathConfig() FastPathConfig {
 		rules = append(rules, FastPathRule{
 			Category: FastPathCategoryGreeting,
 			Pattern:  regexp.MustCompile(p),
-			Agent:    "chat",
+			Agent:    "", // late-bound to Dispatcher fallback agent
 		})
 	}
 
@@ -143,13 +149,24 @@ func (d *Dispatcher) fastPathClassify(req *schema.RunRequest) fastPathResult {
 			continue
 		}
 
-		if _, known := d.subAgents[rule.Agent]; !known {
+		// Resolve a late-bound empty Agent to the Dispatcher's fallback
+		// at hit time (design M6 G6 — keeps DefaultFastPathConfig from
+		// hard-coding "chat"). The fallback agent does not live in
+		// d.subAgents, so the membership check is skipped on this branch.
+		agentID := rule.Agent
+		if agentID == "" {
+			if d.fallbackAgent == nil {
+				continue
+			}
+
+			agentID = d.fallbackAgentName()
+		} else if _, known := d.subAgents[agentID]; !known {
 			continue
 		}
 
 		return fastPathResult{
 			Hit:      true,
-			Agent:    rule.Agent,
+			Agent:    agentID,
 			Category: rule.Category,
 			Pattern:  rule.Pattern.String(),
 		}
@@ -179,7 +196,15 @@ func (d *Dispatcher) runFastPath(ctx context.Context, req *schema.RunRequest, hi
 
 	sub, ok := d.subAgents[hit.Agent]
 	if !ok {
-		return d.fallbackRun(ctx, req, nil)
+		// Late-bound rule (empty Agent in config) resolves to the fallback
+		// agent at classify time; that agent is not in d.subAgents, so look
+		// it up directly. If the names disagree, fall through to
+		// fallbackRun's classification-failure path.
+		if d.fallbackAgent != nil && hit.Agent == d.fallbackAgentName() {
+			sub = d.fallbackAgent
+		} else {
+			return d.fallbackRun(ctx, req, nil)
+		}
 	}
 
 	ctx = debugs.WithAgentName(ctx, hit.Agent)
@@ -232,14 +257,20 @@ func (d *Dispatcher) runFastPathStream(
 
 	sub, ok := d.subAgents[hit.Agent]
 	if !ok {
-		// Emit a zero-cost phase_end then fall back.
-		_ = send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-			Phase:    fastPathPhase,
-			Duration: time.Since(start).Milliseconds(),
-			Summary:  "Fast path declined (agent missing)",
-		}))
+		// Late-bound rule resolves to the fallback agent at classify time;
+		// it lives outside d.subAgents. If names match, run it directly;
+		// otherwise emit a zero-cost phase_end and forward to fallback.
+		if d.fallbackAgent != nil && hit.Agent == d.fallbackAgentName() {
+			sub = d.fallbackAgent
+		} else {
+			_ = send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
+				Phase:    fastPathPhase,
+				Duration: time.Since(start).Milliseconds(),
+				Summary:  "Fast path declined (agent missing)",
+			}))
 
-		return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID)
+		}
 	}
 
 	if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{

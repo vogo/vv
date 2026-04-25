@@ -86,7 +86,7 @@ func TestIntegration_NoVVMd_UnchangedBehavior(t *testing.T) {
 	}
 
 	// Verify all dispatchable agents were created.
-	expectedAgents := []string{"coder", "chat", "researcher", "reviewer"}
+	expectedAgents := []string{"coder", "researcher", "reviewer"} // chat removed in M6 G2
 	for _, id := range expectedAgents {
 		if a := result.Agent(id); a == nil {
 			t.Errorf("agent %q not found", id)
@@ -205,10 +205,13 @@ func TestIntegration_EndToEnd_WithVVMd(t *testing.T) {
 		t.Fatal("Dispatcher is nil")
 	}
 
-	// Run the chat agent to trigger an LLM call and capture the system prompt.
-	chatAgent := result.Agent("chat")
-	if chatAgent == nil {
-		t.Fatal("chat agent not found")
+	// Run the researcher agent to trigger an LLM call and capture the
+	// system prompt (chat was removed in M6 G2; researcher is the
+	// minimal-tool dispatchable agent that still exercises the project
+	// instructions wiring).
+	subAgent := result.Agent("researcher")
+	if subAgent == nil {
+		t.Fatal("researcher agent not found")
 	}
 
 	ctx := context.Background()
@@ -218,9 +221,9 @@ func TestIntegration_EndToEnd_WithVVMd(t *testing.T) {
 		},
 	}
 
-	_, runErr := chatAgent.Run(ctx, runReq)
+	_, runErr := subAgent.Run(ctx, runReq)
 	if runErr != nil {
-		t.Fatalf("chatAgent.Run: %v", runErr)
+		t.Fatalf("subAgent.Run: %v", runErr)
 	}
 
 	if capture.captured == nil {
@@ -327,10 +330,11 @@ func TestIntegration_PresetProjectInstructions_NotOverwritten(t *testing.T) {
 		t.Errorf("ProjectInstructions = %q, want %q", cfg.ProjectInstructions, presetInstructions)
 	}
 
-	// Run chat agent and verify system prompt uses preset value.
-	chatAgent := result.Agent("chat")
-	if chatAgent == nil {
-		t.Fatal("chat agent not found")
+	// Run researcher agent and verify system prompt uses preset value
+	// (chat removed in M6 G2).
+	subAgent := result.Agent("researcher")
+	if subAgent == nil {
+		t.Fatal("researcher agent not found")
 	}
 
 	ctx := context.Background()
@@ -340,9 +344,9 @@ func TestIntegration_PresetProjectInstructions_NotOverwritten(t *testing.T) {
 		},
 	}
 
-	_, runErr := chatAgent.Run(ctx, runReq)
+	_, runErr := subAgent.Run(ctx, runReq)
 	if runErr != nil {
-		t.Fatalf("chatAgent.Run: %v", runErr)
+		t.Fatalf("subAgent.Run: %v", runErr)
 	}
 
 	if capture.captured == nil {
@@ -373,8 +377,6 @@ func TestIntegration_Dispatcher_ReceivesProjectInstructions(t *testing.T) {
 	agents.RegisterCoder(reg)
 	agents.RegisterResearcher(reg)
 	agents.RegisterReviewer(reg)
-	agents.RegisterChat(reg)
-	agents.RegisterExplorer(reg)
 	agents.RegisterPlanner(reg)
 
 	mock := &mockChatCompleter{
@@ -390,25 +392,24 @@ func TestIntegration_Dispatcher_ReceivesProjectInstructions(t *testing.T) {
 		},
 	}
 
-	chatAgent := &stubAgent{id: "chat"}
 	coderAgent := &stubAgent{id: "coder"}
-	explorerAgent := &stubAgent{id: "explorer"}
+	researcherAgent := &stubAgent{id: "researcher"}
 	plannerAgent := &stubAgent{id: "planner"}
 
 	subAgents := map[string]agent.Agent{
-		"chat":  chatAgent,
-		"coder": coderAgent,
+		"coder":      coderAgent,
+		"researcher": researcherAgent,
 	}
 
 	// Create dispatcher with project instructions.
 	d := dispatches.New(
 		reg,
 		subAgents,
-		explorerAgent,
+		nil, // explorer removed in M6 G2
 		plannerAgent,
 		nil,
 		dispatches.WithLLM(mock, "test-model"),
-		dispatches.WithFallbackAgent(chatAgent),
+		dispatches.WithFallbackAgent(researcherAgent),
 		dispatches.WithProjectInstructions(instructions),
 		dispatches.WithMaxRecursionDepth(2),
 	)
@@ -427,11 +428,11 @@ func TestIntegration_Dispatcher_ReceivesProjectInstructions(t *testing.T) {
 	d2 := dispatches.New(
 		reg,
 		subAgents,
-		explorerAgent,
+		nil,
 		plannerAgent,
 		nil,
 		dispatches.WithLLM(mock, "test-model"),
-		dispatches.WithFallbackAgent(chatAgent),
+		dispatches.WithFallbackAgent(researcherAgent),
 		dispatches.WithProjectInstructions(""),
 		dispatches.WithMaxRecursionDepth(2),
 	)
@@ -491,8 +492,8 @@ func TestIntegration_AllAgentFactories_WithProjectInstructions(t *testing.T) {
 		t.Fatalf("setup.New() with project instructions failed: %v", err)
 	}
 
-	// Verify all dispatchable agents were created.
-	dispatchable := []string{"coder", "chat", "researcher", "reviewer"}
+	// Verify all dispatchable agents were created (chat removed in M6 G2).
+	dispatchable := []string{"coder", "researcher", "reviewer"}
 	for _, id := range dispatchable {
 		a := result.Agent(id)
 		if a == nil {

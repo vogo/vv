@@ -30,20 +30,16 @@ package setup_tests
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
-	"github.com/vogo/vv/registries"
 	"github.com/vogo/vv/setup"
 )
 
@@ -418,114 +414,4 @@ agents:
 		t.Fatal("mock captured no LLM requests")
 	}
 	assertNoCacheMarkers(t, mock.requests[0])
-}
-
-// --- Test: explorer factory carries the flag (non-dispatchable path) ---
-// The explorer agent is built out-of-band in setup.New (not via the
-// Dispatchable() loop) because it is a tool-using infrastructure agent, not
-// a dispatch target. setup.Result does NOT expose it, so the only way to
-// verify its PromptCaching wiring end-to-end is to reach into the registry,
-// grab the "explorer" AgentDescriptor, and invoke its Factory with a
-// recording mock — mirroring what setup.New does internally. This closes
-// the fourth factory's coverage gap (coder/researcher/reviewer/explorer).
-// Test cases:
-//   - explorer registered with Dispatchable=false
-//   - Factory invoked with PromptCaching=true produces an agent that marks
-//     system + last tool on its outbound ChatRequest
-//   - Factory invoked with PromptCaching=false produces an agent that omits
-//     both markers
-func TestIntegration_ExplorerFactory_PromptCaching(t *testing.T) {
-	reg := registries.New()
-	agents.RegisterExplorer(reg)
-
-	desc, ok := reg.Get("explorer")
-	if !ok {
-		t.Fatal("explorer descriptor not registered")
-	}
-	if desc.Dispatchable {
-		t.Errorf("explorer should be non-dispatchable")
-	}
-
-	// Build a read-only tool registry the way setup.New does.
-	toolReg, err := desc.ToolProfile.BuildRegistry(configs.ToolsConfig{BashTimeout: 10})
-	if err != nil {
-		t.Fatalf("BuildRegistry: %v", err)
-	}
-
-	// Case A: PromptCaching=true -> markers expected.
-	mockOn := &recordingMockCompleter{responses: []*aimodel.ChatResponse{stopRespPromptCaching("ok")}}
-	explorerOn, err := desc.Factory(registries.FactoryOptions{
-		LLM:           mockOn,
-		Model:         "test-model",
-		ToolRegistry:  toolReg,
-		MaxIterations: 3,
-		PromptCaching: true,
-	})
-	if err != nil {
-		t.Fatalf("explorer factory (on): %v", err)
-	}
-
-	_, err = explorerOn.Run(context.Background(), &schema.RunRequest{
-		SessionID: "explorer-cache-on",
-		Messages:  []schema.Message{schema.NewUserMessage("explore")},
-	})
-	if err != nil {
-		t.Fatalf("explorer.Run (on): %v", err)
-	}
-	if len(mockOn.requests) == 0 {
-		t.Fatal("explorer (on) issued no LLM calls")
-	}
-	assertExactlyOneSystemMarked(t, mockOn.requests[0])
-	assertLastToolMarked(t, mockOn.requests[0])
-
-	// Case B: PromptCaching=false -> no markers.
-	// Rebuild the tool registry because taskagent consumes the same one.
-	toolReg2, err := desc.ToolProfile.BuildRegistry(configs.ToolsConfig{BashTimeout: 10})
-	if err != nil {
-		t.Fatalf("BuildRegistry (off): %v", err)
-	}
-	mockOff := &recordingMockCompleter{responses: []*aimodel.ChatResponse{stopRespPromptCaching("ok")}}
-	explorerOff, err := desc.Factory(registries.FactoryOptions{
-		LLM:           mockOff,
-		Model:         "test-model",
-		ToolRegistry:  toolReg2,
-		MaxIterations: 3,
-		PromptCaching: false,
-	})
-	if err != nil {
-		t.Fatalf("explorer factory (off): %v", err)
-	}
-
-	_, err = explorerOff.Run(context.Background(), &schema.RunRequest{
-		SessionID: "explorer-cache-off",
-		Messages:  []schema.Message{schema.NewUserMessage("explore")},
-	})
-	if err != nil {
-		t.Fatalf("explorer.Run (off): %v", err)
-	}
-	if len(mockOff.requests) == 0 {
-		t.Fatal("explorer (off) issued no LLM calls")
-	}
-	assertNoCacheMarkers(t, mockOff.requests[0])
-
-	// Guard against a field-name leak: the canonical ChatRequest JSON (what
-	// an OpenAI-compatible endpoint would see) must not contain the Go field
-	// name "CacheBreakpoint" anywhere, even when the field is set to true.
-	// This mirrors aimodel's TestChatRequest_OpenAIShape_NoCacheControl at
-	// the vv integration layer — it catches accidental jsonification regressions
-	// introduced by refactors far downstream from schema.go.
-	body, err := json.Marshal(mockOn.requests[0])
-	if err != nil {
-		t.Fatalf("marshal captured request: %v", err)
-	}
-	if strings.Contains(string(body), "CacheBreakpoint") {
-		t.Errorf("CacheBreakpoint leaked into canonical request JSON: %s", body)
-	}
-	// cache_control is the Anthropic-side translated key; it lives on the
-	// Anthropic request struct, never on the canonical OpenAI-shape body.
-	// Its presence here would mean someone added `json:"cache_control,..."`
-	// to the canonical schema by mistake.
-	if strings.Contains(string(body), "cache_control") {
-		t.Errorf("cache_control leaked into canonical request JSON: %s", body)
-	}
 }

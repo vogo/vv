@@ -74,11 +74,11 @@ type OrchestrateConfig struct {
 	// leaves the feature disabled and the main model keeps handling routing.
 	Router LLMConfig `yaml:"router,omitempty"`
 
-	// Mode selects between the classical fastPath/intent/execute/summarize
-	// pipeline and the unified Primary Assistant pipeline (design M4).
-	// Valid values: "" (== classical, default), "classical", "unified".
-	// Unknown values fail Load with a clear error so typos surface at startup
-	// rather than silently degrading to the wrong pipeline.
+	// Mode is retained for backwards compatibility with M4–M5 configs. As of
+	// M6 only the unified Primary Assistant pipeline exists; any non-empty
+	// value (including the deprecated "classical") is normalised to
+	// "unified" with a slog.Warn. The field will be removed in a future
+	// milestone — see ValidateOrchestrateMode.
 	Mode string `yaml:"mode,omitempty"`
 
 	// LegacyPhaseEvents, when true and the unified pipeline is active,
@@ -90,63 +90,61 @@ type OrchestrateConfig struct {
 	// unified pipeline keeps emitting `unified_primary` so M4 dashboards
 	// and the integration tests that pinned that label remain intact.
 	LegacyPhaseEvents bool `yaml:"legacy_phase_events,omitempty"`
+
+	// PrimaryAllowBash, when true, mounts the bash tool on the Primary
+	// Assistant so single-line shell tasks (calc, grep | wc, etc.) finish
+	// inline without having to delegate_to_coder for one round-trip
+	// (design M6). Off by default — keeping the Primary read-only mirrors
+	// the M5 ProfileReadOnly guarantee that surprised users by accident
+	// cannot run a destructive command from the Primary persona. The
+	// env override is `VV_PRIMARY_ALLOW_BASH=true|false`. The fallback
+	// (depth-exceeded) Primary never honours this flag — it stays
+	// tool-free regardless to keep the R2 recursion guard intact.
+	PrimaryAllowBash bool `yaml:"primary_allow_bash,omitempty"`
 }
 
-// Orchestrate mode constants. Since M5 an empty value maps to
-// OrchestrateModeUnified (was OrchestrateModeClassical in M4 and earlier);
-// set `orchestrate.mode: classical` explicitly to preserve pre-M5 behaviour.
-const (
-	OrchestrateModeClassical = "classical"
-	OrchestrateModeUnified   = "unified"
-)
+// OrchestrateModeUnified is the only supported orchestrate pipeline as of
+// M6. Empty `orchestrate.mode` normalises to this value.
+const OrchestrateModeUnified = "unified"
 
-// ValidateOrchestrateMode normalises mode strings. Since M5 an empty value
-// maps to "unified" (the new default pipeline); existing configs that want
-// the pre-M5 behaviour must set `orchestrate.mode: classical` explicitly.
-// Load emits a one-shot slog.Info when a YAML config without an explicit
-// mode is picked up so operators have a visible migration signal.
+// OrchestrateModeClassical is retained for backwards compatibility with
+// M4–M5 configs.
+//
+// Deprecated: as of M6 the classical pipeline has been removed.
+// ValidateOrchestrateMode silently routes this value to
+// OrchestrateModeUnified with a slog.Warn. The constant will be removed in
+// a future milestone (M7+); existing call sites should switch to
+// OrchestrateModeUnified or simply leave the field empty.
+const OrchestrateModeClassical = "classical"
+
+// ValidateOrchestrateMode normalises mode strings. As of M6 the unified
+// pipeline is the sole supported path; "" / "unified" pass through, while
+// any other value (including the legacy "classical") is normalised to
+// OrchestrateModeUnified with a slog.Warn so misconfiguration is surfaced
+// without aborting startup.
+//
+// The error return is retained so the (string, error) signature stays
+// source-compatible with M5 callers; it is always nil.
 func ValidateOrchestrateMode(mode string) (string, error) {
 	m := strings.ToLower(strings.TrimSpace(mode))
 	switch m {
 	case "", OrchestrateModeUnified:
 		return OrchestrateModeUnified, nil
 	case OrchestrateModeClassical:
-		return OrchestrateModeClassical, nil
-	default:
-		return "", fmt.Errorf(
-			"unknown orchestrate.mode %q (expected %q or %q)",
-			mode, OrchestrateModeClassical, OrchestrateModeUnified,
+		slog.Warn(
+			"vv: orchestrate.mode=classical is deprecated as of M6 and now routes to unified; " +
+				"remove the setting from your config to silence this warning",
 		)
+
+		return OrchestrateModeUnified, nil
+	default:
+		slog.Warn(
+			"vv: unknown orchestrate.mode value; falling back to unified",
+			"value", mode,
+		)
+
+		return OrchestrateModeUnified, nil
 	}
-}
-
-// yamlHasExplicitOrchestrateMode reports whether the raw YAML bytes set
-// orchestrate.mode explicitly. Used by Load to distinguish "user left it
-// blank and is picking up the new M5 default" (emit migration info) from
-// "user set mode: unified or mode: classical intentionally" (stay silent).
-//
-// Implementation: parse into map[string]any and check the nested key. This
-// survives arbitrary formatting/comments/anchors; an unparseable YAML yields
-// false and any earlier Unmarshal in Load would have already surfaced the
-// error, so the zero-result here only reaches the caller on the happy path.
-func yamlHasExplicitOrchestrateMode(data []byte) bool {
-	if len(data) == 0 {
-		return false
-	}
-
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return false
-	}
-
-	orch, ok := raw["orchestrate"].(map[string]any)
-	if !ok {
-		return false
-	}
-
-	_, has := orch["mode"]
-
-	return has
 }
 
 // ReplanConfig holds replanning configuration.
@@ -527,8 +525,6 @@ func Load(path string, explicit bool) (*Config, error) {
 	cfg := &Config{}
 
 	data, err := os.ReadFile(path)
-	fileLoaded := false
-
 	if err != nil {
 		if os.IsNotExist(err) && !explicit {
 			// Default path missing is fine; proceed with zero-value config.
@@ -539,14 +535,7 @@ func Load(path string, explicit bool) (*Config, error) {
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("parse config file %s: %w", path, err)
 		}
-
-		fileLoaded = true
 	}
-
-	// Remember whether the YAML explicitly declared orchestrate.mode so we
-	// can tell the user about the M5 default flip on first boot. Must run
-	// before env overrides mutate cfg.Orchestrate.Mode.
-	modeExplicitInYAML := fileLoaded && yamlHasExplicitOrchestrateMode(data)
 
 	// Apply environment variable overrides.
 	if v := os.Getenv("VV_LLM_API_KEY"); v != "" {
@@ -673,6 +662,14 @@ func Load(path string, explicit bool) (*Config, error) {
 		}
 	}
 
+	if v := os.Getenv("VV_PRIMARY_ALLOW_BASH"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Orchestrate.PrimaryAllowBash = b
+		} else {
+			slog.Warn("vv: invalid VV_PRIMARY_ALLOW_BASH, ignoring", "value", v)
+		}
+	}
+
 	if v := os.Getenv("VV_ROUTER_MODEL"); v != "" {
 		cfg.Orchestrate.Router.Model = v
 	}
@@ -742,21 +739,6 @@ func Load(path string, explicit bool) (*Config, error) {
 		return nil, err
 	}
 	cfg.Orchestrate.Mode = normalizedMode
-
-	// M5 migration signal: warn once per Load if the YAML file exists, does
-	// NOT set orchestrate.mode, and no env override fired — this means the
-	// user is silently riding the new unified default. Anyone who reads the
-	// log can pin their install back to classical by writing `orchestrate:
-	// mode: classical` into ~/.vv/vv.yaml.
-	modeExplicitViaEnv := os.Getenv("VV_ORCHESTRATE_MODE") != ""
-	if fileLoaded && !modeExplicitInYAML && !modeExplicitViaEnv {
-		slog.Info(
-			"vv: orchestrate.mode defaulted to unified (M5); "+
-				"set orchestrate.mode: classical in ~/.vv/vv.yaml to keep pre-M5 behaviour",
-			"path", path,
-			"mode", cfg.Orchestrate.Mode,
-		)
-	}
 
 	if len(cfg.CLI.ConfirmTools) > 0 {
 		slog.Warn("vv: confirm_tools is deprecated; use permission_mode instead")

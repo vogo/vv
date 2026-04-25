@@ -45,8 +45,8 @@ func TestIntegration_VV_Init(t *testing.T) {
 		t.Errorf("Dispatcher ID = %q, want %q", initResult.SetupResult.Dispatcher.ID(), "orchestrator")
 	}
 
-	// Verify all dispatchable agents are available.
-	for _, id := range []string{"coder", "researcher", "reviewer", "chat"} {
+	// Verify all dispatchable agents are available (chat removed in M6 G2).
+	for _, id := range []string{"coder", "researcher", "reviewer"} {
 		a := initResult.SetupResult.Agent(id)
 		if a == nil {
 			t.Errorf("expected agent %q to be created", id)
@@ -108,8 +108,9 @@ func TestIntegration_VV_RunPrompt(t *testing.T) {
 	}
 }
 
-// TestIntegration_VV_RunSubAgent tests running a specific sub-agent (chat)
-// directly, bypassing the dispatcher's classify/explore phases.
+// TestIntegration_VV_RunSubAgent tests running a specific sub-agent
+// directly, bypassing the dispatcher's classify/explore phases. Researcher
+// is used as the smoke target because the chat agent was removed in M6.
 func TestIntegration_VV_RunSubAgent(t *testing.T) {
 	configPath := configs.DefaultPath()
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -128,9 +129,9 @@ func TestIntegration_VV_RunSubAgent(t *testing.T) {
 		t.Fatalf("setup.Init: %v", err)
 	}
 
-	chatAgent := initResult.SetupResult.Agent("chat")
-	if chatAgent == nil {
-		t.Fatal("chat agent not found")
+	subAgent := initResult.SetupResult.Agent("researcher")
+	if subAgent == nil {
+		t.Fatal("researcher agent not found")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -142,9 +143,9 @@ func TestIntegration_VV_RunSubAgent(t *testing.T) {
 		},
 	}
 
-	resp, err := chatAgent.Run(ctx, req)
+	resp, err := subAgent.Run(ctx, req)
 	if err != nil {
-		t.Fatalf("chat.Run: %v", err)
+		t.Fatalf("researcher.Run: %v", err)
 	}
 
 	if len(resp.Messages) == 0 {
@@ -152,6 +153,6 @@ func TestIntegration_VV_RunSubAgent(t *testing.T) {
 	}
 
 	for i, msg := range resp.Messages {
-		t.Logf("chat response[%d] role=%s text=%s", i, msg.Role, msg.Content.Text())
+		t.Logf("researcher response[%d] role=%s text=%s", i, msg.Role, msg.Content.Text())
 	}
 }

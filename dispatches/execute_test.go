@@ -209,11 +209,12 @@ func TestReplanPolicy_Defaults(t *testing.T) {
 }
 
 func TestHookedAgent_RunStream(t *testing.T) {
-	inner := &statsStreamAgent{
-		id:               "inner",
-		response:         "stream result",
-		promptTokens:     100,
-		completionTokens: 50,
+	// Replaced statsStreamAgent (deleted with stats_integration_test.go in
+	// M6 G2) with stubStreamAgent — this test only cares that the hooked
+	// wrapper relays at least one event, not the exact token breakdown.
+	inner := &stubStreamAgent{
+		id:       "inner",
+		response: "stream result",
 	}
 
 	hooked := &hookedAgent{

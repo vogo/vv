@@ -131,7 +131,7 @@ func (d *Dispatcher) streamPlan(
 	if err != nil {
 		slog.Warn("orchestrator: DAG build failed, falling back to chat stream", "error", err)
 
-		return nil, d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+		return nil, d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID)
 	}
 
 	totalSteps := len(plan.Steps)

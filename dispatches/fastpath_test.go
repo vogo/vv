@@ -105,6 +105,39 @@ func TestFastPathClassify_GreetingHitsChat(t *testing.T) {
 	}
 }
 
+// TestFastPathClassify_GreetingLateBindsFallback pins the M6 G6 contract:
+// DefaultFastPathConfig() leaves the greeting-rule Agent empty so it
+// late-binds to whichever fallback agent the Dispatcher carries — no
+// hard-coded "chat" string in production code. Swapping the fallback ID
+// changes the hit.Agent reported to consumers.
+func TestFastPathClassify_GreetingLateBindsFallback(t *testing.T) {
+	reg := newTestRegistry()
+	fallback := &stubAgent{id: "primary-fallback"}
+
+	d := New(
+		reg,
+		map[string]agent.Agent{"coder": &stubAgent{id: "coder"}},
+		nil, nil, nil,
+		WithFallbackAgent(fallback),
+		WithFastPath(DefaultFastPathConfig()),
+	)
+
+	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("hello")}}
+
+	hit := d.fastPathClassify(req)
+	if !hit.Hit {
+		t.Fatalf("expected greeting hit, got miss: %+v", hit)
+	}
+
+	if hit.Agent != "primary-fallback" {
+		t.Errorf("hit.Agent = %q, want %q (late-bound to fallback)", hit.Agent, "primary-fallback")
+	}
+
+	if hit.Category != FastPathCategoryGreeting {
+		t.Errorf("hit.Category = %q, want %q", hit.Category, FastPathCategoryGreeting)
+	}
+}
+
 func TestFastPathClassify_ChineseGreetings(t *testing.T) {
 	d, _, _, _ := newFastPathDispatcher(t, DefaultFastPathConfig())
 

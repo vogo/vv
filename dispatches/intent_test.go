@@ -162,92 +162,12 @@ func TestRecognizeIntent_DirectLLM(t *testing.T) {
 	}
 }
 
-func TestRecognizeIntent_ViaPlanner(t *testing.T) {
-	reg := newTestRegistry()
-	subAgents := map[string]agent.Agent{
-		"coder":      &stubAgent{id: "coder"},
-		"researcher": &stubAgent{id: "researcher"},
-		"reviewer":   &stubAgent{id: "reviewer"},
-		"chat":       &stubAgent{id: "chat"},
-	}
-
-	planner := &stubAgent{
-		id: "planner",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "researcher"}`),
-				}, "planner"),
-			},
-			Usage: &aimodel.Usage{PromptTokens: 200, CompletionTokens: 80},
-		},
-	}
-
-	d := New(
-		reg, subAgents, nil, planner, nil,
-		WithLLM(&mockChatCompleter{}, "test-model"),
-		WithFallbackAgent(&stubAgent{id: "chat"}),
-	)
-
-	intent, _, usage, err := d.recognizeIntent(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("research something")},
-	})
-	if err != nil {
-		t.Fatalf("recognizeIntent: %v", err)
-	}
-
-	if intent.Mode != "direct" {
-		t.Errorf("mode = %q, want %q", intent.Mode, "direct")
-	}
-
-	if intent.Agent != "researcher" {
-		t.Errorf("agent = %q, want %q", intent.Agent, "researcher")
-	}
-
-	if usage == nil {
-		t.Fatal("expected non-nil usage")
-	}
-}
-
-func TestRecognizeIntent_NeedsExploration_NoExplorer(t *testing.T) {
-	reg := newTestRegistry()
-	subAgents := map[string]agent.Agent{
-		"chat": &stubAgent{id: "chat"},
-	}
-
-	mockLLM := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent(`{"needs_exploration": true}`),
-					},
-				},
-			},
-			Usage: aimodel.Usage{PromptTokens: 100, CompletionTokens: 50},
-		},
-	}
-
-	d := New(
-		reg, subAgents, nil, nil, nil,
-		WithLLM(mockLLM, "test-model"),
-		WithFallbackAgent(&stubAgent{id: "chat"}),
-	)
-
-	// Without explorer, needs_exploration should be handled gracefully.
-	intent, _, _, err := d.recognizeIntent(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("check types.go")},
-	})
-	if err != nil {
-		t.Fatalf("recognizeIntent: %v", err)
-	}
-
-	if intent.Mode != "direct" {
-		t.Errorf("mode = %q, want %q", intent.Mode, "direct")
-	}
-}
+// TestRecognizeIntent_ViaPlanner / TestRecognizeIntent_NeedsExploration_NoExplorer
+// were removed in M6 G2: the planner-driven intent recognition path and
+// the explorer-driven NeedsExploration follow-up are both gone.
+// recognizeIntentDirect normalises a residual NeedsExploration:true LLM
+// response to a direct-fallback dispatch (covered by TestRecognizeIntent_DirectLLM
+// when the response includes the legacy field).
 
 func TestBuildIntentSystemPrompt(t *testing.T) {
 	reg := registries.New()
@@ -267,8 +187,9 @@ func TestBuildIntentSystemPrompt(t *testing.T) {
 		t.Error("prompt should contain coder agent")
 	}
 
-	if !strings.Contains(prompt, "needs_exploration") {
-		t.Error("prompt should contain needs_exploration instructions")
+	// needs_exploration was removed from the prompt template in M6 G2.
+	if strings.Contains(prompt, "needs_exploration") {
+		t.Error("prompt should no longer mention needs_exploration since M6")
 	}
 }
 

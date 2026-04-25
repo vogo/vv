@@ -270,11 +270,8 @@ func TestIntegration_AskUser_ToolRegistration(t *testing.T) {
 		}
 	}
 
-	// Verify chat agent exists.
-	chatAgent := result.Agent("chat")
-	if chatAgent == nil {
-		t.Error("chat agent not found")
-	}
+	// chat agent was removed in M6 G2; coder/researcher/reviewer above
+	// already cover the dispatchable surface.
 
 	// Verify dispatcher was created.
 	if result.Dispatcher == nil {
@@ -301,7 +298,7 @@ func TestIntegration_AskUser_NoInteractor(t *testing.T) {
 		t.Fatalf("setup.New: %v", err)
 	}
 
-	for _, agentID := range []string{"coder", "researcher", "reviewer", "chat"} {
+	for _, agentID := range []string{"coder", "researcher", "reviewer"} {
 		a := result.Agent(agentID)
 		if a == nil {
 			t.Errorf("agent %q not found", agentID)

@@ -194,16 +194,20 @@ func TestDispatcher_Run_DirectDispatch(t *testing.T) {
 
 	chatStub := &stubAgent{id: "chat"}
 
-	plannerStub := &stubAgent{
-		id: "planner",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
-				}, "planner"),
+	// Since M6 the planner-driven intent recognition is gone — recognizeIntent
+	// always goes through the direct LLM call, so the mock LLM has to return
+	// a parseable {"mode": "direct", "agent": "coder"} JSON.
+	intentLLM := &mockChatCompleter{
+		response: &aimodel.ChatResponse{
+			Choices: []aimodel.Choice{
+				{
+					Message: aimodel.Message{
+						Role:    aimodel.RoleAssistant,
+						Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
+					},
+				},
 			},
-			Usage: &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+			Usage: aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
 		},
 	}
 
@@ -218,9 +222,9 @@ func TestDispatcher_Run_DirectDispatch(t *testing.T) {
 		reg,
 		subAgents,
 		nil, // no explorer
-		plannerStub,
+		nil, // planner-driven intent removed in M6 G2
 		nil, // planGen not needed for direct dispatch
-		WithLLM(&mockChatCompleter{}, "test-model"),
+		WithLLM(intentLLM, "test-model"),
 		WithMaxConcurrency(2),
 		WithFallbackAgent(chatStub),
 		WithWorkingDir("/tmp/test"),
@@ -325,14 +329,18 @@ func TestDispatcher_Run_FallbackOnInvalidJSON(t *testing.T) {
 		},
 	}
 
-	plannerStub := &stubAgent{
-		id: "planner",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("not json at all"),
-				}, "planner"),
+	// Since M6 the planner-driven intent recognition is gone — the LLM
+	// returning non-JSON should drive recognizeIntentDirect to fail and
+	// fall back to chat.
+	intentLLM := &mockChatCompleter{
+		response: &aimodel.ChatResponse{
+			Choices: []aimodel.Choice{
+				{
+					Message: aimodel.Message{
+						Role:    aimodel.RoleAssistant,
+						Content: aimodel.NewTextContent("not json at all"),
+					},
+				},
 			},
 		},
 	}
@@ -348,9 +356,9 @@ func TestDispatcher_Run_FallbackOnInvalidJSON(t *testing.T) {
 		reg,
 		subAgents,
 		nil,
-		plannerStub,
+		nil, // planner-driven intent removed in M6 G2
 		nil,
-		WithLLM(&mockChatCompleter{}, "test-model"),
+		WithLLM(intentLLM, "test-model"),
 		WithFallbackAgent(chatStub),
 	)
 
@@ -461,14 +469,18 @@ func TestDispatcher_RunStream_DirectDispatch(t *testing.T) {
 		response: "streamed coder response",
 	}
 
-	plannerStub := &stubAgent{
-		id: "planner",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
-				}, "planner"),
+	// Since M6 the planner-driven intent path is gone — recognizeIntentStream
+	// goes through the direct LLM path, so the mock LLM has to return a
+	// parseable {"mode": "direct", "agent": "coder"} response.
+	intentLLM := &mockChatCompleter{
+		response: &aimodel.ChatResponse{
+			Choices: []aimodel.Choice{
+				{
+					Message: aimodel.Message{
+						Role:    aimodel.RoleAssistant,
+						Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
+					},
+				},
 			},
 		},
 	}
@@ -484,9 +496,9 @@ func TestDispatcher_RunStream_DirectDispatch(t *testing.T) {
 		reg,
 		subAgents,
 		nil, // no explorer
-		plannerStub,
+		nil, // planner-driven intent removed in M6 G2
 		nil,
-		WithLLM(&mockChatCompleter{}, "test-model"),
+		WithLLM(intentLLM, "test-model"),
 		WithMaxConcurrency(2),
 		WithFallbackAgent(&stubAgent{id: "chat"}),
 	)
@@ -762,227 +774,11 @@ func TestAggregateUsage(t *testing.T) {
 	}
 }
 
-func TestDispatcher_Explore_NilExplorer(t *testing.T) {
-	d := &Dispatcher{}
-
-	summary, usage := d.explore(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("test")},
-	})
-
-	if summary != "" {
-		t.Errorf("expected empty summary, got %q", summary)
-	}
-
-	if usage != nil {
-		t.Error("expected nil usage")
-	}
-}
-
-func TestDispatcher_Explore_WithExplorer(t *testing.T) {
-	explorerStub := &stubAgent{
-		id: "explorer",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("Found main.go and orchestrator.go"),
-				}, "explorer"),
-			},
-			Usage: &aimodel.Usage{PromptTokens: 50, CompletionTokens: 20, TotalTokens: 70},
-		},
-	}
-
-	d := &Dispatcher{
-		workingDir:    "/tmp/project",
-		explorerAgent: explorerStub,
-	}
-
-	summary, usage := d.explore(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("how does the orchestrator work?")},
-	})
-
-	if summary != "Found main.go and orchestrator.go" {
-		t.Errorf("summary = %q, want explorer output", summary)
-	}
-
-	if usage == nil {
-		t.Fatal("expected non-nil usage")
-	}
-
-	if usage.TotalTokens != 70 {
-		t.Errorf("TotalTokens = %d, want 70", usage.TotalTokens)
-	}
-}
-
-func TestDispatcher_Classify_WithPlanner(t *testing.T) {
-	reg := newTestRegistry()
-
-	plannerStub := &stubAgent{
-		id: "planner",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
-				}, "planner"),
-			},
-			Usage: &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-		},
-	}
-
-	d := &Dispatcher{
-		workingDir:   "/tmp/project",
-		plannerAgent: plannerStub,
-		registry:     reg,
-		subAgents: map[string]agent.Agent{
-			"coder": &stubAgent{id: "coder"},
-			"chat":  &stubAgent{id: "chat"},
-		},
-	}
-
-	result, usage, err := d.classify(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("test")},
-	}, "Some context")
-	if err != nil {
-		t.Fatalf("classify: %v", err)
-	}
-
-	if result.Mode != "direct" {
-		t.Errorf("mode = %q, want %q", result.Mode, "direct")
-	}
-
-	if result.Agent != "coder" {
-		t.Errorf("agent = %q, want %q", result.Agent, "coder")
-	}
-
-	if usage == nil {
-		t.Fatal("expected non-nil usage")
-	}
-}
-
-func TestDispatcher_Classify_FallbackToDirect(t *testing.T) {
-	reg := newTestRegistry()
-
-	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "chat"}`),
-					},
-				},
-			},
-			Usage: aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-		},
-	}
-
-	d := &Dispatcher{
-		llm:          mock,
-		model:        "test-model",
-		plannerAgent: nil, // no planner, falls back to direct LLM call
-		registry:     reg,
-		subAgents: map[string]agent.Agent{
-			"coder": &stubAgent{id: "coder"},
-			"chat":  &stubAgent{id: "chat"},
-		},
-	}
-
-	result, _, err := d.classify(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("hello")},
-	}, "")
-	if err != nil {
-		t.Fatalf("classify: %v", err)
-	}
-
-	if result.Mode != "direct" {
-		t.Errorf("mode = %q, want %q", result.Mode, "direct")
-	}
-
-	if result.Agent != "chat" {
-		t.Errorf("agent = %q, want %q", result.Agent, "chat")
-	}
-}
-
-func TestDispatcher_Run_WithExplorerAndPlanner(t *testing.T) {
-	reg := newTestRegistry()
-
-	explorerStub := &stubAgent{
-		id: "explorer",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("Found orchestrator.go and agents.go"),
-				}, "explorer"),
-			},
-			Usage: &aimodel.Usage{PromptTokens: 30, CompletionTokens: 10, TotalTokens: 40},
-		},
-	}
-
-	plannerStub := &stubAgent{
-		id: "planner",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "coder"}`),
-				}, "planner"),
-			},
-			Usage: &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-		},
-	}
-
-	coderStub := &stubAgent{
-		id: "coder",
-		response: &schema.RunResponse{
-			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("coder response"),
-				}, "coder"),
-			},
-			Usage: &aimodel.Usage{PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150},
-		},
-	}
-
-	chatStub := &stubAgent{id: "chat"}
-
-	subAgents := map[string]agent.Agent{
-		"coder":      coderStub,
-		"researcher": &stubAgent{id: "researcher"},
-		"reviewer":   &stubAgent{id: "reviewer"},
-		"chat":       chatStub,
-	}
-
-	d := New(
-		reg,
-		subAgents,
-		explorerStub,
-		plannerStub,
-		nil,
-		WithLLM(nil, "test-model"),
-		WithMaxConcurrency(2),
-		WithFallbackAgent(chatStub),
-		WithWorkingDir("/tmp/project"),
-	)
-
-	resp, err := d.Run(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("how does orchestrator work?")},
-	})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	if len(resp.Messages) == 0 {
-		t.Fatal("expected response messages")
-	}
-
-	text := resp.Messages[0].Content.Text()
-	if text != "coder response" {
-		t.Errorf("response = %q, want %q", text, "coder response")
-	}
-}
+// TestDispatcher_Explore_* / TestDispatcher_Classify_* /
+// TestDispatcher_Run_WithExplorerAndPlanner were removed in M6 G2 alongside
+// the explorer sub-agent and the planner-driven intent recognition path.
+// The unified Primary covers exploration directly via its read/glob/grep
+// tool set; the planner-as-intent path is gone.
 
 func TestDynamicAgentSpec_Validate(t *testing.T) {
 	reg := newTestRegistry()

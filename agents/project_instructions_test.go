@@ -68,10 +68,8 @@ func TestFactory_WithProjectInstructions(t *testing.T) {
 		id       string
 	}{
 		{"coder", func(r *registries.Registry) { RegisterCoder(r) }, "coder"},
-		{"chat", func(r *registries.Registry) { RegisterChat(r) }, "chat"},
 		{"researcher", func(r *registries.Registry) { RegisterResearcher(r) }, "researcher"},
 		{"reviewer", func(r *registries.Registry) { RegisterReviewer(r) }, "reviewer"},
-		{"explorer", func(r *registries.Registry) { RegisterExplorer(r) }, "explorer"},
 		{"planner", func(r *registries.Registry) { RegisterPlanner(r) }, "planner"},
 	}
 
@@ -137,9 +135,9 @@ func TestSystemPrompt_ContainsProjectInstructions(t *testing.T) {
 	}
 
 	reg := registries.New()
-	RegisterChat(reg)
+	RegisterResearcher(reg)
 
-	desc, _ := reg.Get("chat")
+	desc, _ := reg.Get("researcher")
 
 	a, err := desc.Factory(registries.FactoryOptions{
 		LLM:                 capture,

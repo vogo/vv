@@ -57,9 +57,15 @@ func TestIntegration_SetupNew_WrapToolRegistry(t *testing.T) {
 		t.Fatal("expected non-nil Dispatcher")
 	}
 
-	// WrapToolRegistry should have been called for each dispatchable agent (4 agents).
+	// WrapToolRegistry should have been called for each dispatchable agent
+	// (coder / researcher / reviewer; chat was removed in M6 G2) plus
+	// once for the Primary Assistant tool registry — 4 in total. M5 had
+	// chat (4 dispatchable + Primary skipped under `Mode == ""` guard
+	// when Config was passed directly = 4); M6 has 3 dispatchable +
+	// Primary always built = 4. The total is the same, but for different
+	// reasons.
 	if wrapCount.Load() != 4 {
-		t.Errorf("WrapToolRegistry called %d times, want 4 (once per dispatchable agent)", wrapCount.Load())
+		t.Errorf("WrapToolRegistry called %d times, want 4 (3 dispatchable agents + Primary)", wrapCount.Load())
 	}
 
 	// Verify the Dispatcher still works.

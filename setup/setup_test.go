@@ -52,8 +52,8 @@ func TestNew_AllAgentsCreated(t *testing.T) {
 		t.Errorf("Dispatcher ID = %q, want %q", result.Dispatcher.ID(), "orchestrator")
 	}
 
-	// Verify all dispatchable agents.
-	for _, id := range []string{"coder", "researcher", "reviewer", "chat"} {
+	// Verify all dispatchable agents (chat removed in M6 G2).
+	for _, id := range []string{"coder", "researcher", "reviewer"} {
 		a := result.Agent(id)
 		if a == nil {
 			t.Errorf("expected agent %q to be created", id)
@@ -79,7 +79,6 @@ func TestNew_AgentNames(t *testing.T) {
 
 	expected := map[string]string{
 		"coder":      "Coder Agent",
-		"chat":       "Chat Agent",
 		"researcher": "Researcher Agent",
 		"reviewer":   "Reviewer Agent",
 	}
@@ -113,8 +112,8 @@ func TestNew_AgentsReturnsAllDispatchable(t *testing.T) {
 	}
 
 	agents := result.Agents()
-	if len(agents) != 4 {
-		t.Errorf("Agents() = %d, want 4 (coder, researcher, reviewer, chat)", len(agents))
+	if len(agents) != 3 {
+		t.Errorf("Agents() = %d, want 3 (coder, researcher, reviewer; chat removed in M6 G2)", len(agents))
 	}
 }
 
@@ -372,6 +371,54 @@ func TestNew_AgentNotFound(t *testing.T) {
 	}
 }
 
+// TestPrimaryToolProfile_AllowBashSwitch pins the M6 G1 contract:
+// orchestrate.primary_allow_bash gates whether the Primary Assistant's
+// tool registry is built from ProfileReadOnly (read/glob/grep) or the
+// promoted ProfileReview (read/glob/grep + bash). The fallback Primary
+// always stays tool-free regardless and is covered separately.
+func TestPrimaryToolProfile_AllowBashSwitch(t *testing.T) {
+	cases := []struct {
+		name        string
+		allowBash   bool
+		wantProfile string
+		wantBash    bool
+	}{
+		{name: "default off → read-only", allowBash: false, wantProfile: "read-only", wantBash: false},
+		{name: "explicitly on → review", allowBash: true, wantProfile: "review", wantBash: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &configs.Config{
+				Orchestrate: configs.OrchestrateConfig{PrimaryAllowBash: tc.allowBash},
+			}
+
+			profile := primaryToolProfile(cfg)
+			if profile.Name != tc.wantProfile {
+				t.Errorf("profile.Name = %q, want %q", profile.Name, tc.wantProfile)
+			}
+
+			reg, err := profile.BuildRegistry(configs.ToolsConfig{BashTimeout: 10})
+			if err != nil {
+				t.Fatalf("BuildRegistry: %v", err)
+			}
+
+			_, hasBash := reg.Get("bash")
+			if hasBash != tc.wantBash {
+				t.Errorf("registry has bash = %v, want %v", hasBash, tc.wantBash)
+			}
+
+			// Read tools must always be present — the Primary depends on
+			// them irrespective of the bash flag.
+			for _, name := range []string{"read", "glob", "grep"} {
+				if _, ok := reg.Get(name); !ok {
+					t.Errorf("expected tool %q in registry, missing", name)
+				}
+			}
+		})
+	}
+}
+
 func TestNew_UnifiedMode_AttachesPrimary(t *testing.T) {
 	mock := &mockChatCompleter{}
 	cfg := &configs.Config{
@@ -400,28 +447,4 @@ func TestNew_UnifiedMode_AttachesPrimary(t *testing.T) {
 	// Run with a trivial request and confirm no panic plus the response
 	// comes from the primary agent (ID == "primary").
 	// Minimal smoke-test only; full behaviour lives in integration tests.
-}
-
-func TestNew_ClassicalMode_NoPrimary(t *testing.T) {
-	mock := &mockChatCompleter{}
-	cfg := &configs.Config{
-		LLM:    configs.LLMConfig{Model: "test-model"},
-		Agents: configs.AgentsConfig{MaxIterations: 10},
-		Memory: configs.MemoryConfig{MaxConcurrency: 2},
-		Tools:  configs.ToolsConfig{BashTimeout: 10},
-		Orchestrate: configs.OrchestrateConfig{
-			Mode: configs.OrchestrateModeClassical,
-		},
-	}
-
-	result, err := New(cfg, mock, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-
-	if result.Dispatcher == nil {
-		t.Fatal("expected non-nil Dispatcher")
-	}
-	// Classical mode must not panic and must produce the same dispatchable
-	// agent set as the default path (covered by TestNew_AllAgentsCreated).
 }

@@ -39,8 +39,8 @@ func TestIntegration_SetupNew_AllAgentsCreated(t *testing.T) {
 		t.Errorf("Dispatcher ID = %q, want %q", result.Dispatcher.ID(), "orchestrator")
 	}
 
-	// Verify all 4 dispatchable agents.
-	for _, id := range []string{"coder", "researcher", "reviewer", "chat"} {
+	// Verify the 3 dispatchable agents (chat removed in M6 G2).
+	for _, id := range []string{"coder", "researcher", "reviewer"} {
 		a := result.Agent(id)
 		if a == nil {
 			t.Errorf("expected agent %q to be created", id)
@@ -50,8 +50,8 @@ func TestIntegration_SetupNew_AllAgentsCreated(t *testing.T) {
 	}
 
 	agents := result.Agents()
-	if len(agents) != 4 {
-		t.Fatalf("Agents() = %d, want 4", len(agents))
+	if len(agents) != 3 {
+		t.Fatalf("Agents() = %d, want 3", len(agents))
 	}
 
 	// Verify sorted order.
@@ -208,38 +208,6 @@ func TestIntegration_SetupNew_ReviewerHasReviewTools(t *testing.T) {
 		if toolNames[name] {
 			t.Errorf("reviewer should not have tool %q", name)
 		}
-	}
-}
-
-// --- Test: setup.New() chat has no tools (ProfileNone) ---
-// Test cases:
-//   - Chat agent has zero tools registered
-func TestIntegration_SetupNew_ChatHasNoTools(t *testing.T) {
-	mock := &mockChatCompleter{}
-	cfg := &configs.Config{
-		LLM:    configs.LLMConfig{Model: "test-model"},
-		Agents: configs.AgentsConfig{MaxIterations: 10},
-		Tools:  configs.ToolsConfig{BashTimeout: 10},
-	}
-
-	result, err := setup.New(cfg, mock, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("setup.New: %v", err)
-	}
-
-	chatAgent := result.Agent("chat")
-	if chatAgent == nil {
-		t.Fatal("chat agent not found")
-	}
-
-	chat, ok := chatAgent.(*taskagent.Agent)
-	if !ok {
-		t.Fatalf("chat is %T, want *taskagent.Agent", chatAgent)
-	}
-
-	toolList := chat.Tools()
-	if len(toolList) != 0 {
-		t.Errorf("chat has %d tools, want 0", len(toolList))
 	}
 }
 

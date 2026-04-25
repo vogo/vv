@@ -12,6 +12,20 @@ import (
 	"github.com/vogo/vv/registries"
 )
 
+// legacyExplorerSystemPrompt is the original explorer sub-agent prompt
+// kept inline so the Deprecated Create() compat shim still compiles. The
+// standalone explorer agent itself was removed in M6 G2 — the unified
+// Primary covers exploration directly via its read/glob/grep tools.
+const legacyExplorerSystemPrompt = `You are an expert codebase explorer. You quickly explore project structures and gather context relevant to a user's question.
+
+## Available Tools
+- **glob**: Find files by name pattern (e.g., "**/*.go", "src/**/*.ts"). Use this for discovering project structure and locating files.
+- **grep**: Search file contents using regular expressions. Use this to find specific code patterns, function definitions, or keywords.
+- **read**: Read file contents. Use this to examine specific files once you know what to look at.
+
+## Your Task
+Given a user's question and a working directory, explore the project to build context. Start broad (glob, grep), then narrow down. Produce a concise context summary describing relevant project structure, key types/functions, and how they relate to the user's question.`
+
 // ToolAccessLevel defines what tools a dynamic agent can access.
 // Deprecated: Use registries.ToolProfile instead.
 type ToolAccessLevel = string
@@ -81,7 +95,7 @@ func NewOrchestratorAgent(
 				profile = registries.ProfileReview
 				sysPrompt = ReviewerSystemPrompt
 			case "chat":
-				sysPrompt = ChatSystemPrompt
+				sysPrompt = FallbackChatPrompt
 			}
 
 			reg.MustRegister(registries.AgentDescriptor{
@@ -158,7 +172,7 @@ func Create(
 		agent.Config{ID: "chat", Name: "Chat Agent", Description: "Handles general conversation, questions, and non-coding tasks"},
 		taskagent.WithChatCompleter(llm),
 		taskagent.WithModel(cfg.LLM.Model),
-		taskagent.WithSystemPrompt(prompt.StringPrompt(ChatSystemPrompt)),
+		taskagent.WithSystemPrompt(prompt.StringPrompt(FallbackChatPrompt)),
 		taskagent.WithMaxIterations(1),
 	)
 
@@ -200,7 +214,11 @@ func Create(
 		taskagent.WithChatCompleter(llm),
 		taskagent.WithModel(cfg.LLM.Model),
 		taskagent.WithToolRegistry(readOnlyReg),
-		taskagent.WithSystemPrompt(prompt.StringPrompt(ExplorerSystemPrompt)),
+		// The explorer prompt was inlined as part of M6 G2 when the
+		// standalone explorer agent was removed; this compat shim keeps
+		// the text alive only so the Deprecated Create() helper continues
+		// to compile for legacy integration tests.
+		taskagent.WithSystemPrompt(prompt.StringPrompt(legacyExplorerSystemPrompt)),
 		taskagent.WithMaxIterations(maxIter),
 	)
 

@@ -68,7 +68,7 @@ func newCountedChat(llm aimodel.ChatCompleter) *countedAgent {
 		agent.Config{ID: "chat", Name: "Chat", Description: "golden chat"},
 		taskagent.WithChatCompleter(llm),
 		taskagent.WithModel("test-model"),
-		taskagent.WithSystemPrompt(prompt.StringPrompt(vvagents.ChatSystemPrompt)),
+		taskagent.WithSystemPrompt(prompt.StringPrompt(vvagents.FallbackChatPrompt)),
 		taskagent.WithMaxIterations(1),
 	)
 

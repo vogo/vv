@@ -65,14 +65,20 @@ func TestRegisterAll_AgentIDs(t *testing.T) {
 	RegisterCoder(reg)
 	RegisterResearcher(reg)
 	RegisterReviewer(reg)
-	RegisterChat(reg)
-	RegisterExplorer(reg)
 	RegisterPlanner(reg)
 
-	// Verify all expected agents are registered.
-	for _, id := range []string{"coder", "researcher", "reviewer", "chat", "explorer", "planner"} {
+	// Verify all expected agents are registered. As of M6 chat and
+	// explorer no longer exist — the unified Primary covers chat inline
+	// and exploration via its read/glob/grep tools.
+	for _, id := range []string{"coder", "researcher", "reviewer", "planner"} {
 		if _, ok := reg.Get(id); !ok {
 			t.Errorf("expected agent %q to be registered", id)
+		}
+	}
+
+	for _, id := range []string{"chat", "explorer"} {
+		if _, ok := reg.Get(id); ok {
+			t.Errorf("agent %q must not be registered after M6 G2 deletion", id)
 		}
 	}
 }
@@ -82,8 +88,6 @@ func TestRegisterAll_Dispatchable(t *testing.T) {
 	RegisterCoder(reg)
 	RegisterResearcher(reg)
 	RegisterReviewer(reg)
-	RegisterChat(reg)
-	RegisterExplorer(reg)
 	RegisterPlanner(reg)
 
 	dispatchable := reg.Dispatchable()
@@ -93,18 +97,16 @@ func TestRegisterAll_Dispatchable(t *testing.T) {
 		dispatchableIDs[d.ID] = true
 	}
 
-	// Dispatchable: coder, researcher, reviewer, chat.
-	for _, id := range []string{"coder", "researcher", "reviewer", "chat"} {
+	// Dispatchable: coder, researcher, reviewer.
+	for _, id := range []string{"coder", "researcher", "reviewer"} {
 		if !dispatchableIDs[id] {
 			t.Errorf("expected %q to be dispatchable", id)
 		}
 	}
 
-	// Not dispatchable: explorer, planner.
-	for _, id := range []string{"explorer", "planner"} {
-		if dispatchableIDs[id] {
-			t.Errorf("expected %q to NOT be dispatchable", id)
-		}
+	// Not dispatchable: planner.
+	if dispatchableIDs["planner"] {
+		t.Errorf("expected planner to NOT be dispatchable")
 	}
 }
 
@@ -134,34 +136,6 @@ func TestFactory_CoderAgent(t *testing.T) {
 
 	if a.Name() != "Coder Agent" {
 		t.Errorf("Name = %q, want %q", a.Name(), "Coder Agent")
-	}
-}
-
-func TestFactory_ChatAgent(t *testing.T) {
-	reg := registries.New()
-	RegisterChat(reg)
-
-	desc, ok := reg.Get("chat")
-	if !ok {
-		t.Fatal("chat not registered")
-	}
-
-	mock := &mockChatCompleter{}
-
-	a, err := desc.Factory(registries.FactoryOptions{
-		LLM:   mock,
-		Model: "test-model",
-	})
-	if err != nil {
-		t.Fatalf("Factory: %v", err)
-	}
-
-	if a.ID() != "chat" {
-		t.Errorf("ID = %q, want %q", a.ID(), "chat")
-	}
-
-	if a.Name() != "Chat Agent" {
-		t.Errorf("Name = %q, want %q", a.Name(), "Chat Agent")
 	}
 }
 
@@ -228,7 +202,6 @@ func TestBuildPlannerSystemPrompt(t *testing.T) {
 	RegisterCoder(reg)
 	RegisterResearcher(reg)
 	RegisterReviewer(reg)
-	RegisterChat(reg)
 
 	prompt := BuildPlannerSystemPrompt(reg)
 
@@ -242,10 +215,6 @@ func TestBuildPlannerSystemPrompt(t *testing.T) {
 
 	if !strings.Contains(prompt, "reviewer") {
 		t.Error("planner prompt should contain 'reviewer'")
-	}
-
-	if !strings.Contains(prompt, "chat") {
-		t.Error("planner prompt should contain 'chat'")
 	}
 
 	// Should not contain the template placeholder.

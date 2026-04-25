@@ -292,9 +292,19 @@ func WithPrimaryAssistant(a agent.Agent) Option {
 // active, stream the classical `intent` + `execute` phase event pairs
 // instead of the single `unified_primary` pair. Designed for HTTP / CLI
 // consumers that pinned to the pre-M5 event shape. Off by default.
+//
+// Deprecated: as of M6 the shim emits a slog.Warn on each Dispatcher that
+// enables it; the option will be removed in M7+. HTTP consumers should
+// migrate to the `unified_primary` phase event pair.
 func WithLegacyPhaseEvents(enabled bool) Option {
 	return func(d *Dispatcher) {
 		d.legacyPhaseEvents = enabled
+		if enabled {
+			slog.Warn(
+				"vv: dispatches.WithLegacyPhaseEvents is deprecated as of M6 and will be removed in M7+; " +
+					"migrate HTTP / SSE consumers from `intent` + `execute` phase events to the unified_primary phase event pair",
+			)
+		}
 	}
 }
 
@@ -307,6 +317,26 @@ func WithLegacyPhaseEvents(enabled bool) Option {
 // code only ever sets it once).
 func (d *Dispatcher) SetPrimaryAssistant(a agent.Agent) {
 	d.primaryAssistant = a
+}
+
+// fallbackAgentName returns the agent ID label used in stream events / logs
+// when the dispatcher routes through the fallback agent. Migrated to
+// dispatch.go from intent.go in M6 G6 because it's a cross-cutting
+// dispatcher helper that fastpath, execute, stream, and the
+// classical-only intent path all consume.
+func (d *Dispatcher) fallbackAgentName() string {
+	if d.fallbackAgent != nil {
+		return d.fallbackAgent.ID()
+	}
+
+	// No fallback agent configured: pick any registered sub-agent so the
+	// emitted phase label still names a real ID instead of a literal that
+	// might not exist anymore (chat was removed in M6 G2).
+	for id := range d.subAgents {
+		return id
+	}
+
+	return "fallback"
 }
 
 // SetFallbackAgent installs or replaces the fallback agent after construction.
@@ -409,7 +439,7 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 
 		// Fast path: at max depth, execute directly.
 		if depth >= d.maxRecursionDepth {
-			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID)
 		}
 
 		// Unified mode (design M4): forward the whole request to the Primary
@@ -459,7 +489,7 @@ func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*sc
 		if intentErr != nil {
 			slog.Warn("orchestrator: intent recognition failed, falling back to chat stream", "error", intentErr)
 
-			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+			return d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID)
 		}
 
 		// Unified-intent short-circuit: the single LLM call already answered.

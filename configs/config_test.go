@@ -1287,28 +1287,33 @@ func TestLoad_RouterEnvOverride(t *testing.T) {
 }
 
 func TestValidateOrchestrateMode(t *testing.T) {
+	// As of M6 every input normalises to OrchestrateModeUnified; classical
+	// and unknown values trigger a slog.Warn but the call still succeeds —
+	// the (string, error) signature is retained for source compatibility,
+	// and err is always nil.
 	cases := []struct {
-		in      string
-		want    string
-		wantErr bool
+		in   string
+		want string
 	}{
-		// M5 flipped the empty-string default from classical → unified.
-		{"", OrchestrateModeUnified, false},
-		{"classical", OrchestrateModeClassical, false},
-		{"  Classical ", OrchestrateModeClassical, false},
-		{"unified", OrchestrateModeUnified, false},
-		{"UNIFIED", OrchestrateModeUnified, false},
-		{"unifiec", "", true},
-		{"primary", "", true},
+		{"", OrchestrateModeUnified},
+		{"unified", OrchestrateModeUnified},
+		{"UNIFIED", OrchestrateModeUnified},
+		{"  unified  ", OrchestrateModeUnified},
+		// classical is now an alias that warns and routes to unified.
+		{"classical", OrchestrateModeUnified},
+		{"  Classical ", OrchestrateModeUnified},
+		// Typos warn and fall back to unified instead of failing Load.
+		{"unifiec", OrchestrateModeUnified},
+		{"primary", OrchestrateModeUnified},
 	}
 
 	for _, tc := range cases {
 		got, err := ValidateOrchestrateMode(tc.in)
-		if (err != nil) != tc.wantErr {
-			t.Errorf("ValidateOrchestrateMode(%q) err=%v wantErr=%v", tc.in, err, tc.wantErr)
+		if err != nil {
+			t.Errorf("ValidateOrchestrateMode(%q) returned err=%v, want nil", tc.in, err)
 		}
 
-		if !tc.wantErr && got != tc.want {
+		if got != tc.want {
 			t.Errorf("ValidateOrchestrateMode(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
@@ -1342,7 +1347,7 @@ orchestrate:
 func TestLoad_OrchestrateModeEnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\norchestrate:\n  mode: classical\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1358,15 +1363,48 @@ func TestLoad_OrchestrateModeEnvOverride(t *testing.T) {
 	}
 }
 
-func TestLoad_OrchestrateModeRejectsUnknown(t *testing.T) {
+// TestLoad_PrimaryAllowBashEnvOverride pins the M6 G1 env contract:
+// VV_PRIMARY_ALLOW_BASH=true|false flips the YAML default at Load time
+// without requiring a config edit. Invalid values warn and leave the
+// YAML setting intact.
+func TestLoad_PrimaryAllowBashEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_PRIMARY_ALLOW_BASH", "true")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !cfg.Orchestrate.PrimaryAllowBash {
+		t.Errorf("env VV_PRIMARY_ALLOW_BASH=true did not take effect, got %v", cfg.Orchestrate.PrimaryAllowBash)
+	}
+}
+
+// TestLoad_OrchestrateModeUnknownDoesNotReject pins the M6 behaviour: an
+// unknown orchestrate.mode value (typo, removed mode, etc.) must NOT abort
+// Load — ValidateOrchestrateMode warns and falls back to unified so the
+// process keeps starting. This replaces the M5
+// TestLoad_OrchestrateModeRejectsUnknown.
+func TestLoad_OrchestrateModeUnknownDoesNotReject(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\norchestrate:\n  mode: bogus\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := Load(path, true); err == nil {
-		t.Fatal("Load should fail with unknown orchestrate.mode, got nil")
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load should not fail with unknown orchestrate.mode (M6 behaviour); got %v", err)
+	}
+
+	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
+		t.Errorf("unknown mode should normalise to unified; got %q", cfg.Orchestrate.Mode)
 	}
 }
 
@@ -1387,7 +1425,11 @@ func TestLoad_OrchestrateModeDefaultsToUnified(t *testing.T) {
 	}
 }
 
-func TestLoad_OrchestrateModeExplicitClassicalPreserved(t *testing.T) {
+// TestLoad_OrchestrateModeExplicitClassicalRoutesToUnified pins the M6
+// behaviour: an explicit `orchestrate.mode: classical` carried over from an
+// M5 config must normalise to unified at Load time (with a slog.Warn,
+// emitted by ValidateOrchestrateMode) rather than being preserved.
+func TestLoad_OrchestrateModeExplicitClassicalRoutesToUnified(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	content := "llm:\n  model: gpt-4o\n  api_key: sk-main\norchestrate:\n  mode: classical\n"
@@ -1401,36 +1443,8 @@ func TestLoad_OrchestrateModeExplicitClassicalPreserved(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if cfg.Orchestrate.Mode != OrchestrateModeClassical {
-		t.Errorf("mode = %q, want %q — explicit classical must not be overwritten by M5 default",
-			cfg.Orchestrate.Mode, OrchestrateModeClassical)
-	}
-}
-
-// TestYAMLHasExplicitOrchestrateMode pins the helper the M5 migration info
-// log relies on — it must correctly distinguish "no mode set" from "mode
-// set to any valid value" across comment/whitespace variants.
-func TestYAMLHasExplicitOrchestrateMode(t *testing.T) {
-	cases := []struct {
-		name string
-		yaml string
-		want bool
-	}{
-		{"empty", "", false},
-		{"no orchestrate section", "llm:\n  model: gpt-4o\n", false},
-		{"orchestrate without mode", "orchestrate:\n  max_concurrency: 4\n", false},
-		{"orchestrate mode classical", "orchestrate:\n  mode: classical\n", true},
-		{"orchestrate mode unified", "orchestrate:\n  mode: unified\n", true},
-		{"orchestrate mode empty string", "orchestrate:\n  mode: \"\"\n", true},
-		{"orchestrate mode with comment", "orchestrate:\n  mode: classical # pin pre-M5\n", true},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := yamlHasExplicitOrchestrateMode([]byte(tc.yaml))
-			if got != tc.want {
-				t.Errorf("yamlHasExplicitOrchestrateMode(%q) = %v, want %v", tc.yaml, got, tc.want)
-			}
-		})
+	if cfg.Orchestrate.Mode != OrchestrateModeUnified {
+		t.Errorf("mode = %q, want %q — classical must normalise to unified as of M6",
+			cfg.Orchestrate.Mode, OrchestrateModeUnified)
 	}
 }

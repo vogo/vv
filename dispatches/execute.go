@@ -65,7 +65,7 @@ func (d *Dispatcher) executeTaskStream(ctx context.Context, req *schema.RunReque
 
 		return dagUsage, err
 	default:
-		err := d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, "chat", "", sessionID)
+		err := d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID)
 
 		return nil, err
 	}

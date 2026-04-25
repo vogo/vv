@@ -109,13 +109,13 @@ func New(
 		regOpts = append(regOpts, registries.WithPathGuardian(pathGuardian))
 	}
 
-	// 1. Create registry and register all agents.
+	// 1. Create registry and register all agents. As of M6 the chat and
+	// explorer agents are gone: the unified Primary Assistant covers chat
+	// inline (no tools) and exploration via its read/glob/grep tools.
 	reg := registries.New()
 	agents.RegisterCoder(reg)
 	agents.RegisterResearcher(reg)
 	agents.RegisterReviewer(reg)
-	agents.RegisterChat(reg)
-	agents.RegisterExplorer(reg)
 	agents.RegisterPlanner(reg)
 
 	// 2. Build sub-agents from registry (dispatchable agents only).
@@ -189,40 +189,12 @@ func New(
 		subAgents[desc.ID] = a
 	}
 
-	// 3. Build explorer (non-dispatchable, read-only tools).
-	explorerDesc, ok := reg.Get("explorer")
-	if !ok {
-		return nil, fmt.Errorf("explorer agent not registered")
-	}
-
-	explorerToolReg, err := explorerDesc.ToolProfile.BuildRegistry(cfg.Tools, regOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("build explorer tool registry: %w", err)
-	}
-
-	// Wrap explorer tool registry with truncation.
-	var explorerFinalToolReg tool.ToolRegistry = explorerToolReg
-	if cfg.Context.ToolOutputMaxTokens > 0 {
-		explorerFinalToolReg = tool.NewTruncatingToolRegistry(explorerToolReg, cfg.Context.ToolOutputMaxTokens)
-	}
-
-	if cfg.Debug && opts != nil && opts.DebugSink != nil {
-		explorerFinalToolReg = debugs.NewDebuggingToolRegistry(explorerFinalToolReg, opts.DebugSink)
-	}
-
-	explorer, err := explorerDesc.Factory(registries.FactoryOptions{
-		LLM:                  llm,
-		Model:                cfg.LLM.Model,
-		ToolRegistry:         explorerFinalToolReg,
-		MaxIterations:        min(cfg.Agents.MaxIterations, 15),
-		MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
-		PromptCaching:        cfg.Agents.EffectivePromptCaching(),
-		ProjectInstructions:  cfg.ProjectInstructions,
-		HookManager:          getHookManager(opts),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create explorer agent: %w", err)
-	}
+	// 3. Explorer is no longer built (M6 G2): the unified Primary covers
+	// codebase exploration directly via its read/glob/grep tool set, and
+	// the dispatcher accepts a nil explorerAgent — intent.go's
+	// classical-path explorer hooks are nil-checked and only fire under
+	// the legacy intent recognition flow that is also being retired.
+	var explorer agent.Agent
 
 	// 4. Build planner (non-dispatchable, no tools).
 	plannerDesc, ok := reg.Get("planner")
@@ -300,10 +272,17 @@ func New(
 	fastPath := buildFastPath(cfg.Orchestrate.FastPath)
 
 	// 10. Construct dispatcher.
+	//
+	// The dispatcher's fallback agent is intentionally NOT set in this
+	// option list: the fallback Primary built in step 11 below will be
+	// injected via SetFallbackAgent immediately after construction, so
+	// any earlier value here would be overwritten. Setting it twice was
+	// load-bearing in M5 (chat first, then Primary swap) but became dead
+	// code once classical was removed in M6 — the chat agent simply does
+	// not exist anymore.
 	dispatcherOpts := []dispatches.Option{
 		dispatches.WithLLM(llm, cfg.LLM.Model),
 		dispatches.WithMaxConcurrency(maxConcurrency),
-		dispatches.WithFallbackAgent(subAgents["chat"]),
 		dispatches.WithWorkingDir(cfg.Tools.BashWorkingDir),
 		dispatches.WithToolsConfig(cfg.Tools),
 		dispatches.WithHooks(hooks),
@@ -316,7 +295,7 @@ func New(
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
 		dispatches.WithFastPath(fastPath),
 		dispatches.WithUnifiedIntent(cfg.Orchestrate.UnifiedIntent),
-		dispatches.WithLegacyPhaseEvents(cfg.Orchestrate.LegacyPhaseEvents),
+		dispatches.WithLegacyPhaseEvents(cfg.Orchestrate.LegacyPhaseEvents), //nolint:staticcheck // SA1019: forwarding the user's config; the shim itself is deprecated and emits a runtime slog.Warn when enabled.
 	}
 
 	if opts != nil && opts.RouterLLM != nil && opts.RouterModel != "" {
@@ -332,36 +311,32 @@ func New(
 		dispatcherOpts...,
 	)
 
-	// 11. Unified mode (design M4): build Primary Assistant and attach.
+	// 11. Build the Primary Assistant and the fallback Primary, then
+	// attach both to the dispatcher (design M4 / M5 G3, made unconditional
+	// in M6: the classical mode branch was removed).
 	//
 	// Constructed AFTER the dispatcher because the plan_task tool that the
 	// Primary carries needs a PlanExecutor handle on the dispatcher, and
 	// SetPrimaryAssistant is the post-construction setter that closes the
-	// cycle. classical mode skips this block entirely — Primary is a pure
-	// opt-in feature with zero startup cost when disabled.
-	if cfg.Orchestrate.Mode == configs.OrchestrateModeUnified {
-		primary, err := buildPrimaryAssistant(cfg, llm, memMgr, regOpts, subAgents, dispatcher, todoStore, todoDisabled, opts)
-		if err != nil {
-			return nil, fmt.Errorf("build primary assistant: %w", err)
-		}
-
-		dispatcher.SetPrimaryAssistant(primary)
-
-		// M5 G3: in unified mode the fallback path that fires when depth has
-		// already reached maxRecursionDepth or when intent classification
-		// fails mid-stream should keep the Primary persona rather than
-		// falling back to the classical chat agent. We attach a degraded
-		// Primary (same system prompt, no delegate/plan tools) so the
-		// fallback can still answer inline without risking another recursive
-		// delegate_to / plan_task dispatch cycle — the tools are stripped on
-		// purpose to cut the R2 infinite-recursion path dead.
-		fallbackPrimary, err := buildFallbackPrimary(cfg, llm, memMgr, opts)
-		if err != nil {
-			return nil, fmt.Errorf("build fallback primary: %w", err)
-		}
-
-		dispatcher.SetFallbackAgent(fallbackPrimary)
+	// cycle.
+	primary, err := buildPrimaryAssistant(cfg, llm, memMgr, regOpts, subAgents, dispatcher, todoStore, todoDisabled, opts)
+	if err != nil {
+		return nil, fmt.Errorf("build primary assistant: %w", err)
 	}
+
+	dispatcher.SetPrimaryAssistant(primary)
+
+	// The fallback path (depth >= maxRecursionDepth, or mid-stream
+	// classification failure) reuses the Primary persona via a degraded
+	// Primary that has NO tools — same system prompt, but no
+	// delegate/plan/bash so re-entering it cannot trigger another
+	// recursive dispatch cycle. This is the M5 G3 R2 guard, kept intact.
+	fallbackPrimary, err := buildFallbackPrimary(cfg, llm, memMgr, opts)
+	if err != nil {
+		return nil, fmt.Errorf("build fallback primary: %w", err)
+	}
+
+	dispatcher.SetFallbackAgent(fallbackPrimary)
 
 	return &Result{
 		Dispatcher:   dispatcher,
@@ -391,11 +366,11 @@ func buildPrimaryAssistant(
 	todoDisabled bool,
 	opts *Options,
 ) (agent.Agent, error) {
-	// Base tool registry — same ProfileReadOnly builder the researcher agent
-	// uses, so path-guard wiring stays consistent.
-	toolReg, err := registries.ProfileReadOnly.BuildRegistry(cfg.Tools, regOpts...)
+	profile := primaryToolProfile(cfg)
+
+	toolReg, err := profile.BuildRegistry(cfg.Tools, regOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("primary: build read-only registry: %w", err)
+		return nil, fmt.Errorf("primary: build %s registry: %w", profile.Name, err)
 	}
 
 	// ask_user — optional, mirrors the coder/researcher/reviewer wiring.
@@ -466,6 +441,24 @@ func buildPrimaryAssistant(
 		ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
 		HookManager:          getHookManager(opts),
 	})
+}
+
+// primaryToolProfile picks the capability profile that the Primary
+// Assistant's toolset is built from. Default = ProfileReadOnly
+// (read/glob/grep), matching the researcher agent's wiring so the
+// path-guard plumbing stays consistent. When
+// orchestrate.primary_allow_bash is set (design M6 G1) we promote to
+// ProfileReview, the same capability set reviewer uses
+// (read/glob/grep + bash), so single-line shell tasks like
+// `calc`/`echo`/`ls` finish inline without a delegate_to_coder round-trip.
+// The fallback Primary deliberately keeps no tools at all regardless of
+// this flag — see buildFallbackPrimary.
+func primaryToolProfile(cfg *configs.Config) registries.ToolProfile {
+	if cfg.Orchestrate.PrimaryAllowBash {
+		return registries.ProfileReview
+	}
+
+	return registries.ProfileReadOnly
 }
 
 // buildFallbackPrimary assembles a Primary Assistant with NO tools — the
