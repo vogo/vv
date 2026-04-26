@@ -10,7 +10,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/vogo/aimodel v0.4.0
-	github.com/vogo/vage v0.6.0
+	github.com/vogo/vage v0.7.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.49.1
 )

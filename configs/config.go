@@ -358,6 +358,43 @@ type ToolsConfig struct {
 	BashWorkingDir string          `yaml:"bash_working_dir"`       // default ""
 	AllowedDirs    *[]string       `yaml:"allowed_dirs,omitempty"` // workspace allow-list; nil = auto-populate defaults, empty = startup error
 	BashRules      BashRulesConfig `yaml:"bash_rules,omitempty"`   // dangerous-command classification
+	WebSearch      WebSearchConfig `yaml:"web_search,omitempty"`   // optional web_search tool wiring
+}
+
+// Recognized web_search providers. Empty / unknown values disable the tool.
+const (
+	WebSearchProviderTavily = "tavily"
+	WebSearchProviderBrave  = "brave"
+)
+
+// WebSearchConfig wires the optional web_search tool. Zero-value disables it
+// entirely (tool is not registered on any agent), keeping the default path
+// cost-free. The api_key field is sensitive — never log it.
+type WebSearchConfig struct {
+	Provider       string `yaml:"provider,omitempty"`        // "" | "tavily" | "brave"
+	APIKey         string `yaml:"api_key,omitempty"`         // never log
+	TimeoutSeconds int    `yaml:"timeout_seconds,omitempty"` // 0 → default 10
+	MaxResults     int    `yaml:"max_results,omitempty"`     // 0 → default 5; cap 20
+}
+
+// IsEnabled reports whether the configuration carries a usable provider id
+// and a non-empty api key. Operators set both or neither.
+func (w WebSearchConfig) IsEnabled() bool {
+	return strings.TrimSpace(w.APIKey) != "" && NormalizedWebSearchProvider(w.Provider) != ""
+}
+
+// NormalizedWebSearchProvider lower-cases / trims the input and returns "" for
+// any value that is not a recognized provider id. Used by setup wiring to
+// branch without re-implementing the case-fold rules.
+func NormalizedWebSearchProvider(p string) string {
+	switch strings.ToLower(strings.TrimSpace(p)) {
+	case WebSearchProviderTavily:
+		return WebSearchProviderTavily
+	case WebSearchProviderBrave:
+		return WebSearchProviderBrave
+	default:
+		return ""
+	}
 }
 
 // BashRulesConfig controls the pre-execution bash command classifier.
@@ -650,6 +687,30 @@ func Load(path string, explicit bool) (*Config, error) {
 		cfg.MCP.Server.AuthToken = v
 	}
 
+	if v := os.Getenv("VV_WEB_SEARCH_PROVIDER"); v != "" {
+		cfg.Tools.WebSearch.Provider = v
+	}
+
+	if v := os.Getenv("VV_WEB_SEARCH_API_KEY"); v != "" {
+		cfg.Tools.WebSearch.APIKey = v
+	}
+
+	if v := os.Getenv("VV_WEB_SEARCH_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Tools.WebSearch.TimeoutSeconds = n
+		} else {
+			slog.Warn("vv: invalid VV_WEB_SEARCH_TIMEOUT_SECONDS, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_WEB_SEARCH_MAX_RESULTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Tools.WebSearch.MaxResults = n
+		} else {
+			slog.Warn("vv: invalid VV_WEB_SEARCH_MAX_RESULTS, ignoring", "value", v)
+		}
+	}
+
 	applyBudgetEnv(cfg)
 
 	if v := os.Getenv("VV_MODEL_PRICING"); v != "" {
@@ -694,6 +755,11 @@ func Load(path string, explicit bool) (*Config, error) {
 
 	if len(cfg.CLI.ConfirmTools) > 0 {
 		slog.Warn("vv: confirm_tools is deprecated; use permission_mode instead")
+	}
+
+	if raw := strings.TrimSpace(cfg.Tools.WebSearch.Provider); raw != "" && NormalizedWebSearchProvider(raw) == "" {
+		slog.Warn("vv: tools.web_search.provider is not recognized; tool will be disabled",
+			"value", raw, "valid", []string{WebSearchProviderTavily, WebSearchProviderBrave})
 	}
 
 	return cfg, nil

@@ -12,6 +12,7 @@ const ReviewerSystemPrompt = `You are an expert code reviewer. You analyze code 
 ## Available Tools
 - **read**: Read file contents to review code.
 - **web_fetch**: Fetch public documentation, specs, or standards referenced by the code under review.
+- **web_search**: Find relevant docs/specs by keyword. Pair with web_fetch to read full content. May not be configured in every deployment.
 - **glob**: Find files by name pattern (e.g., "**/*.go").
 - **grep**: Search file contents using regular expressions.
 - **bash**: Execute shell commands for running tests and linters.

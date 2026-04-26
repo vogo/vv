@@ -137,3 +137,33 @@ func TestToolProfile_BuildRegistry_WithWorkingDir(t *testing.T) {
 
 	assertToolNames(t, reg.List(), "bash", "edit", "glob", "grep", "read", "web_fetch", "write")
 }
+
+// scenario: when web_search is configured with a recognized provider + key,
+// the tool appears alongside web_fetch on every profile that includes CapRead.
+func TestToolProfile_BuildRegistry_WithWebSearchEnabled(t *testing.T) {
+	cfg := configs.ToolsConfig{
+		BashTimeout: 10,
+		WebSearch: configs.WebSearchConfig{
+			Provider: configs.WebSearchProviderTavily,
+			APIKey:   "test-key",
+		},
+	}
+
+	full, err := ProfileFull.BuildRegistry(cfg)
+	if err != nil {
+		t.Fatalf("Full BuildRegistry: %v", err)
+	}
+	assertToolNames(t, full.List(), "bash", "edit", "glob", "grep", "read", "web_fetch", "web_search", "write")
+
+	ro, err := ProfileReadOnly.BuildRegistry(cfg)
+	if err != nil {
+		t.Fatalf("ReadOnly BuildRegistry: %v", err)
+	}
+	assertToolNames(t, ro.List(), "glob", "grep", "read", "web_fetch", "web_search")
+
+	rv, err := ProfileReview.BuildRegistry(cfg)
+	if err != nil {
+		t.Fatalf("Review BuildRegistry: %v", err)
+	}
+	assertToolNames(t, rv.List(), "bash", "glob", "grep", "read", "web_fetch", "web_search")
+}

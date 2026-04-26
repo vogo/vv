@@ -40,6 +40,9 @@ func Register(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	if err := webfetch.Register(reg); err != nil {
 		return nil, fmt.Errorf("register web_fetch tool: %w", err)
 	}
+	if _, err := MaybeRegisterWebSearch(reg, cfg.WebSearch); err != nil {
+		return nil, err
+	}
 
 	// write
 	if err := write.Register(reg); err != nil {
@@ -84,6 +87,9 @@ func RegisterReadOnly(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	}
 	if err := webfetch.Register(reg); err != nil {
 		return nil, fmt.Errorf("register web_fetch tool: %w", err)
+	}
+	if _, err := MaybeRegisterWebSearch(reg, cfg.WebSearch); err != nil {
+		return nil, err
 	}
 
 	// glob
@@ -133,6 +139,9 @@ func RegisterReviewTools(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	}
 	if err := webfetch.Register(reg); err != nil {
 		return nil, fmt.Errorf("register web_fetch tool: %w", err)
+	}
+	if _, err := MaybeRegisterWebSearch(reg, cfg.WebSearch); err != nil {
+		return nil, err
 	}
 
 	// glob

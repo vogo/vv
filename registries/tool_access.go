@@ -15,6 +15,7 @@ import (
 	"github.com/vogo/vage/tool/webfetch"
 	"github.com/vogo/vage/tool/write"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/tools"
 )
 
 // RegistryOption configures BuildRegistry.
@@ -119,7 +120,12 @@ func registerCapabilityTools(reg *tool.Registry, cap ToolCapability, cfg configs
 			return err
 		}
 
-		return webfetch.Register(reg)
+		if err := webfetch.Register(reg); err != nil {
+			return err
+		}
+
+		_, err := tools.MaybeRegisterWebSearch(reg, cfg.WebSearch)
+		return err
 	case CapWrite:
 		var writeOpts []write.Option
 
