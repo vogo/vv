@@ -138,8 +138,8 @@ func TestIntegration_HTTP_ToolListing(t *testing.T) {
 		t.Fatalf("decode body: %v", err)
 	}
 
-	if len(toolList) != 6 {
-		t.Fatalf("got %d tools, want 6", len(toolList))
+	if len(toolList) != 7 {
+		t.Fatalf("got %d tools, want 7", len(toolList))
 	}
 
 	toolNames := make(map[string]bool)
@@ -147,7 +147,7 @@ func TestIntegration_HTTP_ToolListing(t *testing.T) {
 		toolNames[td.Name] = true
 	}
 
-	for _, name := range []string{"bash", "read", "write", "edit", "glob", "grep"} {
+	for _, name := range []string{"bash", "read", "web_fetch", "write", "edit", "glob", "grep"} {
 		if !toolNames[name] {
 			t.Errorf("missing tool %q in /v1/tools response", name)
 		}

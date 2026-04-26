@@ -1,10 +1,36 @@
 package registries
 
 import (
+	"sort"
 	"testing"
 
+	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
 )
+
+// toolNames returns the sorted set of tool names in defs.
+func toolNames(defs []schema.ToolDef) []string {
+	out := make([]string, len(defs))
+	for i, d := range defs {
+		out[i] = d.Name
+	}
+	sort.Strings(out)
+	return out
+}
+
+func assertToolNames(t *testing.T, defs []schema.ToolDef, want ...string) {
+	t.Helper()
+	got := toolNames(defs)
+	sort.Strings(want)
+	if len(got) != len(want) {
+		t.Fatalf("tool names = %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("tool names = %v, want %v", got, want)
+		}
+	}
+}
 
 func TestToolProfile_Has(t *testing.T) {
 	tests := []struct {
@@ -68,10 +94,7 @@ func TestToolProfile_BuildRegistry_Full(t *testing.T) {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
 
-	tools := reg.List()
-	if len(tools) != 6 {
-		t.Errorf("full profile tools = %d, want 6", len(tools))
-	}
+	assertToolNames(t, reg.List(), "bash", "edit", "glob", "grep", "read", "web_fetch", "write")
 }
 
 func TestToolProfile_BuildRegistry_ReadOnly(t *testing.T) {
@@ -80,10 +103,7 @@ func TestToolProfile_BuildRegistry_ReadOnly(t *testing.T) {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
 
-	tools := reg.List()
-	if len(tools) != 3 {
-		t.Errorf("read-only profile tools = %d, want 3", len(tools))
-	}
+	assertToolNames(t, reg.List(), "glob", "grep", "read", "web_fetch")
 }
 
 func TestToolProfile_BuildRegistry_Review(t *testing.T) {
@@ -92,10 +112,7 @@ func TestToolProfile_BuildRegistry_Review(t *testing.T) {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
 
-	tools := reg.List()
-	if len(tools) != 4 {
-		t.Errorf("review profile tools = %d, want 4", len(tools))
-	}
+	assertToolNames(t, reg.List(), "bash", "glob", "grep", "read", "web_fetch")
 }
 
 func TestToolProfile_BuildRegistry_None(t *testing.T) {
@@ -104,9 +121,8 @@ func TestToolProfile_BuildRegistry_None(t *testing.T) {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
 
-	tools := reg.List()
-	if len(tools) != 0 {
-		t.Errorf("none profile tools = %d, want 0", len(tools))
+	if len(reg.List()) != 0 {
+		t.Errorf("none profile tools = %v, want []", toolNames(reg.List()))
 	}
 }
 
@@ -119,8 +135,5 @@ func TestToolProfile_BuildRegistry_WithWorkingDir(t *testing.T) {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
 
-	tools := reg.List()
-	if len(tools) != 6 {
-		t.Errorf("full profile tools (with working dir) = %d, want 6", len(tools))
-	}
+	assertToolNames(t, reg.List(), "bash", "edit", "glob", "grep", "read", "web_fetch", "write")
 }

@@ -104,8 +104,8 @@ func toolResultText(r schema.ToolResult) string {
 }
 
 var (
-	builtinTools  = map[string]bool{"bash": true, "read": true, "write": true, "edit": true, "glob": true, "grep": true}
-	readOnlyTools = map[string]bool{"read": true, "glob": true, "grep": true}
+	builtinTools  = map[string]bool{"bash": true, "read": true, "web_fetch": true, "write": true, "edit": true, "glob": true, "grep": true}
+	readOnlyTools = map[string]bool{"read": true, "web_fetch": true, "glob": true, "grep": true}
 )
 
 func classifySource(name string) string {

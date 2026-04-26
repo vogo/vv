@@ -12,6 +12,7 @@ import (
 	"github.com/vogo/vage/tool/grep"
 	"github.com/vogo/vage/tool/read"
 	"github.com/vogo/vage/tool/toolkit"
+	"github.com/vogo/vage/tool/webfetch"
 	"github.com/vogo/vage/tool/write"
 	"github.com/vogo/vv/configs"
 )
@@ -114,7 +115,11 @@ func registerCapabilityTools(reg *tool.Registry, cap ToolCapability, cfg configs
 			readOpts = append(readOpts, read.WithPathGuard(ro.guard))
 		}
 
-		return read.Register(reg, readOpts...)
+		if err := read.Register(reg, readOpts...); err != nil {
+			return err
+		}
+
+		return webfetch.Register(reg)
 	case CapWrite:
 		var writeOpts []write.Option
 

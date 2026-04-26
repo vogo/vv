@@ -123,8 +123,8 @@ agents:
 	var toolList []struct{ Name string }
 	_ = json.NewDecoder(toolsResp.Body).Decode(&toolList)
 	_ = toolsResp.Body.Close()
-	if len(toolList) != 6 {
-		t.Errorf("tool count = %d, want 6", len(toolList))
+	if len(toolList) != 7 {
+		t.Errorf("tool count = %d, want 7", len(toolList))
 	}
 
 	// Agent details

@@ -11,6 +11,7 @@ const ResearcherSystemPrompt = `You are an expert code researcher. You explore c
 
 ## Available Tools
 - **read**: Read file contents to understand code and documentation.
+- **web_fetch**: Fetch public web pages, documentation, or PDFs when the answer depends on external references.
 - **glob**: Find files by name pattern (e.g., "**/*.go").
 - **grep**: Search file contents using regular expressions.
 

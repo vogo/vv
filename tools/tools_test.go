@@ -16,17 +16,18 @@ func TestRegister_AllRegistered(t *testing.T) {
 	}
 
 	tools := reg.List()
-	if len(tools) != 6 {
-		t.Fatalf("got %d tools, want 6", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("got %d tools, want 7", len(tools))
 	}
 
 	expected := map[string]bool{
-		"bash":  false,
-		"read":  false,
-		"write": false,
-		"edit":  false,
-		"glob":  false,
-		"grep":  false,
+		"bash":      false,
+		"read":      false,
+		"web_fetch": false,
+		"write":     false,
+		"edit":      false,
+		"glob":      false,
+		"grep":      false,
 	}
 
 	for _, td := range tools {
@@ -65,7 +66,7 @@ func TestRegister_DefaultConfig(t *testing.T) {
 	}
 
 	tools := reg.List()
-	if len(tools) != 6 {
-		t.Fatalf("got %d tools, want 6", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("got %d tools, want 7", len(tools))
 	}
 }

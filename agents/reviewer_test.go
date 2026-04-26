@@ -12,7 +12,7 @@ func TestReviewerSystemPrompt_NotEmpty(t *testing.T) {
 }
 
 func TestReviewerSystemPrompt_ContainsReviewTools(t *testing.T) {
-	tools := []string{"read", "glob", "grep", "bash"}
+	tools := []string{"read", "web_fetch", "glob", "grep", "bash"}
 	for _, tool := range tools {
 		if !strings.Contains(ReviewerSystemPrompt, tool) {
 			t.Errorf("ReviewerSystemPrompt does not mention tool %q", tool)

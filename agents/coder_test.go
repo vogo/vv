@@ -12,7 +12,7 @@ func TestCoderSystemPrompt_NotEmpty(t *testing.T) {
 }
 
 func TestCoderSystemPrompt_ContainsToolNames(t *testing.T) {
-	tools := []string{"bash", "read", "write", "edit", "glob", "grep"}
+	tools := []string{"bash", "read", "web_fetch", "write", "edit", "glob", "grep"}
 	for _, tool := range tools {
 		if !strings.Contains(CoderSystemPrompt, tool) {
 			t.Errorf("CoderSystemPrompt does not mention tool %q", tool)

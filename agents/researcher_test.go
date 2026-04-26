@@ -12,7 +12,7 @@ func TestResearcherSystemPrompt_NotEmpty(t *testing.T) {
 }
 
 func TestResearcherSystemPrompt_ContainsReadOnlyTools(t *testing.T) {
-	tools := []string{"read", "glob", "grep"}
+	tools := []string{"read", "web_fetch", "glob", "grep"}
 	for _, tool := range tools {
 		if !strings.Contains(ResearcherSystemPrompt, tool) {
 			t.Errorf("ResearcherSystemPrompt does not mention tool %q", tool)

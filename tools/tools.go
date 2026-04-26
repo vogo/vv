@@ -10,6 +10,7 @@ import (
 	"github.com/vogo/vage/tool/glob"
 	"github.com/vogo/vage/tool/grep"
 	"github.com/vogo/vage/tool/read"
+	"github.com/vogo/vage/tool/webfetch"
 	"github.com/vogo/vage/tool/write"
 	"github.com/vogo/vv/configs"
 )
@@ -35,6 +36,9 @@ func Register(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	// read
 	if err := read.Register(reg); err != nil {
 		return nil, fmt.Errorf("register read tool: %w", err)
+	}
+	if err := webfetch.Register(reg); err != nil {
+		return nil, fmt.Errorf("register web_fetch tool: %w", err)
 	}
 
 	// write
@@ -77,6 +81,9 @@ func RegisterReadOnly(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	// read
 	if err := read.Register(reg); err != nil {
 		return nil, fmt.Errorf("register read tool: %w", err)
+	}
+	if err := webfetch.Register(reg); err != nil {
+		return nil, fmt.Errorf("register web_fetch tool: %w", err)
 	}
 
 	// glob
@@ -123,6 +130,9 @@ func RegisterReviewTools(cfg configs.ToolsConfig) (*tool.Registry, error) {
 	// read
 	if err := read.Register(reg); err != nil {
 		return nil, fmt.Errorf("register read tool: %w", err)
+	}
+	if err := webfetch.Register(reg); err != nil {
+		return nil, fmt.Errorf("register web_fetch tool: %w", err)
 	}
 
 	// glob

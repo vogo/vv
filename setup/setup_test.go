@@ -373,8 +373,8 @@ func TestNew_AgentNotFound(t *testing.T) {
 
 // TestPrimaryToolProfile_AllowBashSwitch verifies the env contract:
 // orchestrate.primary_allow_bash gates whether the Primary Assistant's
-// tool registry is built from ProfileReadOnly (read/glob/grep) or the
-// promoted ProfileReview (read/glob/grep + bash). The fallback Primary
+// tool registry is built from ProfileReadOnly (read/web_fetch/glob/grep) or the
+// promoted ProfileReview (read/web_fetch/glob/grep + bash). The fallback Primary
 // always stays tool-free regardless and is covered separately.
 func TestPrimaryToolProfile_AllowBashSwitch(t *testing.T) {
 	cases := []struct {
@@ -410,7 +410,7 @@ func TestPrimaryToolProfile_AllowBashSwitch(t *testing.T) {
 
 			// Read tools must always be present — the Primary depends on
 			// them irrespective of the bash flag.
-			for _, name := range []string{"read", "glob", "grep"} {
+			for _, name := range []string{"read", "web_fetch", "glob", "grep"} {
 				if _, ok := reg.Get(name); !ok {
 					t.Errorf("expected tool %q in registry, missing", name)
 				}
