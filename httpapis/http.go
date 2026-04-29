@@ -14,6 +14,7 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/session"
+	"github.com/vogo/vage/workspace"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
 	"github.com/vogo/vv/memories"
@@ -45,7 +46,11 @@ func newRequestID() string {
 // compactor may be nil if context compression is not configured.
 // sessionStore may be nil when the session subsystem is disabled — the
 // /v1/sessions/* routes are only mounted when a store is provided.
-func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker, sessionStore session.SessionStore) error {
+// planWorkspace may be nil when the Plan Workspace subsystem is disabled —
+// the /v1/sessions/{id}/workspace/* routes are only mounted when a workspace
+// is provided. DELETE /v1/sessions/{id} additionally removes the workspace
+// when both store and workspace are present.
+func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker, sessionStore session.SessionStore, planWorkspace workspace.Workspace) error {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
@@ -101,8 +106,14 @@ func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, 
 		mux.HandleFunc("GET /v1/sessions", handleListSessions(sessionStore))
 		mux.HandleFunc("GET /v1/sessions/{id}", handleGetSession(sessionStore))
 		mux.HandleFunc("GET /v1/sessions/{id}/events", handleListEvents(sessionStore))
-		mux.HandleFunc("DELETE /v1/sessions/{id}", handleDeleteSession(sessionStore))
+		mux.HandleFunc("DELETE /v1/sessions/{id}", handleDeleteSession(sessionStore, planWorkspace))
 		mux.HandleFunc("PATCH /v1/sessions/{id}", handlePatchSession(sessionStore))
+	}
+
+	if planWorkspace != nil {
+		mux.HandleFunc("GET /v1/sessions/{id}/workspace/plan", handleGetPlan(planWorkspace))
+		mux.HandleFunc("GET /v1/sessions/{id}/workspace/notes", handleListNotes(planWorkspace))
+		mux.HandleFunc("GET /v1/sessions/{id}/workspace/notes/{name}", handleGetNote(planWorkspace))
 	}
 
 	slog.Info("vv: starting HTTP server", "addr", cfg.Server.Addr)

@@ -18,6 +18,7 @@
 package httpapis
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -199,16 +200,36 @@ func handleListEvents(store session.SessionStore) http.HandlerFunc {
 
 // handleDeleteSession implements DELETE /v1/sessions/{id}. The underlying
 // store treats Delete as idempotent, so a missing id still returns 200.
-func handleDeleteSession(store session.SessionStore) http.HandlerFunc {
+//
+// When ws is non-nil the workspace tree (plan + notes) is removed alongside
+// the session records. The session store and workspace share the same
+// `<root>/<id>` parent directory, so SessionStore.Delete already wipes
+// both via os.RemoveAll — but we still call ws.Delete explicitly to keep
+// the contract clean for non-FileWorkspace implementations a future
+// iteration might add.
+func handleDeleteSession(store session.SessionStore, ws workspaceDeleter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
 		if err := store.Delete(r.Context(), id); writeSessionErr(w, err) {
 			return
 		}
+		if ws != nil {
+			// Best-effort: if the workspace delete fails the session is already
+			// gone, so don't 500 the response — log via the underlying error
+			// channel of the store impl.
+			_ = ws.Delete(r.Context(), id)
+		}
 
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 	}
+}
+
+// workspaceDeleter narrows the workspace dependency for handleDeleteSession
+// to just the Delete method. Keeps the test surface minimal — tests can
+// pass nil to skip workspace-side cleanup.
+type workspaceDeleter interface {
+	Delete(ctx context.Context, sessionID string) error
 }
 
 // handlePatchSession implements PATCH /v1/sessions/{id}.

@@ -83,6 +83,10 @@ func RegisterReviewer(reg *registries.Registry) {
 				taskOpts = append(taskOpts, taskagent.WithHookManager(opts.HookManager))
 			}
 
+			if len(opts.ExtraContextSources) > 0 {
+				taskOpts = append(taskOpts, taskagent.WithExtraSources(opts.ExtraContextSources...))
+			}
+
 			return taskagent.New(
 				agent.Config{
 					ID:          "reviewer",

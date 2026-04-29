@@ -317,7 +317,7 @@ func main() {
 	switch cfg.Mode {
 	case "http":
 		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
-		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget, initResult.SessionStore); err != nil {
+		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget, initResult.SessionStore, initResult.Workspace); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
 			exitCode = 1
 		}

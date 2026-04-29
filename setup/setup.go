@@ -14,6 +14,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
+	vctx "github.com/vogo/vage/context"
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
 	"github.com/vogo/vage/largemodel"
@@ -26,6 +27,8 @@ import (
 	"github.com/vogo/vage/tool/bash"
 	"github.com/vogo/vage/tool/todo"
 	"github.com/vogo/vage/tool/toolkit"
+	wsworkspace "github.com/vogo/vage/tool/workspace"
+	"github.com/vogo/vage/workspace"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
@@ -43,7 +46,8 @@ type Result struct {
 	Dispatcher   *dispatches.Dispatcher
 	PathGuard    *toolkit.PathGuard
 	PathGuardian *bash.PathGuardian
-	HookManager  *hook.Manager // nil when no hook-based features are enabled
+	HookManager  *hook.Manager       // nil when no hook-based features are enabled
+	Workspace    workspace.Workspace // nil when Plan Workspace is disabled (cfg.Session.Enabled=false)
 	registry     *registries.Registry
 	subAgents    map[string]agent.Agent
 }
@@ -75,6 +79,12 @@ type Options struct {
 	AskUserTimeout   time.Duration                          // optional: timeout for ask_user responses
 	DebugSink        *debugs.Sink                           // optional: debug sink (constructed only when cfg.Debug is true)
 	HookManager      *hook.Manager                          // optional: pre-built event bus; injected into every TaskAgent
+	// Workspace, when non-nil, exposes the per-session Plan Workspace to
+	// every dispatchable agent (and the Primary Assistant) by registering
+	// plan_update / notes_write / notes_read tools on Primary's tool
+	// registry and appending a vctx.WorkspaceSource to the ContextBuilder
+	// pipeline of every TaskAgent. nil disables Plan Workspace wiring.
+	Workspace workspace.Workspace
 
 	// RouterLLM / RouterModel configure the Dispatcher's dedicated routing
 	// LLM client. When both are non-zero, Dispatcher routing calls (intent,
@@ -179,6 +189,7 @@ func New(
 			ProjectInstructions:  cfg.ProjectInstructions,
 			ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
 			HookManager:          getHookManager(opts),
+			ExtraContextSources:  buildExtraContextSources(opts),
 		}
 
 		a, err := desc.Factory(factoryOpts)
@@ -278,6 +289,7 @@ func New(
 		PathGuard:    pathGuard,
 		PathGuardian: pathGuardian,
 		HookManager:  getHookManager(opts),
+		Workspace:    getWorkspace(opts),
 		registry:     reg,
 		subAgents:    subAgents,
 	}, nil
@@ -335,6 +347,21 @@ func buildPrimaryAssistant(
 		return nil, fmt.Errorf("primary: register plan_task: %w", err)
 	}
 
+	// plan_update / notes_write / notes_read — Plan Workspace tools, only
+	// registered when the workspace is wired (session subsystem enabled).
+	// Specialist sub-agents read plan.md via WorkspaceSource (in
+	// ExtraContextSources) but do not get the write tools — Plan
+	// Workspace is the Primary's concern, specialists just consume its
+	// current state.
+	if opts != nil && opts.Workspace != nil {
+		if err := wsworkspace.RegisterPlan(toolReg, opts.Workspace); err != nil {
+			return nil, fmt.Errorf("primary: register plan_update: %w", err)
+		}
+		if err := wsworkspace.RegisterNotes(toolReg, opts.Workspace); err != nil {
+			return nil, fmt.Errorf("primary: register notes_write/notes_read: %w", err)
+		}
+	}
+
 	// Apply the same wrapping chain sub-agents get: permission wrap →
 	// truncation → debug (outermost).
 	var finalToolReg tool.ToolRegistry = toolReg
@@ -375,7 +402,21 @@ func buildPrimaryAssistant(
 		ProjectInstructions:  cfg.ProjectInstructions,
 		ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
 		HookManager:          getHookManager(opts),
+		ExtraContextSources:  buildExtraContextSources(opts),
 	})
+}
+
+// buildExtraContextSources turns the (optional) Plan Workspace into a
+// WorkspaceSource list suitable for FactoryOptions.ExtraContextSources. It
+// returns nil when the workspace is not wired so dispatched factories see
+// the same zero-cost path that pre-existed Plan Workspace.
+func buildExtraContextSources(opts *Options) []vctx.Source {
+	if opts == nil || opts.Workspace == nil {
+		return nil
+	}
+	return []vctx.Source{
+		&vctx.WorkspaceSource{Workspace: opts.Workspace},
+	}
 }
 
 // primaryToolProfile picks the capability profile that the Primary
@@ -434,6 +475,10 @@ func buildFallbackPrimary(
 		ProjectInstructions:  cfg.ProjectInstructions,
 		ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
 		HookManager:          getHookManager(opts),
+		// Fallback Primary still benefits from a read-only Plan Workspace
+		// view: it cannot write (no plan_update tool registered), but it
+		// can refer to the current plan when crafting its inline reply.
+		ExtraContextSources: buildExtraContextSources(opts),
 	})
 }
 
@@ -470,6 +515,15 @@ func getHookManager(opts *Options) *hook.Manager {
 	}
 
 	return opts.HookManager
+}
+
+// getWorkspace safely extracts the optional Plan Workspace from opts.
+func getWorkspace(opts *Options) workspace.Workspace {
+	if opts == nil {
+		return nil
+	}
+
+	return opts.Workspace
 }
 
 // buildPathEnforcement computes the canonical allow-list, opens a PathGuard,
@@ -574,6 +628,7 @@ type InitResult struct {
 	SessionBudget *budgets.Tracker              // nil if session budget disabled
 	DailyBudget   *budgets.Tracker              // nil if daily budget disabled
 	SessionStore  session.SessionStore          // nil when cfg.Session.Enabled = false
+	Workspace     workspace.Workspace           // nil when cfg.Session.Enabled = false (workspace shares the session root)
 
 	// Shutdown releases process-level resources owned by Init (the
 	// hook.Manager that drives trace + session hooks, plus the persistent
@@ -658,7 +713,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	// to one or both of: the optional trace logger and the persistent
 	// session hook. Built before agents so its handle can be injected into
 	// every TaskAgent factory via opts.HookManager.
-	hookManager, sessionStore, hookShutdown, err := buildHookManagerAndSession(cfg)
+	hookManager, sessionStore, planWorkspace, hookShutdown, err := buildHookManagerAndSession(cfg)
 	if err != nil {
 		closeStore()
 		return nil, fmt.Errorf("setup hooks: %w", err)
@@ -670,6 +725,14 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		}
 
 		opts.HookManager = hookManager
+	}
+
+	if planWorkspace != nil {
+		if opts == nil {
+			opts = &Options{}
+		}
+
+		opts.Workspace = planWorkspace
 	}
 
 	if routerWrappedLLM != nil {
@@ -733,6 +796,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		SessionBudget: sessionBudget,
 		DailyBudget:   dailyBudget,
 		SessionStore:  sessionStore,
+		Workspace:     planWorkspace,
 		Shutdown:      chainShutdown(hookShutdown, closeStore),
 	}, nil
 }
@@ -782,13 +846,13 @@ func chainShutdown(trace func(context.Context), closeStore func()) func(context.
 // Startup ordering: trace hook constructed first; if the session store fails
 // to open, the trace tracer is closed before returning. mgr.Start handles
 // per-hook rollback automatically.
-func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.SessionStore, func(context.Context), error) {
+func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.SessionStore, workspace.Workspace, func(context.Context), error) {
 	noopShutdown := func(context.Context) {}
 	traceEnabled := cfg.Trace.IsEnabled()
 	sessionEnabled := cfg.Session.IsEnabled()
 
 	if !traceEnabled && !sessionEnabled {
-		return nil, nil, noopShutdown, nil
+		return nil, nil, nil, noopShutdown, nil
 	}
 
 	mgr := hook.NewManager()
@@ -802,28 +866,39 @@ func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.Ses
 			BufferSize:   cfg.Trace.BufferSize,
 		})
 		if err != nil {
-			return nil, nil, noopShutdown, fmt.Errorf("trace hook: %w", err)
+			return nil, nil, nil, noopShutdown, fmt.Errorf("trace hook: %w", err)
 		}
 		tracer = t
 		mgr.RegisterAsync(tracer)
 	}
 
 	var sessionStore session.SessionStore
+	var planWorkspace workspace.Workspace
 	var sessionRoot string
 	if sessionEnabled {
 		sessionRoot = filepath.Join(cfg.Session.EffectiveDir(), SessionProjectName(cfg.Tools.BashWorkingDir))
 		store, err := session.NewFileSessionStore(sessionRoot)
 		if err != nil {
-			return nil, nil, noopShutdown, fmt.Errorf("session store: %w", err)
+			return nil, nil, nil, noopShutdown, fmt.Errorf("session store: %w", err)
 		}
 		sessionStore = store
 		mgr.RegisterAsync(session.NewSessionHook(store))
+
+		// Plan Workspace shares the session root so a single
+		// SessionStore.Delete (which os.RemoveAll's <root>/<id>) wipes the
+		// workspace alongside meta.json/events.jsonl/state.json without
+		// any extra coordination.
+		ws, wsErr := workspace.NewFileWorkspace(sessionRoot)
+		if wsErr != nil {
+			return nil, nil, nil, noopShutdown, fmt.Errorf("plan workspace: %w", wsErr)
+		}
+		planWorkspace = ws
 	}
 
 	if startErr := mgr.Start(context.Background()); startErr != nil {
 		// mgr.Start already rolls back any successfully-started hooks; nothing
 		// further needs to be torn down here.
-		return nil, nil, noopShutdown, fmt.Errorf("start hooks: %w", startErr)
+		return nil, nil, nil, noopShutdown, fmt.Errorf("start hooks: %w", startErr)
 	}
 
 	if tracer != nil {
@@ -832,6 +907,9 @@ func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.Ses
 	if sessionStore != nil {
 		slog.Info("vv: session subsystem enabled", "dir", sessionRoot)
 	}
+	if planWorkspace != nil {
+		slog.Info("vv: plan workspace enabled", "dir", sessionRoot)
+	}
 
 	shutdown := func(ctx context.Context) {
 		if err := mgr.Stop(ctx); err != nil {
@@ -839,7 +917,7 @@ func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.Ses
 		}
 	}
 
-	return mgr, sessionStore, shutdown, nil
+	return mgr, sessionStore, planWorkspace, shutdown, nil
 }
 
 // buildBudgetTrackers constructs session and daily budget trackers from cfg.

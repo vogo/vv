@@ -8,6 +8,7 @@ import (
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	vctx "github.com/vogo/vage/context"
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
 	"github.com/vogo/vage/memory"
@@ -47,6 +48,12 @@ type FactoryOptions struct {
 	ProjectInstructions string        // content from VV.md; empty if no file
 	ToolResultGuards    []guard.Guard // optional: scanners for tool-result injection; nil means not enabled
 	HookManager         *hook.Manager // optional: event bus for trace/observability hooks; nil disables dispatch
+	// ExtraContextSources are vage/context Sources appended to the
+	// TaskAgent's ContextBuilder pipeline (between SessionMemory and
+	// RequestMessages). Used to plug in cross-cutting context like the
+	// Plan Workspace without rewriting agent factories. nil / empty leaves
+	// the default builder configuration unchanged.
+	ExtraContextSources []vctx.Source
 }
 
 // Registry is a thread-safe agent descriptor store.

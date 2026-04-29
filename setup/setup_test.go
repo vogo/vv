@@ -457,7 +457,7 @@ func TestBuildHookManagerAndSession_DefaultEnabledCreatesStore(t *testing.T) {
 		Session: configs.SessionConfig{Dir: dir},
 	}
 
-	mgr, store, shutdown, err := buildHookManagerAndSession(cfg)
+	mgr, store, ws, shutdown, err := buildHookManagerAndSession(cfg)
 	if err != nil {
 		t.Fatalf("buildHookManagerAndSession: %v", err)
 	}
@@ -468,6 +468,9 @@ func TestBuildHookManagerAndSession_DefaultEnabledCreatesStore(t *testing.T) {
 	}
 	if store == nil {
 		t.Fatal("expected non-nil SessionStore when session is enabled")
+	}
+	if ws == nil {
+		t.Fatal("expected non-nil Workspace when session is enabled (workspace shares the session root)")
 	}
 
 	// Round-trip a Session through the store as a smoke test.
@@ -482,7 +485,7 @@ func TestBuildHookManagerAndSession_DisabledIsZeroCost(t *testing.T) {
 		Trace:   configs.TraceConfig{}, // also off (default)
 	}
 
-	mgr, store, shutdown, err := buildHookManagerAndSession(cfg)
+	mgr, store, ws, shutdown, err := buildHookManagerAndSession(cfg)
 	if err != nil {
 		t.Fatalf("buildHookManagerAndSession: %v", err)
 	}
@@ -494,6 +497,9 @@ func TestBuildHookManagerAndSession_DisabledIsZeroCost(t *testing.T) {
 	if store != nil {
 		t.Error("expected nil SessionStore when session is disabled")
 	}
+	if ws != nil {
+		t.Error("expected nil Workspace when session is disabled")
+	}
 }
 
 func TestBuildHookManagerAndSession_BadDirFails(t *testing.T) {
@@ -502,7 +508,7 @@ func TestBuildHookManagerAndSession_BadDirFails(t *testing.T) {
 		Session: configs.SessionConfig{Dir: "/proc/1/will-never-mkdir"},
 	}
 
-	_, _, _, err := buildHookManagerAndSession(cfg)
+	_, _, _, _, err := buildHookManagerAndSession(cfg)
 	if err == nil {
 		t.Fatal("expected error for unwritable session dir")
 	}

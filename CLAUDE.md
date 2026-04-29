@@ -69,6 +69,20 @@ Persistent sessions are wired by default — opt out with `session.enabled: fals
 - **HTTP**: `/v1/sessions`, `/v1/sessions/{id}`, `/v1/sessions/{id}/events`, `PATCH /v1/sessions/{id}`, `DELETE /v1/sessions/{id}` mounted only when `SessionStore != nil`.
 - **Coexistence with trace**: trace logger and session hook subscribe to the same event bus. Both can be on, off, or one of each — the manager constructs only when at least one is on, so the disabled-everything path stays zero-cost.
 
+### Plan Workspace (`vage/workspace` integration)
+
+Plan Workspace is wired automatically whenever the session subsystem is enabled — it shares the same on-disk root and the same enable flag. Opt-out is via `session.enabled: false`; there is no separate workspace flag because a workspace without a session has no lifecycle owner.
+
+- **Storage layout**: `<session-root>/<project>/<id>/workspace/{plan.md, notes/<name>.md}`. The root is identical to `vage/session.FileSessionStore`'s root, so `SessionStore.Delete` (which `os.RemoveAll`s `<root>/<id>`) wipes the workspace alongside meta/events/state — no extra coordination needed.
+- **LLM tools (Primary only)**: `plan_update {content}` (full overwrite of plan.md), `notes_write {name, content}` (writes `notes/<name>.md`; empty `content` deletes), `notes_read {name}` (reads). Specialist sub-agents (coder/researcher/reviewer) do **not** get the write tools — they only consume the current plan + notes index via the `vctx.WorkspaceSource` injected into their ContextBuilder. The Primary delegates to specialists; if a specialist needs note bodies, it reports back and the Primary calls `notes_read`.
+- **Context injection**: every dispatchable agent (and the Primary, plus the fallback Primary) gets a `WorkspaceSource` appended between SessionMemory and the current-turn Request via `taskagent.WithExtraSources(...)`. Plan and notes index render as a single system message at the top of every prompt.
+- **`plan_update` vs `todo_write`**: orthogonal. `plan.md` is **persistent across sessions** — task-level strategy that survives process restarts. `todo_write` is **session-scoped, in-memory only** — fine-grained progress within a single ReAct loop. Use `plan_update` for "implement OAuth login → step 2 of 4 done"; use `todo_write` for the live checklist of the current turn's tool calls.
+- **HTTP**: `GET /v1/sessions/{id}/workspace/plan` (text/markdown; 404 when no plan recorded), `GET /v1/sessions/{id}/workspace/notes` (JSON index ordered by recency), `GET /v1/sessions/{id}/workspace/notes/{name}` (text/markdown; 400 invalid name; 404 missing). Mounted only when `Workspace != nil`. `DELETE /v1/sessions/{id}` additionally calls `Workspace.Delete` for clean-up across non-FileWorkspace future implementations.
+- **Caps**: plan.md ≤ 64 KiB (`workspace.MaxPlanBytes`), each note ≤ 32 KiB, ≤ 200 notes per session. Names match `[A-Za-z0-9._-]{1,64}`. Oversize / over-count returns 413 (HTTP) or `IsError` text result (LLM).
+- **Disabled path**: `session.enabled=false` ⇒ workspace not constructed, tools not registered on Primary, `WorkspaceSource` not appended to any agent, HTTP routes not mounted — zero overhead.
+
+See `vage/.doc/workspace.md` for the underlying API.
+
 Legacy `orchestrate.*` keys remain in the YAML schema for compatibility, but they are **silently ignored**: `mode`, `legacy_phase_events`, `summary_policy`, `replan`, `fast_path`, `unified_intent`. `orchestrate.mode=classical` and `VV_ORCHESTRATE_LEGACY_PHASE_EVENTS=*` log a `slog.Warn` at Load.
 
 ## Conventions

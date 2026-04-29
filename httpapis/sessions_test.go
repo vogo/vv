@@ -194,7 +194,7 @@ func TestHandleDeleteSession_Idempotent(t *testing.T) {
 	// Delete existing.
 	rr := httptest.NewRecorder()
 	r := withPathValue(httptest.NewRequest(http.MethodDelete, "/v1/sessions/alpha", nil), "id", "alpha")
-	handleDeleteSession(store)(rr, r)
+	handleDeleteSession(store, nil)(rr, r)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("first delete status = %d, want 200", rr.Code)
 	}
@@ -202,7 +202,7 @@ func TestHandleDeleteSession_Idempotent(t *testing.T) {
 	// Delete again — should still be 200 by Delete contract.
 	rr2 := httptest.NewRecorder()
 	r2 := withPathValue(httptest.NewRequest(http.MethodDelete, "/v1/sessions/alpha", nil), "id", "alpha")
-	handleDeleteSession(store)(rr2, r2)
+	handleDeleteSession(store, nil)(rr2, r2)
 	if rr2.Code != http.StatusOK {
 		t.Fatalf("second delete status = %d, want 200 (idempotent)", rr2.Code)
 	}
