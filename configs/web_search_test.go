@@ -32,6 +32,8 @@ func TestNormalizedWebSearchProvider(t *testing.T) {
 		{"tavily", "tavily"},
 		{"TAVILY", "tavily"},
 		{"  brave  ", "brave"},
+		{"searxng", "searxng"},
+		{"  SearXNG ", "searxng"},
 		{"serper", ""},
 		{"google", ""},
 	}
@@ -43,7 +45,8 @@ func TestNormalizedWebSearchProvider(t *testing.T) {
 	}
 }
 
-// scenario: IsEnabled requires both a recognized provider and a non-empty key.
+// scenario: IsEnabled requires the credentials each provider needs —
+// api_key for tavily/brave, base_url for searxng (no public endpoint).
 func TestWebSearchConfig_IsEnabled(t *testing.T) {
 	cases := []struct {
 		name string
@@ -57,6 +60,10 @@ func TestWebSearchConfig_IsEnabled(t *testing.T) {
 		{"tavily + key", WebSearchConfig{Provider: "tavily", APIKey: "x"}, true},
 		{"brave + key", WebSearchConfig{Provider: "brave", APIKey: "x"}, true},
 		{"whitespace key", WebSearchConfig{Provider: "tavily", APIKey: "  "}, false},
+		{"searxng + base_url", WebSearchConfig{Provider: "searxng", BaseURL: "http://x"}, true},
+		{"searxng without base_url", WebSearchConfig{Provider: "searxng", APIKey: "x"}, false},
+		{"searxng whitespace base_url", WebSearchConfig{Provider: "searxng", BaseURL: "  "}, false},
+		{"searxng + base_url + optional bearer", WebSearchConfig{Provider: "searxng", BaseURL: "http://x", APIKey: "tok"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -109,6 +116,80 @@ tools:
 	}
 	if !ws.IsEnabled() {
 		t.Errorf("IsEnabled = false, want true")
+	}
+}
+
+// scenario: searxng-specific env vars (base_url / language / categories /
+// user_agent) round-trip from environment into the loaded config so an
+// operator can enable a self-hosted instance without editing YAML.
+func TestLoad_WebSearchSearXNGEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	yaml := []byte(`
+llm:
+  api_key: dummy
+tools:
+  web_search:
+    provider: ""
+`)
+	path := filepath.Join(dir, "vv.yaml")
+	if err := os.WriteFile(path, yaml, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	t.Setenv("VV_WEB_SEARCH_PROVIDER", "searxng")
+	t.Setenv("VV_WEB_SEARCH_BASE_URL", "http://10.225.32.180/search")
+	t.Setenv("VV_WEB_SEARCH_LANGUAGE", "zh-CN")
+	t.Setenv("VV_WEB_SEARCH_CATEGORIES", "general,news")
+	t.Setenv("VV_WEB_SEARCH_USER_AGENT", "Mozilla/5.0 ua-test")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ws := cfg.Tools.WebSearch
+	if ws.Provider != "searxng" {
+		t.Errorf("provider = %q, want searxng", ws.Provider)
+	}
+	if ws.BaseURL != "http://10.225.32.180/search" {
+		t.Errorf("base_url = %q", ws.BaseURL)
+	}
+	if ws.Language != "zh-CN" {
+		t.Errorf("language = %q", ws.Language)
+	}
+	if ws.Categories != "general,news" {
+		t.Errorf("categories = %q", ws.Categories)
+	}
+	if ws.UserAgent != "Mozilla/5.0 ua-test" {
+		t.Errorf("user_agent = %q", ws.UserAgent)
+	}
+	if !ws.IsEnabled() {
+		t.Errorf("IsEnabled = false, want true (searxng + base_url)")
+	}
+}
+
+// scenario: searxng without base_url is disabled even with an api_key,
+// because there is no public endpoint to fall back to.
+func TestLoad_WebSearchSearXNGRequiresBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	yaml := []byte(`
+llm:
+  api_key: dummy
+tools:
+  web_search:
+    provider: searxng
+    api_key: tok
+`)
+	path := filepath.Join(dir, "vv.yaml")
+	if err := os.WriteFile(path, yaml, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Tools.WebSearch.IsEnabled() {
+		t.Fatalf("expected searxng without base_url to be disabled")
 	}
 }
 

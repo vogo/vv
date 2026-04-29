@@ -124,6 +124,58 @@ func TestBuildWebSearchProvider_NilSafe(t *testing.T) {
 	}
 }
 
+// scenario: searxng provider is enabled by base_url alone — no api_key
+// required, mirroring the configs.WebSearchConfig.IsEnabled contract.
+// Proves the searxng branch in buildWebSearchProvider returns a real
+// Provider that registers across the three tool profiles.
+func TestRegister_WithWebSearchSearXNGEnabled(t *testing.T) {
+	cfg := configs.ToolsConfig{
+		BashTimeout: 30,
+		WebSearch: configs.WebSearchConfig{
+			Provider: configs.WebSearchProviderSearXNG,
+			BaseURL:  "http://10.225.32.180/search",
+		},
+	}
+
+	full, err := Register(cfg)
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if _, ok := full.Get("web_search"); !ok {
+		t.Errorf("Register: web_search missing for searxng")
+	}
+
+	ro, err := RegisterReadOnly(cfg)
+	if err != nil {
+		t.Fatalf("RegisterReadOnly: %v", err)
+	}
+	if _, ok := ro.Get("web_search"); !ok {
+		t.Errorf("RegisterReadOnly: web_search missing for searxng")
+	}
+
+	rv, err := RegisterReviewTools(cfg)
+	if err != nil {
+		t.Fatalf("RegisterReviewTools: %v", err)
+	}
+	if _, ok := rv.Get("web_search"); !ok {
+		t.Errorf("RegisterReviewTools: web_search missing for searxng")
+	}
+}
+
+// scenario: searxng without base_url (defensive — IsEnabled already filters
+// this) must still return a nil provider so MaybeRegisterWebSearch skips
+// gracefully rather than panicking on Name() against a typed nil.
+func TestBuildWebSearchProvider_SearXNG_NilSafe(t *testing.T) {
+	cfg := configs.WebSearchConfig{
+		Provider: configs.WebSearchProviderSearXNG,
+		BaseURL:  "  ", // whitespace — NewSearXNG returns nil pointer
+	}
+	got := buildWebSearchProvider(cfg)
+	if got != nil {
+		t.Fatalf("expected honest nil interface, got non-nil %T", got)
+	}
+}
+
 // scenario: an unknown provider id is treated as "not configured" — tool
 // must not appear (avoiding a broken handler in agent ToolDef lists).
 func TestRegister_WebSearchUnknownProvider(t *testing.T) {

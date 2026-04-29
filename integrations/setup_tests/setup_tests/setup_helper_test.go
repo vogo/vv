@@ -2,11 +2,32 @@ package setup_tests
 
 import (
 	"context"
+	"os"
+	"strings"
+	"testing"
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 )
+
+// TestMain neutralizes any VV_* environment variables inherited from the
+// developer's shell before any test in this package runs. Tests that exercise
+// configs.Load(_, applyEnv=true) or registries.BuildRegistry must not be
+// influenced by the operator's local web_search / permission / pricing setup.
+//
+// Tests that explicitly need a VV_* variable set use t.Setenv, which restores
+// the value to the (now-empty) parent state on test cleanup.
+func TestMain(m *testing.M) {
+	for _, kv := range os.Environ() {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			if k := kv[:i]; strings.HasPrefix(k, "VV_") {
+				_ = os.Unsetenv(k)
+			}
+		}
+	}
+	os.Exit(m.Run())
+}
 
 // mockChatCompleter is a simple mock for testing.
 type mockChatCompleter struct {

@@ -316,6 +316,39 @@ func TestIntegration_SetupNew_WebSearch_ProviderBrave(t *testing.T) {
 	}
 }
 
+// --- AC-2.3 mirror: provider=searxng + base_url registers web_search ---
+// scenario: confirm the third provider symmetry — searxng wires through the
+// same path as tavily/brave, but is enabled by base_url alone (no api_key
+// required). Catches a regression where the searxng branch in
+// buildWebSearchProvider would short-circuit before reaching websearch.Register.
+func TestIntegration_SetupNew_WebSearch_ProviderSearXNG(t *testing.T) {
+	cfg := baseCfgForWebSearchTests()
+	cfg.Tools.WebSearch = configs.WebSearchConfig{
+		Provider: "searxng",
+		BaseURL:  "http://searxng.example/search",
+	}
+	if !cfg.Tools.WebSearch.IsEnabled() {
+		t.Fatal("searxng + base_url must be enabled")
+	}
+
+	mock := &mockChatCompleter{}
+	result, err := setup.New(cfg, mock, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("setup.New: %v", err)
+	}
+
+	for _, id := range []string{"coder", "researcher", "reviewer"} {
+		a := result.Agent(id)
+		if a == nil {
+			t.Fatalf("agent %q missing", id)
+		}
+		names := agentToolNames(t, id, a)
+		if !names[webSearchToolName] {
+			t.Errorf("agent %q missing %q under searxng-enabled config", id, webSearchToolName)
+		}
+	}
+}
+
 // --- AC-2.4: env vars VV_WEB_SEARCH_PROVIDER / VV_WEB_SEARCH_API_KEY override YAML ---
 // scenario: a YAML file with web_search disabled (empty provider) plus env
 // overrides that supply both provider and api_key must produce a Config whose

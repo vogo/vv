@@ -64,6 +64,24 @@ func buildWebSearchProvider(cfg configs.WebSearchConfig) websearch.Provider {
 			return p
 		}
 		return nil
+	case configs.WebSearchProviderSearXNG:
+		opts := []websearch.SearXNGOption{}
+		if cfg.APIKey != "" {
+			opts = append(opts, websearch.WithSearXNGAPIKey(cfg.APIKey))
+		}
+		if cfg.Language != "" {
+			opts = append(opts, websearch.WithSearXNGLanguage(cfg.Language))
+		}
+		if cfg.Categories != "" {
+			opts = append(opts, websearch.WithSearXNGCategories(cfg.Categories))
+		}
+		if cfg.UserAgent != "" {
+			opts = append(opts, websearch.WithSearXNGUserAgent(cfg.UserAgent))
+		}
+		if p := websearch.NewSearXNG(cfg.BaseURL, opts...); p != nil {
+			return p
+		}
+		return nil
 	default:
 		return nil
 	}

@@ -363,24 +363,41 @@ type ToolsConfig struct {
 
 // Recognized web_search providers. Empty / unknown values disable the tool.
 const (
-	WebSearchProviderTavily = "tavily"
-	WebSearchProviderBrave  = "brave"
+	WebSearchProviderTavily  = "tavily"
+	WebSearchProviderBrave   = "brave"
+	WebSearchProviderSearXNG = "searxng"
 )
 
 // WebSearchConfig wires the optional web_search tool. Zero-value disables it
 // entirely (tool is not registered on any agent), keeping the default path
 // cost-free. The api_key field is sensitive — never log it.
+//
+// Provider-specific requirements:
+//   - tavily / brave: require api_key.
+//   - searxng: require base_url (operator self-hosts; no public endpoint);
+//     api_key is optional (forwarded as bearer when set).
 type WebSearchConfig struct {
-	Provider       string `yaml:"provider,omitempty"`        // "" | "tavily" | "brave"
+	Provider       string `yaml:"provider,omitempty"`        // "" | "tavily" | "brave" | "searxng"
 	APIKey         string `yaml:"api_key,omitempty"`         // never log
+	BaseURL        string `yaml:"base_url,omitempty"`        // searxng only; e.g. http://host[/search]
+	Language       string `yaml:"language,omitempty"`        // searxng only; "auto" when empty
+	Categories     string `yaml:"categories,omitempty"`      // searxng only; comma-separated
+	UserAgent      string `yaml:"user_agent,omitempty"`      // searxng only; browser UA when limiter blocks bots
 	TimeoutSeconds int    `yaml:"timeout_seconds,omitempty"` // 0 → default 10
 	MaxResults     int    `yaml:"max_results,omitempty"`     // 0 → default 5; cap 20
 }
 
 // IsEnabled reports whether the configuration carries a usable provider id
-// and a non-empty api key. Operators set both or neither.
+// and the credentials that provider requires.
 func (w WebSearchConfig) IsEnabled() bool {
-	return strings.TrimSpace(w.APIKey) != "" && NormalizedWebSearchProvider(w.Provider) != ""
+	switch NormalizedWebSearchProvider(w.Provider) {
+	case WebSearchProviderTavily, WebSearchProviderBrave:
+		return strings.TrimSpace(w.APIKey) != ""
+	case WebSearchProviderSearXNG:
+		return strings.TrimSpace(w.BaseURL) != ""
+	default:
+		return false
+	}
 }
 
 // NormalizedWebSearchProvider lower-cases / trims the input and returns "" for
@@ -392,6 +409,8 @@ func NormalizedWebSearchProvider(p string) string {
 		return WebSearchProviderTavily
 	case WebSearchProviderBrave:
 		return WebSearchProviderBrave
+	case WebSearchProviderSearXNG:
+		return WebSearchProviderSearXNG
 	default:
 		return ""
 	}
@@ -695,6 +714,22 @@ func Load(path string, explicit bool) (*Config, error) {
 		cfg.Tools.WebSearch.APIKey = v
 	}
 
+	if v := os.Getenv("VV_WEB_SEARCH_BASE_URL"); v != "" {
+		cfg.Tools.WebSearch.BaseURL = v
+	}
+
+	if v := os.Getenv("VV_WEB_SEARCH_LANGUAGE"); v != "" {
+		cfg.Tools.WebSearch.Language = v
+	}
+
+	if v := os.Getenv("VV_WEB_SEARCH_CATEGORIES"); v != "" {
+		cfg.Tools.WebSearch.Categories = v
+	}
+
+	if v := os.Getenv("VV_WEB_SEARCH_USER_AGENT"); v != "" {
+		cfg.Tools.WebSearch.UserAgent = v
+	}
+
 	if v := os.Getenv("VV_WEB_SEARCH_TIMEOUT_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Tools.WebSearch.TimeoutSeconds = n
@@ -759,7 +794,7 @@ func Load(path string, explicit bool) (*Config, error) {
 
 	if raw := strings.TrimSpace(cfg.Tools.WebSearch.Provider); raw != "" && NormalizedWebSearchProvider(raw) == "" {
 		slog.Warn("vv: tools.web_search.provider is not recognized; tool will be disabled",
-			"value", raw, "valid", []string{WebSearchProviderTavily, WebSearchProviderBrave})
+			"value", raw, "valid", []string{WebSearchProviderTavily, WebSearchProviderBrave, WebSearchProviderSearXNG})
 	}
 
 	return cfg, nil
