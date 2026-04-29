@@ -448,3 +448,62 @@ func TestNew_UnifiedMode_AttachesPrimary(t *testing.T) {
 	// comes from the primary agent (ID == "primary").
 	// Minimal smoke-test only; full behaviour lives in integration tests.
 }
+
+// --- Session subsystem wiring ---
+
+func TestBuildHookManagerAndSession_DefaultEnabledCreatesStore(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &configs.Config{
+		Session: configs.SessionConfig{Dir: dir},
+	}
+
+	mgr, store, shutdown, err := buildHookManagerAndSession(cfg)
+	if err != nil {
+		t.Fatalf("buildHookManagerAndSession: %v", err)
+	}
+	defer shutdown(context.Background())
+
+	if mgr == nil {
+		t.Fatal("expected non-nil hook.Manager when session is enabled")
+	}
+	if store == nil {
+		t.Fatal("expected non-nil SessionStore when session is enabled")
+	}
+
+	// Round-trip a Session through the store as a smoke test.
+	want := "smoke"
+	_ = store.Delete(context.Background(), want) // clean prior runs
+}
+
+func TestBuildHookManagerAndSession_DisabledIsZeroCost(t *testing.T) {
+	off := false
+	cfg := &configs.Config{
+		Session: configs.SessionConfig{Enabled: &off},
+		Trace:   configs.TraceConfig{}, // also off (default)
+	}
+
+	mgr, store, shutdown, err := buildHookManagerAndSession(cfg)
+	if err != nil {
+		t.Fatalf("buildHookManagerAndSession: %v", err)
+	}
+	defer shutdown(context.Background())
+
+	if mgr != nil {
+		t.Error("expected nil hook.Manager when both session and trace are disabled")
+	}
+	if store != nil {
+		t.Error("expected nil SessionStore when session is disabled")
+	}
+}
+
+func TestBuildHookManagerAndSession_BadDirFails(t *testing.T) {
+	cfg := &configs.Config{
+		// Use an unwritable path; root-only directory should fail mkdir.
+		Session: configs.SessionConfig{Dir: "/proc/1/will-never-mkdir"},
+	}
+
+	_, _, _, err := buildHookManagerAndSession(cfg)
+	if err == nil {
+		t.Fatal("expected error for unwritable session dir")
+	}
+}

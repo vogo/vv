@@ -168,6 +168,7 @@ type Config struct {
 	ModelPricing map[string]ModelPricingEntry `yaml:"model_pricing,omitempty"`
 	Budget       BudgetConfig                 `yaml:"budget,omitempty"`
 	Trace        TraceConfig                  `yaml:"trace,omitempty"`
+	Session      SessionConfig                `yaml:"session,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
@@ -503,6 +504,37 @@ func (t TraceConfig) EffectiveDir() string {
 	return filepath.Join(DefaultDir(), "traces")
 }
 
+// SessionConfig controls the persistent session subsystem (vage/session
+// integration). Default-on: a nil Enabled pointer means "enabled" so that a
+// fresh install gets durable conversation history without any configuration.
+// Set `enabled: false` (YAML) or VV_SESSION_ENABLED=false to opt out.
+type SessionConfig struct {
+	Enabled *bool  `yaml:"enabled,omitempty"` // default true
+	Dir     string `yaml:"dir,omitempty"`     // default ~/.vv/sessions
+	// HistoryReplayMaxEvents caps how many events a future resume-and-replay
+	// path may pull from events.jsonl. The current MVP performs id-only
+	// resume (banner + reused session id, no transcript replay) so the value
+	// is recorded but not consumed yet — kept on the struct so the
+	// configuration surface stays stable when checkpoint/replay lands.
+	HistoryReplayMaxEvents int `yaml:"history_replay_max_events,omitempty"` // default 5000
+}
+
+// IsEnabled returns true unless the user explicitly set `enabled: false`.
+// Default-on so a fresh install gets persistent sessions without configuration.
+func (s SessionConfig) IsEnabled() bool {
+	return s.Enabled == nil || *s.Enabled
+}
+
+// EffectiveDir returns the resolved session root directory, defaulting to
+// <DefaultDir>/sessions when not set.
+func (s SessionConfig) EffectiveDir() string {
+	if s.Dir != "" {
+		return s.Dir
+	}
+
+	return filepath.Join(DefaultDir(), "sessions")
+}
+
 // ModelPricingEntry defines cost rates for a model (USD per million tokens).
 type ModelPricingEntry struct {
 	InputPerMTokens  float64 `json:"input_per_m_tokens" yaml:"input_per_m_tokens"`
@@ -620,6 +652,18 @@ func Load(path string, explicit bool) (*Config, error) {
 
 	if v := os.Getenv("VV_TRACE_DIR"); v != "" {
 		cfg.Trace.Dir = v
+	}
+
+	if v := os.Getenv("VV_SESSION_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Session.Enabled = &b
+		} else {
+			slog.Warn("vv: invalid VV_SESSION_ENABLED, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_SESSION_DIR"); v != "" {
+		cfg.Session.Dir = v
 	}
 
 	if v := os.Getenv("VV_MEMORY_BACKEND"); v != "" {
@@ -1048,6 +1092,10 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.Budget.WarnPercent <= 0 {
 		cfg.Budget.WarnPercent = 0.8
+	}
+
+	if cfg.Session.HistoryReplayMaxEvents == 0 {
+		cfg.Session.HistoryReplayMaxEvents = 5000
 	}
 }
 

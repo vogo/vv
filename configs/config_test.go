@@ -1498,3 +1498,79 @@ func TestLoad_OrchestrateModeExplicitClassicalRoutesToUnified(t *testing.T) {
 			cfg.Orchestrate.Mode, OrchestrateModeUnified)
 	}
 }
+
+// --- Session subsystem ---
+
+func TestSessionConfig_DefaultEnabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: sk-test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !cfg.Session.IsEnabled() {
+		t.Errorf("Session.IsEnabled() = false, want true (default-on)")
+	}
+	if cfg.Session.HistoryReplayMaxEvents != 5000 {
+		t.Errorf("HistoryReplayMaxEvents = %d, want 5000 (default)", cfg.Session.HistoryReplayMaxEvents)
+	}
+}
+
+func TestSessionConfig_ExplicitDisable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := "llm:\n  api_key: sk-test\nsession:\n  enabled: false\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Session.IsEnabled() {
+		t.Error("Session.IsEnabled() = true, want false when explicitly disabled")
+	}
+}
+
+func TestSessionConfig_EnvOverride(t *testing.T) {
+	t.Setenv("VV_SESSION_ENABLED", "false")
+	t.Setenv("VV_SESSION_DIR", "/custom/sessions")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: sk-test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Session.IsEnabled() {
+		t.Error("Session.IsEnabled() = true, want false from env")
+	}
+	if cfg.Session.Dir != "/custom/sessions" {
+		t.Errorf("Session.Dir = %q, want %q", cfg.Session.Dir, "/custom/sessions")
+	}
+}
+
+func TestSessionConfig_EffectiveDir(t *testing.T) {
+	cfg := SessionConfig{}
+	def := cfg.EffectiveDir()
+	if !strings.HasSuffix(def, filepath.Join(".vv", "sessions")) {
+		t.Errorf("default EffectiveDir = %q, want it to end with .vv/sessions", def)
+	}
+
+	cfg.Dir = "/tmp/mine"
+	if cfg.EffectiveDir() != "/tmp/mine" {
+		t.Errorf("explicit dir not honoured, got %q", cfg.EffectiveDir())
+	}
+}

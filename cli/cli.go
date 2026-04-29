@@ -24,6 +24,7 @@ import (
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
+	"github.com/vogo/vage/session"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
@@ -47,6 +48,15 @@ type App struct {
 	dailyBudget     *budgets.Tracker      // nil if daily budget disabled
 	permissionState *PermissionState      // shared state for /permission command
 	confirmCh       chan PermissionAction // channel for confirmation dialog results
+
+	// Session subsystem wiring; nil when --session subsystem is disabled.
+	sessionStore       session.SessionStore
+	requestedSessionID string // user-supplied --session id; "" = mint new
+
+	// Set by Run() once a session id is bound, recording how the resume was
+	// resolved so the welcome banner can describe it.
+	sessionResumeMode SessionResumeMode
+	sessionMeta       *session.Session // populated only for SessionResumeExisting
 }
 
 // WithPermissionState sets the shared permission state on the App.
@@ -62,6 +72,17 @@ func WithBudgetTrackers(session, daily *budgets.Tracker) func(*App) {
 	return func(a *App) {
 		a.sessionBudget = session
 		a.dailyBudget = daily
+	}
+}
+
+// WithSessionResume binds a SessionStore and the requested session id (from
+// --session). When store is non-nil, App.Run resolves the id via
+// PrepareSessionID instead of minting a fresh random one. requestedID = ""
+// means "mint new"; a non-empty value triggers resume / id-binding.
+func WithSessionResume(store session.SessionStore, requestedID string) func(*App) {
+	return func(a *App) {
+		a.sessionStore = store
+		a.requestedSessionID = requestedID
 	}
 }
 
@@ -96,10 +117,31 @@ func New(
 
 // Run starts the bubbletea program and blocks until exit.
 func (a *App) Run(ctx context.Context) error {
-	// Generate session ID.
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	a.sessionID = hex.EncodeToString(b)
+	// Resolve the session id. When a SessionStore is bound, --session value
+	// is consulted: an existing id loads metadata for the resume banner; a
+	// missing id is bound as-is and SessionHook auto-creates on first event.
+	// Without a store, the legacy random per-process id is preserved so that
+	// trace logs and ad-hoc tooling still see a stable session label.
+	if a.sessionStore != nil {
+		id, mode, prev, err := PrepareSessionID(ctx, a.sessionStore, a.requestedSessionID)
+		if err != nil {
+			return err
+		}
+		a.sessionID = id
+		a.sessionResumeMode = mode
+		a.sessionMeta = prev
+
+		// Touch metadata so list views show fresh activity. New sessions are
+		// created here too, ensuring a meta.json exists even if no event ever
+		// fires (e.g. user exits before sending a message).
+		if terr := TouchSession(ctx, a.sessionStore, id, ""); terr != nil {
+			slog.Warn("vv: touch session failed", "session_id", id, "error", terr)
+		}
+	} else {
+		b := make([]byte, 8)
+		_, _ = rand.Read(b)
+		a.sessionID = hex.EncodeToString(b)
+	}
 
 	// Redirect slog to a file to avoid corrupting TUI.
 	logFile, err := os.OpenFile(
@@ -262,11 +304,44 @@ func (m *model) Init() tea.Cmd {
 	welcome := fmt.Sprintf("Working directory: %s\nType a message to begin.",
 		m.app.cfg.Tools.BashWorkingDir)
 
+	if banner := m.app.sessionBanner(); banner != "" {
+		welcome = banner + "\n" + welcome
+	}
+
 	return tea.Batch(
 		textarea.Blink,
 		m.spinner.Tick,
 		tea.Println(header+"\n"+welcome),
 	)
+}
+
+// sessionBanner returns a one-line description of how the session was bound,
+// or "" when the session subsystem is disabled (legacy random id path).
+//
+// Resume = id only: previous transcript is NOT replayed into history because
+// schema.Event.Data unmarshals as nil from events.jsonl (the EventData
+// interface has unexported markers). Restoring real conversation state is
+// future work tracked under P8 (checkpoint/snapshot).
+func (a *App) sessionBanner() string {
+	if a.sessionStore == nil {
+		return ""
+	}
+
+	switch a.sessionResumeMode {
+	case SessionResumeExisting:
+		count := -1
+		if a.sessionMeta != nil {
+			if events, err := a.sessionStore.ListEvents(context.Background(), a.sessionID); err == nil {
+				count = len(events)
+			}
+		}
+		return fmt.Sprintf("Resuming session %s (events=%s, history not restored).",
+			a.sessionID, formatCount(count))
+	case SessionResumeNotFound:
+		return fmt.Sprintf("Starting session %s (id supplied, no prior data).", a.sessionID)
+	default:
+		return fmt.Sprintf("New session %s.", a.sessionID)
+	}
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -178,6 +178,11 @@ func makeTraceConfig(t *testing.T, traceDir string, enabled bool) *configs.Confi
 			Enabled: enabledPtr,
 			Dir:     traceDir,
 		},
+		// Session subsystem defaults to on; explicitly disable it so this
+		// helper continues to test "trace disabled = no hook manager"
+		// invariants without the persistent session hook keeping the manager
+		// alive. Tests that need the session subsystem should override.
+		Session: configs.SessionConfig{Enabled: new(false)},
 	}
 }
 

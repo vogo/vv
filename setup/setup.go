@@ -20,6 +20,7 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/schema"
+	"github.com/vogo/vage/session"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vage/tool/bash"
@@ -572,12 +573,13 @@ type InitResult struct {
 	Compactor     *memory.ConversationCompactor // conversation context compactor
 	SessionBudget *budgets.Tracker              // nil if session budget disabled
 	DailyBudget   *budgets.Tracker              // nil if daily budget disabled
+	SessionStore  session.SessionStore          // nil when cfg.Session.Enabled = false
 
-	// Shutdown releases process-level resources owned by Init (currently the
-	// hook.Manager that drives trace logging). It is always non-nil — a no-op
-	// when there is nothing to release. Pass an independent context with a
-	// short timeout; the main context is typically already cancelled by the
-	// time defer fires.
+	// Shutdown releases process-level resources owned by Init (the
+	// hook.Manager that drives trace + session hooks, plus the persistent
+	// memory store). It is always non-nil — a no-op when there is nothing to
+	// release. Pass an independent context with a short timeout; the main
+	// context is typically already cancelled by the time defer fires.
 	Shutdown func(context.Context)
 }
 
@@ -652,10 +654,11 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		memory.WithCompressor(memory.NewSlidingWindowCompressor(cfg.Memory.SessionWindow)),
 	)
 
-	// Construct the process-level hook.Manager (currently driven by the
-	// optional trace logger). Built before agents so its handle can be
-	// injected into every TaskAgent factory via opts.HookManager.
-	hookManager, traceShutdown, err := buildHookManager(cfg)
+	// Construct the process-level hook.Manager. The Manager fans events out
+	// to one or both of: the optional trace logger and the persistent
+	// session hook. Built before agents so its handle can be injected into
+	// every TaskAgent factory via opts.HookManager.
+	hookManager, sessionStore, hookShutdown, err := buildHookManagerAndSession(cfg)
 	if err != nil {
 		closeStore()
 		return nil, fmt.Errorf("setup hooks: %w", err)
@@ -681,7 +684,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	// Set up all agents using the (possibly debug-wrapped) LLM client.
 	result, err := New(cfg, wrappedLLM, memMgr, persistentMem, opts)
 	if err != nil {
-		traceShutdown(context.Background())
+		hookShutdown(context.Background())
 		closeStore()
 
 		return nil, fmt.Errorf("setup agents: %w", err)
@@ -729,7 +732,8 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		Compactor:     compactor,
 		SessionBudget: sessionBudget,
 		DailyBudget:   dailyBudget,
-		Shutdown:      chainShutdown(traceShutdown, closeStore),
+		SessionStore:  sessionStore,
+		Shutdown:      chainShutdown(hookShutdown, closeStore),
 	}, nil
 }
 
@@ -769,45 +773,73 @@ func chainShutdown(trace func(context.Context), closeStore func()) func(context.
 	}
 }
 
-// buildHookManager constructs the process-level hook.Manager and registers
-// configured async hooks (currently: trace logger). Returns nil manager and a
-// no-op shutdown when no hook-driven feature is enabled — that path remains
-// zero-cost. The shutdown closure starts the manager on first call only when
-// a manager exists; if the manager fails to start, the closure becomes a
-// no-op so callers can defer it unconditionally.
-func buildHookManager(cfg *configs.Config) (*hook.Manager, func(context.Context), error) {
+// buildHookManagerAndSession constructs the process-level hook.Manager,
+// registers configured async hooks (trace logger and/or session hook), and
+// returns the SessionStore (when session is enabled) so callers can expose it
+// to CLI/HTTP. Returns (nil, nil, no-op, nil) when no hook-driven feature is
+// enabled, preserving the zero-cost default path.
+//
+// Startup ordering: trace hook constructed first; if the session store fails
+// to open, the trace tracer is closed before returning. mgr.Start handles
+// per-hook rollback automatically.
+func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.SessionStore, func(context.Context), error) {
 	noopShutdown := func(context.Context) {}
+	traceEnabled := cfg.Trace.IsEnabled()
+	sessionEnabled := cfg.Session.IsEnabled()
 
-	if !cfg.Trace.IsEnabled() {
-		return nil, noopShutdown, nil
-	}
-
-	tracer, err := tracelog.New(tracelog.Config{
-		BaseDir:      cfg.Trace.EffectiveDir(),
-		WorkingDir:   cfg.Tools.BashWorkingDir,
-		MaxFileBytes: cfg.Trace.MaxFileBytes,
-		BufferSize:   cfg.Trace.BufferSize,
-	})
-	if err != nil {
-		return nil, noopShutdown, fmt.Errorf("trace hook: %w", err)
+	if !traceEnabled && !sessionEnabled {
+		return nil, nil, noopShutdown, nil
 	}
 
 	mgr := hook.NewManager()
-	mgr.RegisterAsync(tracer)
 
-	if startErr := mgr.Start(context.Background()); startErr != nil {
-		return nil, noopShutdown, fmt.Errorf("start trace hook: %w", startErr)
+	var tracer *tracelog.JSONLHook
+	if traceEnabled {
+		t, err := tracelog.New(tracelog.Config{
+			BaseDir:      cfg.Trace.EffectiveDir(),
+			WorkingDir:   cfg.Tools.BashWorkingDir,
+			MaxFileBytes: cfg.Trace.MaxFileBytes,
+			BufferSize:   cfg.Trace.BufferSize,
+		})
+		if err != nil {
+			return nil, nil, noopShutdown, fmt.Errorf("trace hook: %w", err)
+		}
+		tracer = t
+		mgr.RegisterAsync(tracer)
 	}
 
-	slog.Info("vv: trace logging enabled", "dir", tracer.BaseDir())
+	var sessionStore session.SessionStore
+	var sessionRoot string
+	if sessionEnabled {
+		sessionRoot = filepath.Join(cfg.Session.EffectiveDir(), SessionProjectName(cfg.Tools.BashWorkingDir))
+		store, err := session.NewFileSessionStore(sessionRoot)
+		if err != nil {
+			return nil, nil, noopShutdown, fmt.Errorf("session store: %w", err)
+		}
+		sessionStore = store
+		mgr.RegisterAsync(session.NewSessionHook(store))
+	}
+
+	if startErr := mgr.Start(context.Background()); startErr != nil {
+		// mgr.Start already rolls back any successfully-started hooks; nothing
+		// further needs to be torn down here.
+		return nil, nil, noopShutdown, fmt.Errorf("start hooks: %w", startErr)
+	}
+
+	if tracer != nil {
+		slog.Info("vv: trace logging enabled", "dir", tracer.BaseDir())
+	}
+	if sessionStore != nil {
+		slog.Info("vv: session subsystem enabled", "dir", sessionRoot)
+	}
 
 	shutdown := func(ctx context.Context) {
 		if err := mgr.Stop(ctx); err != nil {
-			slog.Warn("vv: stop trace hook", "error", err)
+			slog.Warn("vv: stop hooks", "error", err)
 		}
 	}
 
-	return mgr, shutdown, nil
+	return mgr, sessionStore, shutdown, nil
 }
 
 // buildBudgetTrackers constructs session and daily budget trackers from cfg.

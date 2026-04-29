@@ -33,6 +33,7 @@ func main() {
 	evalConcurrencyFlag := flag.Int("eval-concurrency", 0, "override eval.concurrency (>0)")
 	evalTimeoutMsFlag := flag.Int("eval-timeout-ms", 0, "override eval.timeout_ms per case (>0)")
 	permissionModeFlag := flag.String("permission-mode", "", "tool permission mode: default, accept-edits, auto, plan")
+	sessionFlag := flag.String("session", "", "session id to resume; 'list' shows recent sessions and exits, 'new' forces a fresh session (CLI only)")
 	debugFlag := flag.Bool("debug", false, "enable detailed LLM and tool I/O debug records (env: VV_DEBUG)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\nOptions:\n", os.Args[0])
@@ -48,6 +49,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  VV_DEBUG_FILE       Override debug log file path (interactive CLI only).\n")
 		fmt.Fprintf(os.Stderr, "  VV_TRACE_ENABLED    Enable structured JSONL conversation trace logging (true/false).\n")
 		fmt.Fprintf(os.Stderr, "  VV_TRACE_DIR        Override trace file directory (default ~/.vv/traces).\n")
+		fmt.Fprintf(os.Stderr, "  VV_SESSION_ENABLED  Enable persistent session subsystem (default true).\n")
+		fmt.Fprintf(os.Stderr, "  VV_SESSION_DIR      Override session root directory (default ~/.vv/sessions).\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  vv                                          # interactive TUI mode\n")
 		fmt.Fprintf(os.Stderr, "  vv -p \"explain the main.go file\"             # single prompt, exit after response\n")
@@ -269,12 +272,52 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Resolve --session before building the run mode so list/new short-circuit
+	// before any TUI/HTTP server boots.
+	sessionArg := strings.TrimSpace(*sessionFlag)
+	switch sessionArg {
+	case "":
+		// default — mint a fresh id (or persist a random label when subsystem is off)
+	case "list":
+		if cfg.Mode != "cli" {
+			fmt.Fprintln(os.Stderr, "vv: --session list is only available in CLI mode")
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+		if initResult.SessionStore == nil {
+			fmt.Fprintln(os.Stderr, "vv: session subsystem is disabled; cannot list (set session.enabled: true)")
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+		if err := cli.PrintSessionList(ctx, initResult.SessionStore, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "vv: %s\n", err)
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+		shutdownInit(initResult)
+		os.Exit(0)
+	case "new":
+		// Equivalent to omitting --session; let CLI mint a fresh id.
+		sessionArg = ""
+	default:
+		if cfg.Mode != "cli" {
+			fmt.Fprintln(os.Stderr, "vv: --session <id> is only available in CLI mode (use HTTP /v1/sessions for inspection)")
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+		if initResult.SessionStore == nil {
+			fmt.Fprintln(os.Stderr, "vv: session subsystem is disabled; cannot resume (set session.enabled: true)")
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+	}
+
 	exitCode := 0
 
 	switch cfg.Mode {
 	case "http":
 		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
-		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget); err != nil {
+		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget, initResult.SessionStore); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
 			exitCode = 1
 		}
@@ -286,9 +329,14 @@ func main() {
 		}
 
 	default: // "cli" or any other value defaults to CLI mode.
-		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem, cliInteractor, initResult.Compactor,
+		appOpts := []func(*cli.App){
 			cli.WithPermissionState(permissionState),
-			cli.WithBudgetTrackers(initResult.SessionBudget, initResult.DailyBudget))
+			cli.WithBudgetTrackers(initResult.SessionBudget, initResult.DailyBudget),
+		}
+		if initResult.SessionStore != nil {
+			appOpts = append(appOpts, cli.WithSessionResume(initResult.SessionStore, sessionArg))
+		}
+		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem, cliInteractor, initResult.Compactor, appOpts...)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vv: CLI error", "error", err)
 			exitCode = 1

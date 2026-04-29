@@ -57,7 +57,17 @@ Bubble Tea TUI with:
 
 ### Configuration (`configs/`)
 
-YAML at `~/.vv/vv.yaml`. Key sections: `llm` (provider, model, api_key, base_url), `server` (addr), `tools` (bash_timeout, bash_working_dir), `agents` (max_iterations), `cli` (permission_mode, deprecated confirm_tools), `memory`, `orchestrate` (max_concurrency, max_recursion_depth, primary_allow_bash). Environment overrides: `VV_LLM_API_KEY`, `VV_LLM_BASE_URL`, `VV_LLM_MODEL`, `VV_LLM_PROVIDER`, `VV_MODE`, `VV_SERVER_ADDR`, `VV_PERMISSION_MODE`, `VV_PRIMARY_ALLOW_BASH`. CLI flag: `--permission-mode`.
+YAML at `~/.vv/vv.yaml`. Key sections: `llm` (provider, model, api_key, base_url), `server` (addr), `tools` (bash_timeout, bash_working_dir), `agents` (max_iterations), `cli` (permission_mode, deprecated confirm_tools), `memory`, `orchestrate` (max_concurrency, max_recursion_depth, primary_allow_bash), `session` (enabled, dir). Environment overrides: `VV_LLM_API_KEY`, `VV_LLM_BASE_URL`, `VV_LLM_MODEL`, `VV_LLM_PROVIDER`, `VV_MODE`, `VV_SERVER_ADDR`, `VV_PERMISSION_MODE`, `VV_PRIMARY_ALLOW_BASH`, `VV_SESSION_ENABLED`, `VV_SESSION_DIR`. CLI flags: `--permission-mode`, `--session`.
+
+### Session Subsystem (`vage/session` integration)
+
+Persistent sessions are wired by default — opt out with `session.enabled: false` (or `VV_SESSION_ENABLED=false`) when the persistence cost is unwanted.
+
+- **Storage layout**: `~/.vv/sessions/<project_path_name>/<id>/{meta.json, events.jsonl, state.json}` where `<project_path_name>` is the absolute working directory with `/` and `\` mapped to `_`, alphanumerics kept verbatim, and every other rune mapped to `-`. Empty working dir falls back to `default`. Override the root via `session.dir` / `VV_SESSION_DIR`.
+- **Wiring**: `setup.Init` constructs a `FileSessionStore`, registers `session.SessionHook` on the same `hook.Manager` that drives trace logging (the manager is now built whenever **either** `trace.enabled` or `session.enabled` is true), and exposes the store via `InitResult.SessionStore`.
+- **CLI flags**: `vv --session <id>` resumes (id-only — message history is not replayed; that is P8 checkpoint scope), `vv --session list` prints the most recent 20 sessions and exits, `vv --session new` forces a fresh id.
+- **HTTP**: `/v1/sessions`, `/v1/sessions/{id}`, `/v1/sessions/{id}/events`, `PATCH /v1/sessions/{id}`, `DELETE /v1/sessions/{id}` mounted only when `SessionStore != nil`.
+- **Coexistence with trace**: trace logger and session hook subscribe to the same event bus. Both can be on, off, or one of each — the manager constructs only when at least one is on, so the disabled-everything path stays zero-cost.
 
 Legacy `orchestrate.*` keys remain in the YAML schema for compatibility, but they are **silently ignored**: `mode`, `legacy_phase_events`, `summary_policy`, `replan`, `fast_path`, `unified_intent`. `orchestrate.mode=classical` and `VV_ORCHESTRATE_LEGACY_PHASE_EVENTS=*` log a `slog.Warn` at Load.
 
