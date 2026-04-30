@@ -8,6 +8,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
+	"github.com/vogo/vage/session/tree"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/hooks"
 	"github.com/vogo/vv/registries"
@@ -64,6 +65,12 @@ type Dispatcher struct {
 	// RunStream return an error when nil (set via WithPrimaryAssistant or
 	// SetPrimaryAssistant; setup.New always installs one).
 	primaryAssistant agent.Agent
+
+	// treeStore is the optional SessionTree backend. When non-nil and
+	// writeTree is true, RunPlan mirrors plan_task DAGs into the tree so
+	// the user-visible structure tracks dispatcher activity automatically.
+	treeStore tree.SessionTreeStore
+	writeTree bool
 }
 
 // Option configures a Dispatcher.
@@ -169,6 +176,23 @@ func WithMaxRecursionDepth(n int) Option {
 func WithProjectInstructions(instructions string) Option {
 	return func(d *Dispatcher) {
 		d.projectInstructions = instructions
+	}
+}
+
+// WithTreeStore installs the SessionTree backend the dispatcher uses for
+// plan_task -> tree mirroring. nil disables the feature regardless of
+// WithWriteTreeEnabled.
+func WithTreeStore(s tree.SessionTreeStore) Option {
+	return func(d *Dispatcher) {
+		d.treeStore = s
+	}
+}
+
+// WithWriteTreeEnabled toggles plan_task -> SessionTree mirroring. Default
+// false (the feature is opt-in until product reaction is observed).
+func WithWriteTreeEnabled(on bool) Option {
+	return func(d *Dispatcher) {
+		d.writeTree = on
 	}
 }
 

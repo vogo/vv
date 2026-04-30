@@ -97,6 +97,7 @@ func (d *Dispatcher) runPrimaryStream(
 // relevant facts through its read tools and baked them into the plan step
 // descriptions.
 func (d *Dispatcher) RunPlan(ctx context.Context, plan *Plan, req *schema.RunRequest) (*schema.RunResponse, error) {
+	d.maybeMirrorPlanToTree(ctx, plan, req)
 	return d.runPlan(ctx, req, plan, nil, "")
 }
 

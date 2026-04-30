@@ -34,6 +34,8 @@ func main() {
 	evalTimeoutMsFlag := flag.Int("eval-timeout-ms", 0, "override eval.timeout_ms per case (>0)")
 	permissionModeFlag := flag.String("permission-mode", "", "tool permission mode: default, accept-edits, auto, plan")
 	sessionFlag := flag.String("session", "", "session id to resume; 'list' shows recent sessions and exits, 'new' forces a fresh session (CLI only)")
+	treeFlag := flag.String("tree", "", "session id whose SessionTree to print and exit (CLI only; requires session_tree.enabled)")
+	treeAllFlag := flag.Bool("tree-all", false, "include promoted (folded) nodes in --tree output")
 	debugFlag := flag.Bool("debug", false, "enable detailed LLM and tool I/O debug records (env: VV_DEBUG)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\nOptions:\n", os.Args[0])
@@ -312,12 +314,34 @@ func main() {
 		}
 	}
 
+	// --tree <id>: print the SessionTree and exit. Honoured only in CLI
+	// mode; HTTP / MCP users hit /v1/sessions/{id}/tree directly.
+	if treeArg := strings.TrimSpace(*treeFlag); treeArg != "" {
+		if cfg.Mode != "cli" {
+			fmt.Fprintln(os.Stderr, "vv: --tree is only available in CLI mode (use HTTP /v1/sessions/{id}/tree instead)")
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+		if initResult.TreeStore == nil {
+			fmt.Fprintln(os.Stderr, "vv: session tree subsystem is disabled (set session_tree.enabled: true)")
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+		if err := cli.PrintTree(ctx, initResult.TreeStore, treeArg, *treeAllFlag, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "vv: %s\n", err)
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+		shutdownInit(initResult)
+		os.Exit(0)
+	}
+
 	exitCode := 0
 
 	switch cfg.Mode {
 	case "http":
 		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
-		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget, initResult.SessionStore, initResult.Workspace); err != nil {
+		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget, initResult.SessionStore, initResult.Workspace, initResult.TreeStore); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
 			exitCode = 1
 		}

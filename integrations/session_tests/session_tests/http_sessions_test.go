@@ -102,7 +102,7 @@ func TestHTTP_Sessions_RoundTrip(t *testing.T) {
 	wg.Go(func() {
 		serveErr = httpapis.Serve(
 			srvCtx, cfg, nil, dispatcher, nil, persistentMem,
-			nil, nil, nil, nil, store, nil,
+			nil, nil, nil, nil, store, nil, nil,
 		)
 	})
 
@@ -234,7 +234,7 @@ func TestHTTP_Sessions_NotMounted_WhenStoreNil(t *testing.T) {
 	wg.Go(func() {
 		_ = httpapis.Serve(
 			srvCtx, cfg, nil, stubAgent{id: "orchestrator"}, nil, persistentMem,
-			nil, nil, nil, nil, nil, nil, // sessionStore = nil, planWorkspace = nil
+			nil, nil, nil, nil, nil, nil, nil, // sessionStore = nil, planWorkspace = nil, treeStore = nil
 		)
 	})
 

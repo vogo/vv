@@ -14,6 +14,7 @@ import (
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/session"
+	"github.com/vogo/vage/session/tree"
 	"github.com/vogo/vage/workspace"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
@@ -50,7 +51,9 @@ func newRequestID() string {
 // the /v1/sessions/{id}/workspace/* routes are only mounted when a workspace
 // is provided. DELETE /v1/sessions/{id} additionally removes the workspace
 // when both store and workspace are present.
-func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker, sessionStore session.SessionStore, planWorkspace workspace.Workspace) error {
+// treeStore may be nil when the SessionTree subsystem is disabled — the
+// /v1/sessions/{id}/tree* routes are only mounted when a store is provided.
+func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker, sessionStore session.SessionStore, planWorkspace workspace.Workspace, treeStore tree.SessionTreeStore) error {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
@@ -114,6 +117,17 @@ func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, 
 		mux.HandleFunc("GET /v1/sessions/{id}/workspace/plan", handleGetPlan(planWorkspace))
 		mux.HandleFunc("GET /v1/sessions/{id}/workspace/notes", handleListNotes(planWorkspace))
 		mux.HandleFunc("GET /v1/sessions/{id}/workspace/notes/{name}", handleGetNote(planWorkspace))
+	}
+
+	if treeStore != nil {
+		mux.HandleFunc("GET /v1/sessions/{id}/tree", handleGetTree(treeStore))
+		mux.HandleFunc("POST /v1/sessions/{id}/tree", handleCreateTree(treeStore))
+		mux.HandleFunc("DELETE /v1/sessions/{id}/tree", handleDeleteTree(treeStore))
+		mux.HandleFunc("POST /v1/sessions/{id}/tree/nodes", handleAddNode(treeStore))
+		mux.HandleFunc("PATCH /v1/sessions/{id}/tree/nodes/{nid}", handleUpdateNode(treeStore))
+		mux.HandleFunc("DELETE /v1/sessions/{id}/tree/nodes/{nid}", handleDeleteNode(treeStore))
+		mux.HandleFunc("POST /v1/sessions/{id}/tree/cursor", handleSetCursor(treeStore))
+		mux.HandleFunc("POST /v1/sessions/{id}/tree/promote/{nid}", handlePromote(treeStore))
 	}
 
 	slog.Info("vv: starting HTTP server", "addr", cfg.Server.Addr)

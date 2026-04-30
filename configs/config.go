@@ -77,6 +77,19 @@ type OrchestrateConfig struct {
 	// VV_PRIMARY_ALLOW_BASH. The fallback (depth-exceeded) Primary
 	// always stays tool-free regardless.
 	PrimaryAllowBash bool `yaml:"primary_allow_bash,omitempty"`
+
+	// WriteTree, when set true, mirrors plan_task DAG plans into the
+	// SessionTree so the user-visible tree reflects the dispatcher's plan
+	// structure as well as the LLM's manual tree edits. Requires
+	// session_tree.enabled=true. Default false. Env override:
+	// VV_DISPATCHER_WRITE_TREE.
+	WriteTree *bool `yaml:"write_tree,omitempty"`
+}
+
+// IsWriteTreeEnabled reports whether the dispatcher should mirror plans into
+// the SessionTree. Default false.
+func (o OrchestrateConfig) IsWriteTreeEnabled() bool {
+	return o.WriteTree != nil && *o.WriteTree
 }
 
 // OrchestrateModeUnified is the only supported orchestrate pipeline.
@@ -169,6 +182,7 @@ type Config struct {
 	Budget       BudgetConfig                 `yaml:"budget,omitempty"`
 	Trace        TraceConfig                  `yaml:"trace,omitempty"`
 	Session      SessionConfig                `yaml:"session,omitempty"`
+	SessionTree  SessionTreeConfig            `yaml:"session_tree,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
@@ -535,6 +549,76 @@ func (s SessionConfig) EffectiveDir() string {
 	return filepath.Join(DefaultDir(), "sessions")
 }
 
+// SessionTreeConfig controls the SessionTree subsystem (vage/session/tree
+// integration). Default-off: long-lived structured tree memory is opt-in
+// because most short interactions get nothing from it and pay a small
+// per-turn rendering cost when it is enabled.
+//
+// Storage shares the session root, so DELETE /v1/sessions/{id} naturally
+// wipes the tree alongside meta/events/state/workspace.
+type SessionTreeConfig struct {
+	Enabled   *bool                      `yaml:"enabled,omitempty"` // default false
+	Promotion SessionTreePromotionConfig `yaml:"promotion,omitempty"`
+
+	// AutoEnableAfterEvents lazy-activates the SessionTreeSource on a
+	// per-session basis: until the session has accumulated this many
+	// AgentEnd events, the source short-circuits with Status=Skipped and
+	// the tree is not rendered into the prompt. The tools and HTTP routes
+	// stay available throughout — only the prompt-injected view is gated,
+	// so the LLM can still bootstrap the tree explicitly via tree_add.
+	//
+	// 0 (default) disables gating; the source activates on every request
+	// once the subsystem is enabled. A positive value (e.g., 16) skips
+	// the per-turn rendering cost on short conversations and engages
+	// only when the dialogue is genuinely long. Recommended: 8–32.
+	//
+	// Counts AgentEnd events only — tool calls and other intermediate
+	// events do not count toward the threshold so the metric tracks
+	// "user turns" rather than internal activity.
+	AutoEnableAfterEvents int `yaml:"auto_enable_after_events,omitempty"`
+}
+
+// IsEnabled reports whether the SessionTree subsystem should be wired.
+// Default false (the design doc treats long-task tree memory as opt-in).
+func (s SessionTreeConfig) IsEnabled() bool {
+	return s.Enabled != nil && *s.Enabled
+}
+
+// SessionTreePromotionConfig controls automatic promotion ("folding") of
+// child nodes into a parent's summary.
+type SessionTreePromotionConfig struct {
+	Enabled               *bool  `yaml:"enabled,omitempty"`                 // default false
+	Promoter              string `yaml:"promoter,omitempty"`                // "llm" | "compressor" | "noop"; default "compressor"
+	Model                 string `yaml:"model,omitempty"`                   // "" = inherit Config.LLM.Model (only used by promoter=llm)
+	ChildrenThreshold     int    `yaml:"children_threshold,omitempty"`      // default 8
+	SubtreeBytesThreshold int    `yaml:"subtree_bytes_threshold,omitempty"` // default 8192
+	AllChildrenDone       *bool  `yaml:"all_children_done,omitempty"`       // default true
+}
+
+// IsEnabled reports whether automatic promotion should fire on AddNode /
+// UpdateNode. Manual PromoteNode (and tree_promote) work independently of
+// this flag.
+func (s SessionTreePromotionConfig) IsEnabled() bool {
+	return s.Enabled != nil && *s.Enabled
+}
+
+// PromoterKind returns the configured promoter kind, falling back to
+// "compressor" — the cheapest option that does something useful — when the
+// field is empty.
+func (s SessionTreePromotionConfig) PromoterKind() string {
+	if s.Promoter == "" {
+		return "compressor"
+	}
+	return strings.ToLower(strings.TrimSpace(s.Promoter))
+}
+
+// AllChildrenDoneEnabled reports whether the AllChildrenDoneDecider should
+// be ANDed into the trigger set. Defaults to true so a parent whose
+// subtasks are all done gets folded automatically.
+func (s SessionTreePromotionConfig) AllChildrenDoneEnabled() bool {
+	return s.AllChildrenDone == nil || *s.AllChildrenDone
+}
+
 // ModelPricingEntry defines cost rates for a model (USD per million tokens).
 type ModelPricingEntry struct {
 	InputPerMTokens  float64 `json:"input_per_m_tokens" yaml:"input_per_m_tokens"`
@@ -664,6 +748,42 @@ func Load(path string, explicit bool) (*Config, error) {
 
 	if v := os.Getenv("VV_SESSION_DIR"); v != "" {
 		cfg.Session.Dir = v
+	}
+
+	if v := os.Getenv("VV_TREE_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.SessionTree.Enabled = &b
+		} else {
+			slog.Warn("vv: invalid VV_TREE_ENABLED, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_TREE_PROMOTION_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.SessionTree.Promotion.Enabled = &b
+		} else {
+			slog.Warn("vv: invalid VV_TREE_PROMOTION_ENABLED, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_TREE_PROMOTER"); v != "" {
+		cfg.SessionTree.Promotion.Promoter = v
+	}
+
+	if v := os.Getenv("VV_TREE_AUTO_AFTER_EVENTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.SessionTree.AutoEnableAfterEvents = n
+		} else {
+			slog.Warn("vv: invalid VV_TREE_AUTO_AFTER_EVENTS, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_DISPATCHER_WRITE_TREE"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Orchestrate.WriteTree = &b
+		} else {
+			slog.Warn("vv: invalid VV_DISPATCHER_WRITE_TREE, ignoring", "value", v)
+		}
 	}
 
 	if v := os.Getenv("VV_MEMORY_BACKEND"); v != "" {

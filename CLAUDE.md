@@ -1,93 +1,50 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为 Claude Code（claude.ai/code）在 `vv/` 模块工作时的简要指引。
 
-## Overview
+## 模块定位
 
-`vv` is a Go CLI/HTTP agent application built on the `vage` framework and `aimodel` SDK. The dispatch pipeline is unified only: every request flows through a single Primary Assistant that owns its own tool-driven control loop (`answer_directly` / `delegate_to_<agent>` / `plan_task`). Specialist sub-agents (coder, researcher, reviewer) are reached only when the Primary delegates to them via tool calls; there is no separate intent recognition / execute / summarize pipeline anymore. This is one module in a multi-module monorepo; see the parent `CLAUDE.md` for the full picture.
+`vv` 是基于 `vage` 框架与 `aimodel` SDK 构建的代理应用，提供 CLI / HTTP / MCP 三种运行模式。每次请求经由统一的 **Primary Assistant** 完成路由：直答、只读探查、委派专家、或 DAG 规划。
+
+## 文档与源码对照
+
+完整设计文档见 `doc/README.md`，每个主题对应一份文档与一个或多个源码目录：
+
+| 主题 | 设计文档 | 源码目录 |
+|------|---------|---------|
+| 整体架构与设计原则 | doc/architecture.md | — |
+| 启动入口与生命周期 | doc/main.md | main.go |
+| 装配中心 | doc/setup.md | setup/ |
+| 分发器与 Primary | doc/dispatch.md | dispatches/ |
+| 代理设计 | doc/agents.md | agents/ |
+| 注册表与能力分级 | doc/registries.md | registries/ |
+| 工具集合 | doc/tools.md | tools/ |
+| 配置体系 | doc/configs.md | configs/ |
+| CLI 模式 | doc/cli.md | cli/ |
+| HTTP 模式 | doc/httpapi.md | httpapis/ |
+| MCP 模式 | doc/mcp.md | mcps/ |
+| 记忆系统 | doc/memories.md | memories/ |
+| 会话 / Plan Workspace / Session Tree | doc/session.md | （由 setup/ 装配，复用 vage 子系统） |
+| 可观测性 | doc/observability.md | traces/、debugs/、hooks/ |
+| 评测子系统 | doc/eval.md | eval/ |
 
 ## Build & Test
-
-Run from this directory (`vv/`):
 
 ```bash
 make build          # format → lint → test
 make test           # go test ./... with coverage
 make lint           # golangci-lint run
-go test ./tools/ -run TestRegister_AllRegistered -v   # single test example
+go test ./tools/ -run TestRegister_AllRegistered -v   # 单测示例
 ```
 
-Integration tests in `integrations/` require `VV_LLM_API_KEY` (or `AI_API_KEY`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY`). Unit tests have no external dependencies.
+集成测试位于 `integrations/`，依赖环境变量 `VV_LLM_API_KEY`（或 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）。单元测试无外部依赖。
 
-Dependencies use local `replace` directives (`../aimodel`, `../vage`), so changes to sibling modules are picked up immediately.
+依赖通过本地 `replace` 指令指向 `../aimodel` 与 `../vage`，兄弟模块的修改会立刻生效。
 
-## Architecture
+## 工程惯例
 
-### Startup Flow
-
-`main.go` → `configs.Load()` → `setup.Init()` → CLI (`cli.New().Run()`) or HTTP (`httpapis.Serve()`). The `-p` flag runs a single prompt non-interactively via `cli.RunPrompt()`.
-
-### Dispatch Pipeline (`dispatches/`)
-
-The `Dispatcher` implements `agent.StreamAgent`. It is a thin forwarder:
-
-1. **`Run` / `RunStream`** — when recursion depth is exceeded, it falls back to the degraded Primary (no tools); otherwise it calls `runPrimary` / `runPrimaryStream`, which forwards the whole request to `d.primaryAssistant`. Nil Primary returns an error; production code wires it through `setup.New`.
-2. **Plan execution** (`dag.go` + `primary_tools.go`) — exposed to the Primary as the `plan_task` tool; the Primary chooses to fan out a DAG when the task spans multiple capabilities. `Dispatcher.RunPlan` is the synchronous entry point used by `plan_task`'s tool handler.
-3. **Streaming on the depth-exceed path** emits a static `summarize` phase pair so HTTP / SSE consumers see the same event flow as the main path, with zero LLM calls.
-
-Key files: `depth.go` (recursion depth control via context), `types.go` (`ClassifyResult`, `Plan`, `PlanStep`, `DynamicAgentSpec`, `PlanAggregator`, `SummaryPolicy`/`ReplanPolicy` retained as types but no longer wired into dispatch), `primary_tools.go` (`delegate_to_*` / `plan_task` tool registration).
-
-### Agent Registry (`registries/`)
-
-Agents are registered via `AgentDescriptor` containing: ID, display name, `ToolProfile`, system prompt, and a `Factory` function. `ToolProfile` is capability-based (`CapRead`, `CapWrite`, `CapExecute`, `CapSearch`) — the same factory produces different tool access levels depending on the profile.
-
-Four agents registered in `agents/`: `coder` (full), `researcher` (read-only), `reviewer` (read+bash), `planner` (none, non-dispatchable). The Primary Assistant is built directly in `setup.New` (not registered like the dispatchable agents) — its tool registry is composed from `delegate_to_<agent>` (one per dispatchable specialist), `plan_task`, `read`/`glob`/`grep`, `todo_write`, optionally `bash` (`orchestrate.primary_allow_bash`), and `ask_user`.
-
-### Tool Names
-
-Tools are named: `bash`, `read`, `write`, `edit`, `glob`, `grep`. These are registered from `vage/tool/{bash,read,write,edit,glob,grep}` packages. Three registry factories in `tools/tools.go`: `Register` (all 6), `RegisterReadOnly` (read/glob/grep), `RegisterReviewTools` (bash/read/glob/grep).
-
-### CLI (`cli/`)
-
-Bubble Tea TUI with:
-- `model` struct tracking session state (idle, processing, confirmation)
-- Permission-based tool control via `WrapRegistryWithPermission()` + `PermissionState` with four modes (default, accept-edits, auto, plan) and three-option confirmation dialog (Allow/Allow Always/Deny)
-- Markdown rendering via glamour; incremental streaming output
-- `cli/prompt.go` handles non-interactive `-p` mode with streaming to stdout/stderr
-
-### Configuration (`configs/`)
-
-YAML at `~/.vv/vv.yaml`. Key sections: `llm` (provider, model, api_key, base_url), `server` (addr), `tools` (bash_timeout, bash_working_dir), `agents` (max_iterations), `cli` (permission_mode, deprecated confirm_tools), `memory`, `orchestrate` (max_concurrency, max_recursion_depth, primary_allow_bash), `session` (enabled, dir). Environment overrides: `VV_LLM_API_KEY`, `VV_LLM_BASE_URL`, `VV_LLM_MODEL`, `VV_LLM_PROVIDER`, `VV_MODE`, `VV_SERVER_ADDR`, `VV_PERMISSION_MODE`, `VV_PRIMARY_ALLOW_BASH`, `VV_SESSION_ENABLED`, `VV_SESSION_DIR`. CLI flags: `--permission-mode`, `--session`.
-
-### Session Subsystem (`vage/session` integration)
-
-Persistent sessions are wired by default — opt out with `session.enabled: false` (or `VV_SESSION_ENABLED=false`) when the persistence cost is unwanted.
-
-- **Storage layout**: `~/.vv/sessions/<project_path_name>/<id>/{meta.json, events.jsonl, state.json}` where `<project_path_name>` is the absolute working directory with `/` and `\` mapped to `_`, alphanumerics kept verbatim, and every other rune mapped to `-`. Empty working dir falls back to `default`. Override the root via `session.dir` / `VV_SESSION_DIR`.
-- **Wiring**: `setup.Init` constructs a `FileSessionStore`, registers `session.SessionHook` on the same `hook.Manager` that drives trace logging (the manager is now built whenever **either** `trace.enabled` or `session.enabled` is true), and exposes the store via `InitResult.SessionStore`.
-- **CLI flags**: `vv --session <id>` resumes (id-only — message history is not replayed; that is P8 checkpoint scope), `vv --session list` prints the most recent 20 sessions and exits, `vv --session new` forces a fresh id.
-- **HTTP**: `/v1/sessions`, `/v1/sessions/{id}`, `/v1/sessions/{id}/events`, `PATCH /v1/sessions/{id}`, `DELETE /v1/sessions/{id}` mounted only when `SessionStore != nil`.
-- **Coexistence with trace**: trace logger and session hook subscribe to the same event bus. Both can be on, off, or one of each — the manager constructs only when at least one is on, so the disabled-everything path stays zero-cost.
-
-### Plan Workspace (`vage/workspace` integration)
-
-Plan Workspace is wired automatically whenever the session subsystem is enabled — it shares the same on-disk root and the same enable flag. Opt-out is via `session.enabled: false`; there is no separate workspace flag because a workspace without a session has no lifecycle owner.
-
-- **Storage layout**: `<session-root>/<project>/<id>/workspace/{plan.md, notes/<name>.md}`. The root is identical to `vage/session.FileSessionStore`'s root, so `SessionStore.Delete` (which `os.RemoveAll`s `<root>/<id>`) wipes the workspace alongside meta/events/state — no extra coordination needed.
-- **LLM tools (Primary only)**: `plan_update {content}` (full overwrite of plan.md), `notes_write {name, content}` (writes `notes/<name>.md`; empty `content` deletes), `notes_read {name}` (reads). Specialist sub-agents (coder/researcher/reviewer) do **not** get the write tools — they only consume the current plan + notes index via the `vctx.WorkspaceSource` injected into their ContextBuilder. The Primary delegates to specialists; if a specialist needs note bodies, it reports back and the Primary calls `notes_read`.
-- **Context injection**: every dispatchable agent (and the Primary, plus the fallback Primary) gets a `WorkspaceSource` appended between SessionMemory and the current-turn Request via `taskagent.WithExtraSources(...)`. Plan and notes index render as a single system message at the top of every prompt.
-- **`plan_update` vs `todo_write`**: orthogonal. `plan.md` is **persistent across sessions** — task-level strategy that survives process restarts. `todo_write` is **session-scoped, in-memory only** — fine-grained progress within a single ReAct loop. Use `plan_update` for "implement OAuth login → step 2 of 4 done"; use `todo_write` for the live checklist of the current turn's tool calls.
-- **HTTP**: `GET /v1/sessions/{id}/workspace/plan` (text/markdown; 404 when no plan recorded), `GET /v1/sessions/{id}/workspace/notes` (JSON index ordered by recency), `GET /v1/sessions/{id}/workspace/notes/{name}` (text/markdown; 400 invalid name; 404 missing). Mounted only when `Workspace != nil`. `DELETE /v1/sessions/{id}` additionally calls `Workspace.Delete` for clean-up across non-FileWorkspace future implementations.
-- **Caps**: plan.md ≤ 64 KiB (`workspace.MaxPlanBytes`), each note ≤ 32 KiB, ≤ 200 notes per session. Names match `[A-Za-z0-9._-]{1,64}`. Oversize / over-count returns 413 (HTTP) or `IsError` text result (LLM).
-- **Disabled path**: `session.enabled=false` ⇒ workspace not constructed, tools not registered on Primary, `WorkspaceSource` not appended to any agent, HTTP routes not mounted — zero overhead.
-
-See `vage/.doc/workspace.md` for the underlying API.
-
-Legacy `orchestrate.*` keys remain in the YAML schema for compatibility, but they are **silently ignored**: `mode`, `legacy_phase_events`, `summary_policy`, `replan`, `fast_path`, `unified_intent`. `orchestrate.mode=classical` and `VV_ORCHESTRATE_LEGACY_PHASE_EVENTS=*` log a `slog.Warn` at Load.
-
-## Conventions
-
-- Integration tests in `integrations/<group>_tests/<scenario>_tests/` sub-packages (e.g., `cli_tests/permission_tests/`, `httpapis_tests/http_tests/`, `traces_tests/budget_tests/`), unit tests colocated with source.
-- Delete build binaries after tests.
-- Functional options pattern for tool/agent configuration.
-- All operations use `context.Context`.
+- 集成测试位于 `integrations/<group>_tests/<scenario>_tests/`；单元测试与源码同目录。
+- 测试结束后清理构建产物。
+- 工具/代理配置统一使用函数式选项（functional options）模式。
+- 一切跨函数边界的操作都通过 `context.Context` 传递。
+- 文档使用中文撰写，技术术语保留英文。

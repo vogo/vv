@@ -22,9 +22,11 @@ import (
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/session"
+	"github.com/vogo/vage/session/tree"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vage/tool/bash"
+	sessiontreetool "github.com/vogo/vage/tool/sessiontree"
 	"github.com/vogo/vage/tool/todo"
 	"github.com/vogo/vage/tool/toolkit"
 	wsworkspace "github.com/vogo/vage/tool/workspace"
@@ -46,8 +48,9 @@ type Result struct {
 	Dispatcher   *dispatches.Dispatcher
 	PathGuard    *toolkit.PathGuard
 	PathGuardian *bash.PathGuardian
-	HookManager  *hook.Manager       // nil when no hook-based features are enabled
-	Workspace    workspace.Workspace // nil when Plan Workspace is disabled (cfg.Session.Enabled=false)
+	HookManager  *hook.Manager         // nil when no hook-based features are enabled
+	Workspace    workspace.Workspace   // nil when Plan Workspace is disabled (cfg.Session.Enabled=false)
+	TreeStore    tree.SessionTreeStore // nil when SessionTree subsystem is disabled
 	registry     *registries.Registry
 	subAgents    map[string]agent.Agent
 }
@@ -85,6 +88,19 @@ type Options struct {
 	// registry and appending a vctx.WorkspaceSource to the ContextBuilder
 	// pipeline of every TaskAgent. nil disables Plan Workspace wiring.
 	Workspace workspace.Workspace
+
+	// TreeStore, when non-nil, exposes the per-session SessionTree to every
+	// TaskAgent through a vctx.SessionTreeSource (read-only) and lets the
+	// Primary write to it via the tree_* tools. nil disables wiring.
+	TreeStore tree.SessionTreeStore
+
+	// TreePredicate, when non-nil, gates SessionTreeSource on a per-session
+	// basis: the source short-circuits with Status=Skipped until the
+	// predicate returns true. Used to plumb the
+	// session_tree.auto_enable_after_events policy from Init's event
+	// counter through to every dispatched agent's ContextBuilder. nil
+	// keeps the source always-on.
+	TreePredicate func(ctx context.Context, sessionID string) bool
 
 	// RouterLLM / RouterModel configure the Dispatcher's dedicated routing
 	// LLM client. When both are non-zero, Dispatcher routing calls (intent,
@@ -244,10 +260,7 @@ func New(
 	// keys (summary_policy, replan, fast_path, unified_intent,
 	// legacy_phase_events) are silently ignored — Load surfaces a slog.Warn
 	// for any stale key.
-	dispatcher := dispatches.New(
-		reg,
-		subAgents,
-		planGen,
+	dispatcherOpts := []dispatches.Option{
 		dispatches.WithLLM(llm, cfg.LLM.Model),
 		dispatches.WithMaxConcurrency(maxConcurrency),
 		dispatches.WithWorkingDir(cfg.Tools.BashWorkingDir),
@@ -257,7 +270,21 @@ func New(
 		dispatches.WithRunTokenBudget(cfg.Agents.RunTokenBudget),
 		dispatches.WithMaxRecursionDepth(maxRecursionDepth),
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
-	)
+	}
+
+	// SessionTree mirroring (B6 / write_tree): wire the store onto the
+	// dispatcher when both the tree subsystem and the feature flag are on.
+	// The dispatcher itself gates on writeTree so the store can be passed
+	// unconditionally — keeping the option non-nil makes it easy for tests
+	// to assert "did we wire?".
+	if ts := getTreeStore(opts); ts != nil {
+		dispatcherOpts = append(dispatcherOpts, dispatches.WithTreeStore(ts))
+		if cfg.Orchestrate.IsWriteTreeEnabled() {
+			dispatcherOpts = append(dispatcherOpts, dispatches.WithWriteTreeEnabled(true))
+		}
+	}
+
+	dispatcher := dispatches.New(reg, subAgents, planGen, dispatcherOpts...)
 
 	// 11. Build the Primary Assistant and the fallback Primary, then attach
 	// both to the dispatcher.
@@ -290,6 +317,7 @@ func New(
 		PathGuardian: pathGuardian,
 		HookManager:  getHookManager(opts),
 		Workspace:    getWorkspace(opts),
+		TreeStore:    getTreeStore(opts),
 		registry:     reg,
 		subAgents:    subAgents,
 	}, nil
@@ -362,6 +390,16 @@ func buildPrimaryAssistant(
 		}
 	}
 
+	// tree_add / tree_update / tree_cursor / tree_promote / tree_zoom_in —
+	// SessionTree tools. Same Primary-only contract as Plan Workspace tools:
+	// specialists read the tree through SessionTreeSource (already in
+	// ExtraContextSources) but cannot mutate it.
+	if opts != nil && opts.TreeStore != nil {
+		if err := sessiontreetool.Register(toolReg, opts.TreeStore); err != nil {
+			return nil, fmt.Errorf("primary: register session tree tools: %w", err)
+		}
+	}
+
 	// Apply the same wrapping chain sub-agents get: permission wrap →
 	// truncation → debug (outermost).
 	var finalToolReg tool.ToolRegistry = toolReg
@@ -406,17 +444,34 @@ func buildPrimaryAssistant(
 	})
 }
 
-// buildExtraContextSources turns the (optional) Plan Workspace into a
-// WorkspaceSource list suitable for FactoryOptions.ExtraContextSources. It
-// returns nil when the workspace is not wired so dispatched factories see
-// the same zero-cost path that pre-existed Plan Workspace.
+// buildExtraContextSources turns the (optional) Plan Workspace and
+// SessionTree into a Source list suitable for
+// FactoryOptions.ExtraContextSources. Returns nil when neither subsystem
+// is wired so dispatched factories see the same zero-cost path that
+// pre-existed both features.
 func buildExtraContextSources(opts *Options) []vctx.Source {
-	if opts == nil || opts.Workspace == nil {
+	if opts == nil {
 		return nil
 	}
-	return []vctx.Source{
-		&vctx.WorkspaceSource{Workspace: opts.Workspace},
+	var srcs []vctx.Source
+	if opts.Workspace != nil {
+		srcs = append(srcs, &vctx.WorkspaceSource{Workspace: opts.Workspace})
 	}
+	if opts.TreeStore != nil {
+		srcs = append(srcs, &vctx.SessionTreeSource{
+			Store:     opts.TreeStore,
+			Predicate: opts.TreePredicate,
+		})
+	}
+	return srcs
+}
+
+// getTreeStore safely extracts the optional SessionTree backend from opts.
+func getTreeStore(opts *Options) tree.SessionTreeStore {
+	if opts == nil {
+		return nil
+	}
+	return opts.TreeStore
 }
 
 // primaryToolProfile picks the capability profile that the Primary
@@ -629,6 +684,7 @@ type InitResult struct {
 	DailyBudget   *budgets.Tracker              // nil if daily budget disabled
 	SessionStore  session.SessionStore          // nil when cfg.Session.Enabled = false
 	Workspace     workspace.Workspace           // nil when cfg.Session.Enabled = false (workspace shares the session root)
+	TreeStore     tree.SessionTreeStore         // nil when cfg.SessionTree.Enabled = false
 
 	// Shutdown releases process-level resources owned by Init (the
 	// hook.Manager that drives trace + session hooks, plus the persistent
@@ -735,6 +791,46 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		opts.Workspace = planWorkspace
 	}
 
+	// SessionTree subsystem — wired only when (1) the session subsystem is
+	// already on (sessionStore != nil ⇒ shared root exists) and (2) the
+	// session_tree.enabled flag is set. Construction is fail-fast: an
+	// invalid promoter config aborts startup so the user sees the
+	// problem at boot rather than at first promote.
+	if cfg.SessionTree.IsEnabled() {
+		if sessionStore == nil {
+			hookShutdown(context.Background())
+			closeStore()
+			return nil, fmt.Errorf("session_tree.enabled requires session.enabled (set session.enabled: true)")
+		}
+		treeStore, treeErr := buildTreeStore(cfg, wrappedLLM, hookManager)
+		if treeErr != nil {
+			hookShutdown(context.Background())
+			closeStore()
+			return nil, fmt.Errorf("session tree: %w", treeErr)
+		}
+		if opts == nil {
+			opts = &Options{}
+		}
+		opts.TreeStore = treeStore
+
+		// Auto-enable gating: wire an in-process AgentEnd-event counter to
+		// the same hook.Manager so SessionTreeSource activates per session
+		// once the threshold is crossed. hookManager is non-nil here
+		// because session subsystem requires it; defensive fallback skips
+		// the wiring otherwise.
+		if cfg.SessionTree.AutoEnableAfterEvents > 0 && hookManager != nil {
+			counter := newSessionEventCounter()
+			hookManager.Register(counter.Hook())
+			opts.TreePredicate = counter.Predicate(cfg.SessionTree.AutoEnableAfterEvents)
+			slog.Info("vv: session tree auto-enable gated",
+				"after_events", cfg.SessionTree.AutoEnableAfterEvents)
+		}
+
+		slog.Info("vv: session tree enabled",
+			"promotion", cfg.SessionTree.Promotion.IsEnabled(),
+			"promoter", cfg.SessionTree.Promotion.PromoterKind())
+	}
+
 	if routerWrappedLLM != nil {
 		if opts == nil {
 			opts = &Options{}
@@ -797,6 +893,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		DailyBudget:   dailyBudget,
 		SessionStore:  sessionStore,
 		Workspace:     planWorkspace,
+		TreeStore:     getTreeStore(opts),
 		Shutdown:      chainShutdown(hookShutdown, closeStore),
 	}, nil
 }
@@ -835,6 +932,86 @@ func chainShutdown(trace func(context.Context), closeStore func()) func(context.
 			closeStore()
 		}
 	}
+}
+
+// buildTreeStore constructs the SessionTreeStore for the session root,
+// optionally wiring an automatic-promotion Promoter + Decider when
+// cfg.SessionTree.Promotion.Enabled is true. The store shares
+// <root>/<sessionID>/ with FileSessionStore + FileWorkspace so the same
+// SessionStore.Delete wipes everything in one os.RemoveAll.
+//
+// Returns an error when the promoter kind is unknown or required fields
+// (e.g., LLM client for promoter=llm) are absent.
+func buildTreeStore(cfg *configs.Config, llm aimodel.ChatCompleter, hookMgr *hook.Manager) (tree.SessionTreeStore, error) {
+	root := filepath.Join(cfg.Session.EffectiveDir(), SessionProjectName(cfg.Tools.BashWorkingDir))
+
+	fileOpts := []tree.FileOption{}
+	if hookMgr != nil {
+		fileOpts = append(fileOpts, tree.WithFileHookManager(hookMgr))
+	}
+
+	if cfg.SessionTree.Promotion.IsEnabled() {
+		promoter, err := buildTreePromoter(cfg, llm)
+		if err != nil {
+			return nil, err
+		}
+		fileOpts = append(fileOpts, tree.WithFilePromoter(promoter))
+		fileOpts = append(fileOpts, tree.WithFilePromotionDecider(buildTreeDecider(cfg)))
+	}
+
+	store, err := tree.NewFileTreeStore(root, fileOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("create file tree store: %w", err)
+	}
+	return store, nil
+}
+
+// buildTreePromoter selects the configured Promoter implementation. The
+// default ("compressor") avoids LLM cost while still producing useful
+// summaries; users opt into "llm" for higher-quality folds.
+func buildTreePromoter(cfg *configs.Config, llm aimodel.ChatCompleter) (tree.Promoter, error) {
+	switch cfg.SessionTree.Promotion.PromoterKind() {
+	case "noop":
+		return tree.NoopPromoter{}, nil
+	case "llm":
+		if llm == nil {
+			return nil, errors.New("promoter=llm requires an LLM client")
+		}
+		model := cfg.SessionTree.Promotion.Model
+		if model == "" {
+			model = cfg.LLM.Model
+		}
+		return &tree.LLMPromoter{Client: llm, Model: model}, nil
+	case "compressor":
+		// SlidingWindow keeps the most-recent N messages; for promotion the
+		// "messages" are children, so a small budget produces a tight summary.
+		// Fallback default 50 mirrors configs.Memory.SessionWindow's
+		// post-Load default — buildTreePromoter is also reachable from tests
+		// that bypass configs.Load and would otherwise crash on a zero
+		// SessionWindow (NewSlidingWindowCompressor panics on <= 0).
+		windowSize := cfg.Memory.SessionWindow
+		if windowSize <= 0 {
+			windowSize = 50
+		}
+		c := memory.NewSlidingWindowCompressor(windowSize)
+		return &tree.CompressorPromoter{Compressor: c}, nil
+	default:
+		return nil, fmt.Errorf("unknown promoter kind %q", cfg.SessionTree.Promotion.Promoter)
+	}
+}
+
+// buildTreeDecider composes the configured trigger set: ChildrenCount OR
+// SubtreeBytes (always on); AllChildrenDone added when cfg permits. Empty
+// thresholds fall back to the package defaults inside the deciders.
+func buildTreeDecider(cfg *configs.Config) tree.PromotionDecider {
+	deciders := []tree.PromotionDecider{
+		tree.ChildrenCountDecider{Min: cfg.SessionTree.Promotion.ChildrenThreshold},
+		tree.SubtreeBytesDecider{Min: cfg.SessionTree.Promotion.SubtreeBytesThreshold},
+	}
+	if cfg.SessionTree.Promotion.AllChildrenDoneEnabled() {
+		deciders = append(deciders, tree.AllChildrenDoneDecider{})
+	}
+	return tree.AnyOf(deciders...)
 }
 
 // buildHookManagerAndSession constructs the process-level hook.Manager,

@@ -69,7 +69,7 @@ func httpHarness(t *testing.T, store session.SessionStore) (string, func()) {
 	wg.Go(func() {
 		_ = httpapis.Serve(
 			srvCtx, cfg, nil, dispatcher, nil, persistentMem,
-			nil, nil, nil, nil, store, nil,
+			nil, nil, nil, nil, store, nil, nil,
 		)
 	})
 
