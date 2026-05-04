@@ -15,10 +15,12 @@ import (
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/session"
 	"github.com/vogo/vage/session/tree"
+	"github.com/vogo/vage/vector"
 	"github.com/vogo/vage/workspace"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"
 	"github.com/vogo/vv/memories"
+	"github.com/vogo/vv/setup"
 	"github.com/vogo/vv/tools"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
@@ -53,7 +55,14 @@ func newRequestID() string {
 // when both store and workspace are present.
 // treeStore may be nil when the SessionTree subsystem is disabled — the
 // /v1/sessions/{id}/tree* routes are only mounted when a store is provided.
-func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker, sessionStore session.SessionStore, planWorkspace workspace.Workspace, treeStore tree.SessionTreeStore) error {
+// vectorStore + vectorEmbedder may be nil when the vector subsystem is
+// disabled — the /v1/vector/* routes are only mounted when both are
+// provided. When only one of the pair is non-nil the routes return 503.
+// initResult, when non-nil, enables POST /v1/sessions/{id}/resume by
+// supplying both the IterationStore and the agent resolver
+// (InitResult.ResumeAgent). nil is permitted so call sites that wire the
+// HTTP server without going through setup.Init still compile.
+func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker, sessionStore session.SessionStore, planWorkspace workspace.Workspace, treeStore tree.SessionTreeStore, vectorStore vector.VectorStore, vectorEmbedder vector.Embedder, initResult *setup.InitResult) error {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {
@@ -111,6 +120,14 @@ func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, 
 		mux.HandleFunc("GET /v1/sessions/{id}/events", handleListEvents(sessionStore))
 		mux.HandleFunc("DELETE /v1/sessions/{id}", handleDeleteSession(sessionStore, planWorkspace))
 		mux.HandleFunc("PATCH /v1/sessions/{id}", handlePatchSession(sessionStore))
+		// Resume mounts unconditionally with the session subsystem so the
+		// route can return a structured 503 (rather than 404) when the
+		// IterationStore is missing — see handleResumeSession.
+		mux.HandleFunc("POST /v1/sessions/{id}/resume", handleResumeSession(initResult))
+		// Metrics + build_reports also mount unconditionally so they can
+		// return a structured 503 when the optional sub-stores are nil.
+		mux.HandleFunc("GET /v1/sessions/{id}/metrics", handleGetMetrics(metricsStore(initResult)))
+		mux.HandleFunc("GET /v1/sessions/{id}/build-reports", handleListBuildReports(buildReportReader(initResult)))
 	}
 
 	if planWorkspace != nil {
@@ -128,6 +145,11 @@ func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, 
 		mux.HandleFunc("DELETE /v1/sessions/{id}/tree/nodes/{nid}", handleDeleteNode(treeStore))
 		mux.HandleFunc("POST /v1/sessions/{id}/tree/cursor", handleSetCursor(treeStore))
 		mux.HandleFunc("POST /v1/sessions/{id}/tree/promote/{nid}", handlePromote(treeStore))
+	}
+
+	if vectorStore != nil {
+		mux.HandleFunc("POST /v1/vector/add", handleVectorAdd(vectorStore, vectorEmbedder))
+		mux.HandleFunc("GET /v1/vector/search", handleVectorSearch(vectorStore, vectorEmbedder))
 	}
 
 	slog.Info("vv: starting HTTP server", "addr", cfg.Server.Addr)

@@ -8,6 +8,8 @@ import (
 
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/checkpoint"
 	vctx "github.com/vogo/vage/context"
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
@@ -54,6 +56,27 @@ type FactoryOptions struct {
 	// Plan Workspace without rewriting agent factories. nil / empty leaves
 	// the default builder configuration unchanged.
 	ExtraContextSources []vctx.Source
+
+	// IterationStore enables per-iteration ReAct checkpointing on the
+	// constructed TaskAgent. When non-nil, the factory wires
+	// taskagent.WithIterationStore so a crashed Run can be continued via
+	// Agent.Resume(ctx, sessionID). nil disables checkpointing — the
+	// pre-existing zero-cost path. Single-iteration agents (planner /
+	// plan-gen) ignore this option because there is no loop to resume.
+	IterationStore checkpoint.IterationStore
+
+	// BuildReportSink, when non-nil, archives the per-turn BuildReport
+	// produced by the agent's internal context Builder. nil keeps the
+	// zero-cost path; the EventContextBuilt event is still dispatched
+	// regardless so live observers stay functional.
+	BuildReportSink vctx.BuildReportSink
+
+	// CheckpointFailureCB, when non-nil, is invoked after a non-fatal
+	// IterationStore.Save failure. setup.New wires this to the
+	// SessionMetricsHook's RecordCheckpointFailure so the
+	// CheckpointSaveFailures counter advances without dragging metrics
+	// types into vage/agent/taskagent.
+	CheckpointFailureCB taskagent.CheckpointFailureCallback
 }
 
 // Registry is a thread-safe agent descriptor store.

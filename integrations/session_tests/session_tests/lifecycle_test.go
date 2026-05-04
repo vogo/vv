@@ -99,6 +99,7 @@ func TestLifecycle_HookToFileToHTTP(t *testing.T) {
 			srvCtx, cfg, res.LLMClient, res.SetupResult.Dispatcher, res.SetupResult.Agents(),
 			res.PersistentMem, nil, res.Compactor,
 			res.SessionBudget, res.DailyBudget, res.SessionStore, res.Workspace, res.TreeStore,
+			res.VectorStore, res.VectorEmb, res,
 		)
 	})
 

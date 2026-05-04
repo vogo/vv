@@ -217,6 +217,15 @@ func (d *Dispatcher) SetPrimaryAssistant(a agent.Agent) {
 	d.primaryAssistant = a
 }
 
+// Primary returns the attached Primary Assistant or nil. Read access is
+// required by the resume path (vv --resume / POST /v1/sessions/{id}/resume)
+// because checkpoints whose AgentID is the Primary's id must dispatch
+// directly to the Primary instance — not through Run, which would start a
+// new request from the user's perspective.
+func (d *Dispatcher) Primary() agent.Agent {
+	return d.primaryAssistant
+}
+
 // SetFallbackAgent installs or replaces the fallback agent after
 // construction. setup.New uses it to swap in the degraded (tool-free)
 // Primary so the depth-exceeded path still answers in the Primary persona.

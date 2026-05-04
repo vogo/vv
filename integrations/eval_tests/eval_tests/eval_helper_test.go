@@ -119,7 +119,7 @@ func startServe(t *testing.T, cfg *configs.Config) (baseURL string, shutdown fun
 	)
 
 	wg.Go(func() {
-		serveErr = httpapis.Serve(ctx, cfg, nil, stubAgent{}, nil, persistentMem, interactionStore, nil, nil, nil, nil, nil, nil)
+		serveErr = httpapis.Serve(ctx, cfg, nil, stubAgent{}, nil, persistentMem, interactionStore, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	})
 
 	baseURL = "http://" + cfg.Server.Addr

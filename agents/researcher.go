@@ -85,6 +85,18 @@ func RegisterResearcher(reg *registries.Registry) {
 				taskOpts = append(taskOpts, taskagent.WithExtraSources(opts.ExtraContextSources...))
 			}
 
+			if opts.IterationStore != nil {
+				taskOpts = append(taskOpts, taskagent.WithIterationStore(opts.IterationStore))
+			}
+
+			if opts.BuildReportSink != nil {
+				taskOpts = append(taskOpts, taskagent.WithBuildReportSink(opts.BuildReportSink))
+			}
+
+			if opts.CheckpointFailureCB != nil {
+				taskOpts = append(taskOpts, taskagent.WithCheckpointFailureCallback(opts.CheckpointFailureCB))
+			}
+
 			return taskagent.New(
 				agent.Config{
 					ID:          "researcher",

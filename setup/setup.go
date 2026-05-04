@@ -14,6 +14,7 @@ import (
 	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/checkpoint"
 	vctx "github.com/vogo/vage/context"
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
@@ -29,7 +30,9 @@ import (
 	sessiontreetool "github.com/vogo/vage/tool/sessiontree"
 	"github.com/vogo/vage/tool/todo"
 	"github.com/vogo/vage/tool/toolkit"
+	"github.com/vogo/vage/tool/vectorsearch"
 	wsworkspace "github.com/vogo/vage/tool/workspace"
+	"github.com/vogo/vage/vector"
 	"github.com/vogo/vage/workspace"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
@@ -51,6 +54,8 @@ type Result struct {
 	HookManager  *hook.Manager         // nil when no hook-based features are enabled
 	Workspace    workspace.Workspace   // nil when Plan Workspace is disabled (cfg.Session.Enabled=false)
 	TreeStore    tree.SessionTreeStore // nil when SessionTree subsystem is disabled
+	VectorStore  vector.VectorStore    // nil when vector subsystem disabled
+	VectorEmb    vector.Embedder       // nil when vector subsystem disabled
 	registry     *registries.Registry
 	subAgents    map[string]agent.Agent
 }
@@ -101,6 +106,50 @@ type Options struct {
 	// counter through to every dispatched agent's ContextBuilder. nil
 	// keeps the source always-on.
 	TreePredicate func(ctx context.Context, sessionID string) bool
+
+	// VectorStore + VectorEmbedder, when both non-nil, expose the vector
+	// subsystem to: (1) buildExtraContextSources via VectorRecallSource;
+	// (2) the Primary Assistant's tool registry via vector_search /
+	// vector_add. nil disables wiring on a per-call basis.
+	VectorStore    vector.VectorStore
+	VectorEmbedder vector.Embedder
+
+	// VectorTopK is the default TopK used by VectorRecallSource when its
+	// own TopK option is unset. 0 falls back to the store / source default.
+	VectorTopK int
+
+	// IterationStore enables per-iteration ReAct checkpointing on every
+	// TaskAgent constructed by setup.New. nil disables the option (no
+	// checkpoint files written, Resume returns ErrInvalidArgument). Init
+	// populates this from buildIterationStore when cfg.Session.IsEnabled().
+	IterationStore checkpoint.IterationStore
+
+	// MetricsStore persists per-session SessionMetrics. Init populates
+	// this from buildMetricsStore when cfg.Session.IsEnabled(). nil
+	// disables metrics persistence end-to-end (no hook attached, no
+	// HTTP /metrics endpoint, no resume_count bumps).
+	MetricsStore session.MetricsStore
+
+	// MetricsHook is the hook.Hook implementation that observes
+	// EventLLMCallEnd / EventAgentEnd / EventContextEdited and writes
+	// counters into MetricsStore. Init constructs and registers it
+	// against opts.HookManager when MetricsStore is non-nil. Exposed on
+	// Options so external callers (eval, evaluators) can drive the
+	// hook directly without a HookManager round-trip.
+	MetricsHook *session.SessionMetricsHook
+
+	// BuildReportSink, when non-nil, archives the per-turn BuildReport
+	// produced by every TaskAgent's internal context Builder. Init
+	// populates from buildBuildReportSink when cfg.Session.IsEnabled()
+	// AND cfg.Session.PersistBuildReportsEnabled() is true.
+	BuildReportSink vctx.BuildReportSink
+
+	// CheckpointFailureCB is forwarded by setup.New into every
+	// TaskAgent's WithCheckpointFailureCallback. Init wires this to
+	// MetricsHook.RecordCheckpointFailure so the
+	// CheckpointSaveFailures counter advances. nil keeps the option
+	// off — taskagent's failure path then logs only via slog.Warn.
+	CheckpointFailureCB taskagent.CheckpointFailureCallback
 
 	// RouterLLM / RouterModel configure the Dispatcher's dedicated routing
 	// LLM client. When both are non-zero, Dispatcher routing calls (intent,
@@ -206,6 +255,9 @@ func New(
 			ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
 			HookManager:          getHookManager(opts),
 			ExtraContextSources:  buildExtraContextSources(opts),
+			IterationStore:       getIterationStore(opts),
+			BuildReportSink:      getBuildReportSink(opts),
+			CheckpointFailureCB:  getCheckpointFailureCB(opts),
 		}
 
 		a, err := desc.Factory(factoryOpts)
@@ -318,9 +370,27 @@ func New(
 		HookManager:  getHookManager(opts),
 		Workspace:    getWorkspace(opts),
 		TreeStore:    getTreeStore(opts),
+		VectorStore:  getVectorStore(opts),
+		VectorEmb:    getVectorEmbedder(opts),
 		registry:     reg,
 		subAgents:    subAgents,
 	}, nil
+}
+
+// getVectorStore safely extracts the optional vector store from opts.
+func getVectorStore(opts *Options) vector.VectorStore {
+	if opts == nil {
+		return nil
+	}
+	return opts.VectorStore
+}
+
+// getVectorEmbedder safely extracts the optional vector embedder from opts.
+func getVectorEmbedder(opts *Options) vector.Embedder {
+	if opts == nil {
+		return nil
+	}
+	return opts.VectorEmbedder
 }
 
 // buildPrimaryAssistant assembles the Primary Assistant agent for unified
@@ -400,6 +470,16 @@ func buildPrimaryAssistant(
 		}
 	}
 
+	// vector_search / vector_add — vector recall tools. Primary-only
+	// contract: specialists already read recall via VectorRecallSource
+	// in ExtraContextSources; only the Primary writes / queries the
+	// store directly.
+	if opts != nil && opts.VectorStore != nil && opts.VectorEmbedder != nil {
+		if err := vectorsearch.Register(toolReg, opts.VectorStore, opts.VectorEmbedder); err != nil {
+			return nil, fmt.Errorf("primary: register vector tools: %w", err)
+		}
+	}
+
 	// Apply the same wrapping chain sub-agents get: permission wrap →
 	// truncation → debug (outermost).
 	var finalToolReg tool.ToolRegistry = toolReg
@@ -441,14 +521,17 @@ func buildPrimaryAssistant(
 		ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
 		HookManager:          getHookManager(opts),
 		ExtraContextSources:  buildExtraContextSources(opts),
+		IterationStore:       getIterationStore(opts),
+		BuildReportSink:      getBuildReportSink(opts),
+		CheckpointFailureCB:  getCheckpointFailureCB(opts),
 	})
 }
 
-// buildExtraContextSources turns the (optional) Plan Workspace and
-// SessionTree into a Source list suitable for
-// FactoryOptions.ExtraContextSources. Returns nil when neither subsystem
-// is wired so dispatched factories see the same zero-cost path that
-// pre-existed both features.
+// buildExtraContextSources turns the (optional) Plan Workspace,
+// SessionTree, and Vector subsystems into a Source list suitable for
+// FactoryOptions.ExtraContextSources. Returns nil when none are wired
+// so dispatched factories see the same zero-cost path that pre-existed
+// every feature.
 func buildExtraContextSources(opts *Options) []vctx.Source {
 	if opts == nil {
 		return nil
@@ -463,6 +546,13 @@ func buildExtraContextSources(opts *Options) []vctx.Source {
 			Predicate: opts.TreePredicate,
 		})
 	}
+	if opts.VectorStore != nil && opts.VectorEmbedder != nil {
+		srcs = append(srcs, &vctx.VectorRecallSource{
+			Store:    opts.VectorStore,
+			Embedder: opts.VectorEmbedder,
+			TopK:     opts.VectorTopK,
+		})
+	}
 	return srcs
 }
 
@@ -472,6 +562,16 @@ func getTreeStore(opts *Options) tree.SessionTreeStore {
 		return nil
 	}
 	return opts.TreeStore
+}
+
+// getIterationStore safely extracts the optional checkpoint backend from
+// opts. Returns nil when opts is nil or the field is unset; every
+// TaskAgent factory gracefully degrades to "no checkpointing".
+func getIterationStore(opts *Options) checkpoint.IterationStore {
+	if opts == nil {
+		return nil
+	}
+	return opts.IterationStore
 }
 
 // primaryToolProfile picks the capability profile that the Primary
@@ -685,6 +785,24 @@ type InitResult struct {
 	SessionStore  session.SessionStore          // nil when cfg.Session.Enabled = false
 	Workspace     workspace.Workspace           // nil when cfg.Session.Enabled = false (workspace shares the session root)
 	TreeStore     tree.SessionTreeStore         // nil when cfg.SessionTree.Enabled = false
+	VectorStore   vector.VectorStore            // nil when cfg.Vector.Enabled = false (or soft-fail)
+	VectorEmb     vector.Embedder               // nil when cfg.Vector.Enabled = false (or soft-fail)
+
+	// IterationStore backs vv --resume / POST /v1/sessions/{id}/resume by
+	// persisting per-iteration ReAct checkpoints under <session-root>/<id>/
+	// checkpoints/. nil when cfg.Session.Enabled = false (resume requires a
+	// stable session id; the no-session path is one-shot anyway).
+	IterationStore checkpoint.IterationStore
+
+	// MetricsStore + MetricsHook + BuildReportSink make up the P0-5
+	// observability triple. All three are nil when cfg.Session.Enabled
+	// = false (per-session aggregation needs a stable session id).
+	// MetricsHook is the resume callers' handle for RecordResume —
+	// callers should use it instead of MetricsStore directly so the
+	// counter advances in lockstep with the rest of the hook flow.
+	MetricsStore    session.MetricsStore
+	MetricsHook     *session.SessionMetricsHook
+	BuildReportSink vctx.BuildReportSink
 
 	// Shutdown releases process-level resources owned by Init (the
 	// hook.Manager that drives trace + session hooks, plus the persistent
@@ -791,6 +909,83 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		opts.Workspace = planWorkspace
 	}
 
+	// IterationStore — wired only when the session subsystem is on (the
+	// store reuses <session-root>/<id>/ for its checkpoint files; without
+	// a stable session id there is nothing meaningful to resume).
+	iterStore, iterErr := buildIterationStore(cfg)
+	if iterErr != nil {
+		hookShutdown(context.Background())
+		closeStore()
+		return nil, iterErr
+	}
+	if iterStore != nil {
+		if opts == nil {
+			opts = &Options{}
+		}
+		opts.IterationStore = iterStore
+		slog.Info("vv: iteration checkpoint store enabled", "dir", sessionRootDir(cfg))
+	}
+
+	// MetricsStore / SessionMetricsHook / BuildReportSink — P0-5
+	// observability triple. Wired only when the session subsystem is
+	// on (the metrics file lives under the same per-session root). The
+	// hook is registered against the existing hook.Manager; if no
+	// manager exists yet (trace + session both off), one is brought up
+	// here for the metrics hook alone — same pattern the vector
+	// auto-write hook uses below.
+	metricsStore, metricsErr := buildMetricsStore(cfg)
+	if metricsErr != nil {
+		hookShutdown(context.Background())
+		closeStore()
+		return nil, metricsErr
+	}
+	if metricsStore != nil {
+		if opts == nil {
+			opts = &Options{}
+		}
+		opts.MetricsStore = metricsStore
+
+		metricsHook := buildMetricsHook(cfg, metricsStore)
+		opts.MetricsHook = metricsHook
+		// Adapt RecordCheckpointFailure to taskagent's callback shape:
+		// the metrics layer does not use the underlying save error
+		// (slog.Warn already logged it) so we drop it here. Errors
+		// from the metrics store itself are logged inside the hook.
+		opts.CheckpointFailureCB = func(ctx context.Context, sid string, _ error) {
+			_ = metricsHook.RecordCheckpointFailure(ctx, sid)
+		}
+
+		if hookManager == nil {
+			hookManager = hook.NewManager()
+			if startErr := hookManager.Start(context.Background()); startErr != nil {
+				closeStore()
+				return nil, fmt.Errorf("start hooks for metrics: %w", startErr)
+			}
+			hookShutdown = func(ctx context.Context) {
+				if err := hookManager.Stop(ctx); err != nil {
+					slog.Warn("vv: stop hooks", "error", err)
+				}
+			}
+			opts.HookManager = hookManager
+		}
+		hookManager.Register(metricsHook)
+		slog.Info("vv: session metrics hook registered", "dir", sessionRootDir(cfg))
+	}
+
+	sink, sinkErr := buildBuildReportSink(cfg)
+	if sinkErr != nil {
+		hookShutdown(context.Background())
+		closeStore()
+		return nil, sinkErr
+	}
+	if sink != nil {
+		if opts == nil {
+			opts = &Options{}
+		}
+		opts.BuildReportSink = sink
+		slog.Info("vv: build_report archive enabled", "dir", sessionRootDir(cfg))
+	}
+
 	// SessionTree subsystem — wired only when (1) the session subsystem is
 	// already on (sessionStore != nil ⇒ shared root exists) and (2) the
 	// session_tree.enabled flag is set. Construction is fail-fast: an
@@ -829,6 +1024,53 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		slog.Info("vv: session tree enabled",
 			"promotion", cfg.SessionTree.Promotion.IsEnabled(),
 			"promoter", cfg.SessionTree.Promotion.PromoterKind())
+	}
+
+	// Vector subsystem — independent of SessionTree; can be enabled with
+	// or without session.enabled. The store + embedder + (optional) hook
+	// are constructed here and stored on opts so buildExtraContextSources
+	// and buildPrimaryAssistant pick them up the same way they pick up
+	// Workspace / TreeStore.
+	if cfg.Vector.IsEnabled() {
+		subsys, vErr := buildVectorSubsystem(cfg.Vector)
+		if vErr != nil {
+			hookShutdown(context.Background())
+			closeStore()
+			return nil, fmt.Errorf("vector subsystem: %w", vErr)
+		}
+		if subsys != nil {
+			if opts == nil {
+				opts = &Options{}
+			}
+			opts.VectorStore = subsys.Store
+			opts.VectorEmbedder = subsys.Embedder
+			opts.VectorTopK = cfg.Vector.TopK
+			if subsys.Hook != nil {
+				if hookManager == nil {
+					// Hook manager is created when trace or session is on.
+					// Auto-write requires a manager; bring one up so the hook
+					// has a host. The lifecycle is owned by hookShutdown on
+					// the chained shutdown path.
+					hookManager = hook.NewManager()
+					if startErr := hookManager.Start(context.Background()); startErr != nil {
+						closeStore()
+						return nil, fmt.Errorf("start hooks for vector auto-write: %w", startErr)
+					}
+					hookShutdown = func(ctx context.Context) {
+						if err := hookManager.Stop(ctx); err != nil {
+							slog.Warn("vv: stop hooks", "error", err)
+						}
+					}
+					opts.HookManager = hookManager
+				}
+				hookManager.RegisterAsync(subsys.Hook)
+				if startErr := subsys.Hook.Start(context.Background()); startErr != nil {
+					hookShutdown(context.Background())
+					closeStore()
+					return nil, fmt.Errorf("start vector auto-write hook: %w", startErr)
+				}
+			}
+		}
 	}
 
 	if routerWrappedLLM != nil {
@@ -883,18 +1125,24 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		WithMaxInputTokens(maxSummarizerInput)
 
 	return &InitResult{
-		Config:        cfg,
-		LLMClient:     llmClient,
-		MemoryManager: memMgr,
-		PersistentMem: persistentMem,
-		SetupResult:   result,
-		Compactor:     compactor,
-		SessionBudget: sessionBudget,
-		DailyBudget:   dailyBudget,
-		SessionStore:  sessionStore,
-		Workspace:     planWorkspace,
-		TreeStore:     getTreeStore(opts),
-		Shutdown:      chainShutdown(hookShutdown, closeStore),
+		Config:          cfg,
+		LLMClient:       llmClient,
+		MemoryManager:   memMgr,
+		PersistentMem:   persistentMem,
+		SetupResult:     result,
+		Compactor:       compactor,
+		SessionBudget:   sessionBudget,
+		DailyBudget:     dailyBudget,
+		SessionStore:    sessionStore,
+		Workspace:       planWorkspace,
+		TreeStore:       getTreeStore(opts),
+		VectorStore:     getVectorStore(opts),
+		VectorEmb:       getVectorEmbedder(opts),
+		IterationStore:  getIterationStore(opts),
+		MetricsStore:    getMetricsStore(opts),
+		MetricsHook:     getMetricsHook(opts),
+		BuildReportSink: getBuildReportSink(opts),
+		Shutdown:        chainShutdown(hookShutdown, closeStore),
 	}, nil
 }
 
@@ -943,7 +1191,7 @@ func chainShutdown(trace func(context.Context), closeStore func()) func(context.
 // Returns an error when the promoter kind is unknown or required fields
 // (e.g., LLM client for promoter=llm) are absent.
 func buildTreeStore(cfg *configs.Config, llm aimodel.ChatCompleter, hookMgr *hook.Manager) (tree.SessionTreeStore, error) {
-	root := filepath.Join(cfg.Session.EffectiveDir(), SessionProjectName(cfg.Tools.BashWorkingDir))
+	root := sessionRootDir(cfg)
 
 	fileOpts := []tree.FileOption{}
 	if hookMgr != nil {
@@ -1053,7 +1301,7 @@ func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.Ses
 	var planWorkspace workspace.Workspace
 	var sessionRoot string
 	if sessionEnabled {
-		sessionRoot = filepath.Join(cfg.Session.EffectiveDir(), SessionProjectName(cfg.Tools.BashWorkingDir))
+		sessionRoot = sessionRootDir(cfg)
 		store, err := session.NewFileSessionStore(sessionRoot)
 		if err != nil {
 			return nil, nil, nil, noopShutdown, fmt.Errorf("session store: %w", err)

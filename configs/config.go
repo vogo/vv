@@ -183,6 +183,7 @@ type Config struct {
 	Trace        TraceConfig                  `yaml:"trace,omitempty"`
 	Session      SessionConfig                `yaml:"session,omitempty"`
 	SessionTree  SessionTreeConfig            `yaml:"session_tree,omitempty"`
+	Vector       VectorConfig                 `yaml:"vector,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructions holds content loaded from VV.md in the working directory.
@@ -531,12 +532,32 @@ type SessionConfig struct {
 	// is recorded but not consumed yet — kept on the struct so the
 	// configuration surface stays stable when checkpoint/replay lands.
 	HistoryReplayMaxEvents int `yaml:"history_replay_max_events,omitempty"` // default 5000
+
+	// PersistBuildReports toggles per-turn BuildReport persistence to
+	// <session-root>/<id>/build_reports/. Default true — the disk cost
+	// is bounded by BuildReportLimit. nil keeps the default-on path so
+	// existing configs stay observable without edits.
+	PersistBuildReports *bool `yaml:"persist_build_reports,omitempty"`
+
+	// BuildReportLimit caps how many per-turn BuildReport files a
+	// single session retains. Older files are unlinked LRU-style on
+	// each new write. 0 falls back to vage's DefaultBuildReportLimit
+	// (50). Increase for long debugging sessions; decrease in disk-
+	// constrained environments.
+	BuildReportLimit int `yaml:"build_report_limit,omitempty"`
 }
 
 // IsEnabled returns true unless the user explicitly set `enabled: false`.
 // Default-on so a fresh install gets persistent sessions without configuration.
 func (s SessionConfig) IsEnabled() bool {
 	return s.Enabled == nil || *s.Enabled
+}
+
+// PersistBuildReportsEnabled returns the effective default-on toggle
+// for per-turn BuildReport persistence. nil and "" both mean "use the
+// default" which is true.
+func (s SessionConfig) PersistBuildReportsEnabled() bool {
+	return s.PersistBuildReports == nil || *s.PersistBuildReports
 }
 
 // EffectiveDir returns the resolved session root directory, defaulting to
@@ -790,6 +811,78 @@ func Load(path string, explicit bool) (*Config, error) {
 		cfg.Memory.Backend = v
 	}
 
+	if v := os.Getenv("VV_VECTOR_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Vector.Enabled = &b
+		} else {
+			slog.Warn("vv: invalid VV_VECTOR_ENABLED, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_VECTOR_BACKEND"); v != "" {
+		cfg.Vector.Backend = v
+	}
+
+	if v := os.Getenv("VV_VECTOR_EMBEDDER"); v != "" {
+		cfg.Vector.Embedder = v
+	}
+
+	if v := os.Getenv("VV_VECTOR_AUTO_WRITE"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Vector.AutoWrite = &b
+		} else {
+			slog.Warn("vv: invalid VV_VECTOR_AUTO_WRITE, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_VECTOR_TOP_K"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Vector.TopK = n
+		} else {
+			slog.Warn("vv: invalid VV_VECTOR_TOP_K, ignoring", "value", v)
+		}
+	}
+
+	if v := os.Getenv("VV_VECTOR_COLLECTION"); v != "" {
+		cfg.Vector.Collection = v
+	}
+
+	if v := os.Getenv("VV_QDRANT_URL"); v != "" {
+		cfg.Vector.Qdrant.URL = v
+	}
+
+	if v := os.Getenv("VV_QDRANT_API_KEY"); v != "" {
+		cfg.Vector.Qdrant.APIKey = v
+	}
+
+	if cfg.Vector.OpenAI.APIKey == "" {
+		// Precedence: explicit YAML > VV_VECTOR_OPENAI_API_KEY > OPENAI_API_KEY.
+		// We deliberately do NOT fall back to VV_LLM_API_KEY — see VectorConfig
+		// docs (mismatched provider rejects the embedding endpoint with an
+		// opaque 4xx).
+		if v := os.Getenv("VV_VECTOR_OPENAI_API_KEY"); v != "" {
+			cfg.Vector.OpenAI.APIKey = v
+		} else if v := os.Getenv("OPENAI_API_KEY"); v != "" {
+			cfg.Vector.OpenAI.APIKey = v
+		}
+	}
+
+	if v := os.Getenv("VV_VECTOR_OPENAI_MODEL"); v != "" {
+		cfg.Vector.OpenAI.Model = v
+	}
+
+	if v := os.Getenv("VV_VECTOR_OPENAI_BASE_URL"); v != "" {
+		cfg.Vector.OpenAI.BaseURL = v
+	}
+
+	if v := os.Getenv("VV_VECTOR_OPENAI_DIMENSIONS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Vector.OpenAI.Dimensions = n
+		} else {
+			slog.Warn("vv: invalid VV_VECTOR_OPENAI_DIMENSIONS, ignoring", "value", v)
+		}
+	}
+
 	if v := os.Getenv("VV_AGENTS_MAX_PARALLEL_TOOL_CALLS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Agents.MaxParallelToolCalls = n
@@ -951,6 +1044,10 @@ func Load(path string, explicit bool) (*Config, error) {
 		return nil, err
 	}
 	cfg.Orchestrate.Mode = normalizedMode
+
+	if err := cfg.Vector.Validate(); err != nil {
+		return nil, fmt.Errorf("vector config: %w", err)
+	}
 
 	if len(cfg.CLI.ConfirmTools) > 0 {
 		slog.Warn("vv: confirm_tools is deprecated; use permission_mode instead")

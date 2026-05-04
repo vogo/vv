@@ -34,6 +34,7 @@ func main() {
 	evalTimeoutMsFlag := flag.Int("eval-timeout-ms", 0, "override eval.timeout_ms per case (>0)")
 	permissionModeFlag := flag.String("permission-mode", "", "tool permission mode: default, accept-edits, auto, plan")
 	sessionFlag := flag.String("session", "", "session id to resume; 'list' shows recent sessions and exits, 'new' forces a fresh session (CLI only)")
+	resumeFlag := flag.String("resume", "", "resume the latest unfinished iteration of <session-id> (CLI only; requires session.enabled and an existing non-final checkpoint)")
 	treeFlag := flag.String("tree", "", "session id whose SessionTree to print and exit (CLI only; requires session_tree.enabled)")
 	treeAllFlag := flag.Bool("tree-all", false, "include promoted (folded) nodes in --tree output")
 	debugFlag := flag.Bool("debug", false, "enable detailed LLM and tool I/O debug records (env: VV_DEBUG)")
@@ -57,6 +58,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  vv                                          # interactive TUI mode\n")
 		fmt.Fprintf(os.Stderr, "  vv -p \"explain the main.go file\"             # single prompt, exit after response\n")
 		fmt.Fprintf(os.Stderr, "  vv -p \"fix the bug in auth.go\" 2>/dev/null   # suppress diagnostics\n")
+		fmt.Fprintf(os.Stderr, "  vv --resume <session-id>                    # continue an interrupted run from its latest checkpoint\n")
 		fmt.Fprintf(os.Stderr, "\nConfig file: %s\n", configs.DefaultPath())
 	}
 	flag.Parse()
@@ -225,6 +227,55 @@ func main() {
 		os.Exit(exitCode)
 	}
 
+	// Resume mode: replay the latest unfinished ReAct iteration of a
+	// previous run from its checkpoint. Mutually exclusive with everything
+	// that would drive a fresh request — checkpoint resume continues a
+	// stream of work that already had its inputs decided. CLI-only by
+	// design (HTTP exposes the same capability via POST .../resume).
+	if resumeArg := strings.TrimSpace(*resumeFlag); resumeArg != "" {
+		switch {
+		case promptSet:
+			fmt.Fprintln(os.Stderr, "vv: --resume cannot be combined with -p")
+			os.Exit(1)
+		case *evalFlag != "":
+			fmt.Fprintln(os.Stderr, "vv: --resume cannot be combined with -eval")
+			os.Exit(1)
+		case strings.TrimSpace(*sessionFlag) != "":
+			fmt.Fprintln(os.Stderr, "vv: --resume cannot be combined with --session "+
+				"(--session is for UI history replay; --resume is for checkpoint continuation)")
+			os.Exit(1)
+		case strings.TrimSpace(*treeFlag) != "":
+			fmt.Fprintln(os.Stderr, "vv: --resume cannot be combined with --tree")
+			os.Exit(1)
+		case cfg.Mode == "http" || cfg.Mode == "mcp":
+			fmt.Fprintf(os.Stderr, "vv: --resume is only available in CLI mode "+
+				"(use POST /v1/sessions/{id}/resume in HTTP mode); got --mode=%s\n", cfg.Mode)
+			os.Exit(1)
+		}
+
+		initResult, initErr := setup.Init(cfg, &setup.Options{
+			UserInteractor: askuser.NonInteractiveInteractor{},
+			AskUserTimeout: time.Duration(cfg.Agents.AskUserTimeout) * time.Second,
+			DebugSink:      debugSink,
+		})
+		if initErr != nil {
+			slog.Error("vv: init", "error", initErr)
+			os.Exit(1)
+		}
+
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
+		if runErr := cli.RunResume(ctx, initResult, resumeArg, os.Stdout, os.Stderr); runErr != nil {
+			fmt.Fprintf(os.Stderr, "vv: %s\n", runErr)
+			shutdownInit(initResult)
+			os.Exit(1)
+		}
+
+		shutdownInit(initResult)
+		os.Exit(0)
+	}
+
 	// Initialize LLM client, memory, and agents via setup package.
 	askUserTimeout := time.Duration(cfg.Agents.AskUserTimeout) * time.Second
 	cliInteractor := cli.NewCLIInteractor()
@@ -341,7 +392,7 @@ func main() {
 	switch cfg.Mode {
 	case "http":
 		interactionStore := httpapis.NewInteractionStore(ctx, askUserTimeout)
-		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget, initResult.SessionStore, initResult.Workspace, initResult.TreeStore); err != nil {
+		if err := httpapis.Serve(ctx, cfg, initResult.LLMClient, initResult.SetupResult.Dispatcher, initResult.SetupResult.Agents(), initResult.PersistentMem, interactionStore, initResult.Compactor, initResult.SessionBudget, initResult.DailyBudget, initResult.SessionStore, initResult.Workspace, initResult.TreeStore, initResult.VectorStore, initResult.VectorEmb, initResult); err != nil {
 			slog.Error("vv: HTTP server error", "error", err)
 			exitCode = 1
 		}
