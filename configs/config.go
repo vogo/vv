@@ -597,6 +597,26 @@ type SessionTreeConfig struct {
 	// events do not count toward the threshold so the metric tracks
 	// "user turns" rather than internal activity.
 	AutoEnableAfterEvents int `yaml:"auto_enable_after_events,omitempty"`
+
+	// VectorIndex enables dual-indexing tree node summaries into the
+	// vector store (§4.8.6 step 3 of the design doc): every successful
+	// AddNode/UpdateNode/PromoteNode also embeds the node summary and
+	// upserts a `tree:<sid>:<nid>` document. Requires Vector subsystem
+	// enabled (otherwise wiring is silently skipped).
+	VectorIndex SessionTreeVectorIndexConfig `yaml:"vector_index,omitempty"`
+}
+
+// SessionTreeVectorIndexConfig controls the SessionTree → Vector dual
+// index. Off by default: the index is only useful when the Vector
+// subsystem is also active and the user expects similarity-based
+// recall over tree summaries.
+type SessionTreeVectorIndexConfig struct {
+	Enabled *bool `yaml:"enabled,omitempty"` // default false
+}
+
+// IsEnabled reports whether the dual index should be wired.
+func (v SessionTreeVectorIndexConfig) IsEnabled() bool {
+	return v.Enabled != nil && *v.Enabled
 }
 
 // IsEnabled reports whether the SessionTree subsystem should be wired.

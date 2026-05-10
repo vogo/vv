@@ -41,6 +41,7 @@ const (
 // get responses.
 type sessionMetaResponse struct {
 	ID        string         `json:"id"`
+	ParentID  string         `json:"parent_id,omitempty"`
 	AgentID   string         `json:"agent_id,omitempty"`
 	UserID    string         `json:"user_id,omitempty"`
 	Title     string         `json:"title,omitempty"`
@@ -53,6 +54,7 @@ type sessionMetaResponse struct {
 func toMetaResponse(s *session.Session) sessionMetaResponse {
 	return sessionMetaResponse{
 		ID:        s.ID,
+		ParentID:  s.ParentID,
 		AgentID:   s.AgentID,
 		UserID:    s.UserID,
 		Title:     s.Title,

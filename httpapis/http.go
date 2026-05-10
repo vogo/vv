@@ -118,6 +118,7 @@ func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, 
 		mux.HandleFunc("GET /v1/sessions", handleListSessions(sessionStore))
 		mux.HandleFunc("GET /v1/sessions/{id}", handleGetSession(sessionStore))
 		mux.HandleFunc("GET /v1/sessions/{id}/events", handleListEvents(sessionStore))
+		mux.HandleFunc("GET /v1/sessions/{id}/children", handleListChildren(sessionStore))
 		mux.HandleFunc("DELETE /v1/sessions/{id}", handleDeleteSession(sessionStore, planWorkspace))
 		mux.HandleFunc("PATCH /v1/sessions/{id}", handlePatchSession(sessionStore))
 		// Resume mounts unconditionally with the session subsystem so the
@@ -134,6 +135,9 @@ func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, 
 		mux.HandleFunc("GET /v1/sessions/{id}/workspace/plan", handleGetPlan(planWorkspace))
 		mux.HandleFunc("GET /v1/sessions/{id}/workspace/notes", handleListNotes(planWorkspace))
 		mux.HandleFunc("GET /v1/sessions/{id}/workspace/notes/{name}", handleGetNote(planWorkspace))
+		mux.HandleFunc("GET /v1/sessions/{id}/workspace/scratch/{slot}", handleListScratch(planWorkspace))
+		mux.HandleFunc("GET /v1/sessions/{id}/workspace/scratch/{slot}/{name}", handleGetScratch(planWorkspace))
+		mux.HandleFunc("GET /v1/sessions/{id}/workspace/artifacts/{name}", handleGetArtifact(planWorkspace))
 	}
 
 	if treeStore != nil {

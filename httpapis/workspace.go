@@ -122,9 +122,13 @@ func writeWorkspaceErr(w http.ResponseWriter, err error) bool {
 		return false
 	}
 	switch {
-	case errors.Is(err, workspace.ErrInvalidName), errors.Is(err, workspace.ErrInvalidSession):
+	case errors.Is(err, workspace.ErrInvalidName),
+		errors.Is(err, workspace.ErrInvalidSession),
+		errors.Is(err, workspace.ErrInvalidSlot):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "bad_request", "message": err.Error()})
-	case errors.Is(err, workspace.ErrTooLarge), errors.Is(err, workspace.ErrTooManyNotes):
+	case errors.Is(err, workspace.ErrTooLarge),
+		errors.Is(err, workspace.ErrTooManyNotes),
+		errors.Is(err, workspace.ErrTooManyScratch):
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"code": "too_large", "message": err.Error()})
 	default:
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "error", "message": err.Error()})

@@ -1073,6 +1073,15 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		}
 	}
 
+	// SessionTree ↔ Vector dual index — wires the vectorhook decorator
+	// over opts.TreeStore once both Tree and Vector subsystems are
+	// active. See maybeWrapTreeWithVectorIndex for the gating logic.
+	if err := maybeWrapTreeWithVectorIndex(cfg, opts); err != nil {
+		hookShutdown(context.Background())
+		closeStore()
+		return nil, err
+	}
+
 	if routerWrappedLLM != nil {
 		if opts == nil {
 			opts = &Options{}
