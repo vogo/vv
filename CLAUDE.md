@@ -8,25 +8,25 @@
 
 ## 文档与源码对照
 
-完整设计文档见 `doc/README.md`，每个主题对应一份文档与一个或多个源码目录：
+> 原 `doc/` 设计文档已迁移并重构为项目根的 **`specs/`** DDD 规格知识库。整体架构见 `../specs/architecture/architecture.md`,领域索引见 `../specs/domains/core/core-overview.md`。细粒度制品(模型字段、流程逐步、API 页、字典枚举)见 `../vv-prd/`。
 
-| 主题 | 设计文档 | 源码目录 |
+每个主题对应一个 specs 领域与一个或多个源码目录:
+
+| 主题 | 领域规格(`../specs/domains/core/`) | 源码目录 |
 |------|---------|---------|
-| 整体架构与设计原则 | doc/architecture.md | — |
-| 启动入口与生命周期 | doc/main.md | main.go |
-| 装配中心 | doc/setup.md | setup/ |
-| 分发器与 Primary | doc/dispatch.md | dispatches/ |
-| 代理设计 | doc/agents.md | agents/ |
-| 注册表与能力分级 | doc/registries.md | registries/ |
-| 工具集合 | doc/tools.md | tools/ |
-| 配置体系 | doc/configs.md | configs/ |
-| CLI 模式 | doc/cli.md | cli/ |
-| HTTP 模式 | doc/httpapi.md | httpapis/ |
-| MCP 模式 | doc/mcp.md | mcps/ |
-| 记忆系统 | doc/memories.md | memories/ |
-| 会话 / Plan Workspace / Session Tree | doc/session.md | （由 setup/ 装配，复用 vage 子系统） |
-| 可观测性 | doc/observability.md | traces/、debugs/、hooks/ |
-| 评测子系统 | doc/eval.md | eval/ |
+| 整体架构与设计原则 | `../specs/architecture/architecture.md` | — |
+| 启动入口 / 装配中心 / 配置体系 | configuration/ | main.go、setup/、configs/ |
+| 分发器与 Primary / 编排规划 | orchestration/ | dispatches/ |
+| 代理设计 / 注册表与能力分级 | agents/ | agents/、registries/ |
+| 工具集合与安全护栏 | tools/ | tools/、registries/ |
+| CLI 模式 | cli/ | cli/ |
+| HTTP 模式 | http-api/ | httpapis/ |
+| MCP 模式 | mcp/ | mcps/ |
+| 记忆系统 | memory/ | memories/ |
+| 会话 / Plan Workspace / Session Tree | session/ | （由 setup/ 装配，复用 vage 子系统） |
+| 成本追踪 / 预算执行 | cost-tracking/、budget/ | （LLM 中间件、setup/） |
+| 可观测性(trace / debug / hooks) | trace/ | traces/、debugs/、hooks/ |
+| 评测子系统 | eval/ | eval/ |
 
 ## Build & Test
 
