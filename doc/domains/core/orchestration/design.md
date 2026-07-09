@@ -88,6 +88,8 @@ DAG 节点也支持 **动态规格** —— 某 step 的执行者由 spec 临时
 - DAG 配置:`ErrorStrategy = Skip`、节点 `Optional = true` —— 单 step 失败不中断,其下游被 skip,已完成结果仍汇总(对应 [spec.md](spec.md) Plan Step 状态机的 `skipped` 转移)。
 - 当 DAG 有 **多个终端节点** 时,自动追加一个 `summary` 节点(执行者 = PlanGen),把各终端结果拼成汇总 prompt 后产出单一回复;只有一个终端时直接返回该结果。
 - DAG 执行模型(就绪判定、并发调度、聚合)复用 vage `orchestrate.ExecuteDAG`。
+- **静态 step 的执行者解析**(`resolveStaticAgent`)顺序固定:① 按 `step.Agent` 在 `subAgents` 精确匹配,命中即用;② 未命中且 Dispatcher 配置了 **DAG 默认代理 ID**(`WithDAGDefaultAgentID`,只保存 ID,执行者仍从 `subAgents` 查)时,查该默认 ID;③ 仍未命中则 `buildNodes` 返回可诊断错误——错误必标明原始 `step.Agent`,若默认 ID 也未注册则同时标明默认 ID,以区分「Plan 引用未知代理」与「Dispatcher 默认配置无效」。默认代理 **默认禁用**(零值):生产装配不隐式指定,历史上依赖静默兜底的 plan 会在构建期显式失败。精确匹配始终优先,默认代理不覆盖有效的 `step.Agent`;`DynamicSpec` 存在时走动态分支,不读取该默认 ID。
+- 该 DAG 默认代理与 **递归超限 Fallback Primary**(`fallbackAgent`)语义不同、不复用:后者是递归深度超限及 DAG 构建失败降级路径中的可执行代理;前者仅是静态 step 未命中时可选的 `subAgents` 查找目标。
 
 ```mermaid
 flowchart LR

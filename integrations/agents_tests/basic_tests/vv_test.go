@@ -53,7 +53,8 @@ func TestIntegration_VV_Init(t *testing.T) {
 		}
 	}
 
-	t.Logf("init OK: provider=%s model=%s agents=%d",
+	t.Logf(
+		"init OK: provider=%s model=%s agents=%d",
 		initResult.Config.LLM.Provider,
 		initResult.Config.LLM.Model,
 		len(initResult.SetupResult.Agents()),
