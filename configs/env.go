@@ -233,6 +233,51 @@ var modelPricingEnvBindings = []envBinding{
 	{"VV_MODEL_PRICING", func(c *Config, v string) { applyModelPricingEnv(c, v) }},
 }
 
+// applyAnthropicEnvFallback infers an Anthropic provider from the standard
+// ANTHROPIC_* environment variables when neither YAML nor VV_LLM_PROVIDER has
+// pinned a provider. It runs in Load AFTER applyEnvOverrides so VV_LLM_* keeps
+// priority, and BEFORE applyDefaults so an empty provider is not yet frozen to
+// the openai default BaseURL.
+//
+// It is intentionally NOT an envBinding: the whole block is gated on
+// cfg.LLM.Provider == "" (an explicit openai/anthropic choice is never
+// rewritten), and each of APIKey/BaseURL/Model is filled only when its own
+// field is still empty — so YAML and VV_LLM_* values already present are
+// preserved. Only non-empty ANTHROPIC_* values count as "present", matching
+// the empty-string-does-not-override semantics used elsewhere.
+//
+// Note: when OPENAI_API_KEY and ANTHROPIC_* are both set with no explicit
+// provider, this fallback selects anthropic — the standard Anthropic
+// convention wins. aimodel.NewClient's own AI_API_KEY/OPENAI_API_KEY/
+// ANTHROPIC_API_KEY fallback is untouched; this only decides the protocol.
+func applyAnthropicEnvFallback(cfg *Config) {
+	if cfg.LLM.Provider != "" {
+		return
+	}
+
+	apiKey := getenv("ANTHROPIC_API_KEY")
+	baseURL := getenv("ANTHROPIC_BASE_URL")
+	model := getenv("ANTHROPIC_MODEL")
+
+	if apiKey == "" && baseURL == "" && model == "" {
+		return
+	}
+
+	cfg.LLM.Provider = "anthropic"
+
+	if cfg.LLM.APIKey == "" && apiKey != "" {
+		cfg.LLM.APIKey = apiKey
+	}
+
+	if cfg.LLM.BaseURL == "" && baseURL != "" {
+		cfg.LLM.BaseURL = baseURL
+	}
+
+	if cfg.LLM.Model == "" && model != "" {
+		cfg.LLM.Model = model
+	}
+}
+
 // applyVectorOpenAIKeyEnv fills the vector embedder OpenAI key when YAML left
 // it empty. Precedence: explicit YAML > VV_VECTOR_OPENAI_API_KEY >
 // OPENAI_API_KEY. It deliberately does NOT fall back to VV_LLM_API_KEY — the

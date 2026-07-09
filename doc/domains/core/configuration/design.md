@@ -25,6 +25,15 @@
 
 **取舍**:统一优先级链而非逐字段定制,换取可预测性与单一加载入口(为未来远程/多 profile 配置留扩展空间)。
 
+### 1.1 Anthropic 环境约定回退
+
+LLM provider **未定**时(YAML 与 `VV_LLM_PROVIDER` 均未给出),Load 在 `VV_*` 覆盖之后、默认填充之前,读取标准 Anthropic 环境变量作为回退:只要 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 任一非空,即推断 `llm.provider=anthropic`,并按「对应字段仍为空才补」的规则用 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 填入 `api_key` / `base_url` / `model`。
+
+- 优先级:YAML ＞ `VV_LLM_*` ＞ `ANTHROPIC_*` 回退 ＞ 程序默认值。任何显式 provider(YAML 或 `VV_LLM_PROVIDER=openai`/`anthropic`)都不被回退改写。
+- 仅在 provider 为空时触发;三组变量都不设时行为与现状一致(空 provider 走 openai 默认 `https://api.openai.com/v1`)。
+- 当 `OPENAI_API_KEY` 与 `ANTHROPIC_*` 同时存在且 provider 未定时,回退判定为 **anthropic**——遵循标准 Anthropic 约定。该判定只决定协议;`aimodel.NewClient` 自身对 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` 的 key 兜底不受影响。
+- 不引入对称的 `OPENAI_*` 回退。
+
 ## 2. 首次启动向导
 
 配置文件不存在或缺关键字段(如 API key)时:

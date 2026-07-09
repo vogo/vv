@@ -10,7 +10,7 @@
 
 | 分组(YAML key) | 语义类型 | 语义 / 约束 |
 |------------------|---------|-------------|
-| `llm` | reference | LLM provider / model / api_key / base_url。api_key 必填(CONFIG-R4),env 优先(不落盘)。 |
+| `llm` | reference | LLM provider / model / api_key / base_url。api_key 必填(CONFIG-R4),env 优先(不落盘)。provider 未定时回退读取标准 `ANTHROPIC_*` 环境变量推断 anthropic(优先级 YAML ＞ `VV_LLM_*` ＞ `ANTHROPIC_*`,详见 design.md §1.1)。 |
 | `server` | text | HTTP 监听地址(默认 `:8080`)。仅 http 模式生效。 |
 | `tools` | group | 工具行为:bash 超时(默认 120s)、bash 危险命令分类器(`bash_rules`:enabled + 用户黑/红/白名单正则)、tool_output 截断等。 |
 | `agents` | number | 各代理 ReAct 上限与 token 预算(coder/researcher/reviewer 的 max_iterations、token_budget)。 |
