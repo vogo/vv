@@ -831,6 +831,13 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		cfg.ProjectInstructions = configs.LoadProjectInstructions(cfg.Tools.BashWorkingDir)
 	}
 
+	// Normalize opts once so every installer can populate it in place without
+	// repeating the nil guard. A non-nil caller-supplied Options is amended in
+	// place; the public contract is unchanged.
+	if opts == nil {
+		opts = &Options{}
+	}
+
 	// Create LLM client.
 	llmClient, err := configs.NewLLMClient(cfg.LLM)
 	if err != nil {
@@ -865,239 +872,35 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		slog.Info("vv: router LLM enabled", "model", routerCfg.Model, "provider", routerCfg.Provider)
 	}
 
-	// Create persistent memory. Backend is selected by cfg.Memory.Backend;
-	// "file" (default) keeps the JSON-per-file FileStore; "sqlite" uses the
-	// WAL-mode SQLiteStore. Validated upstream in configs.Load, so an unknown
-	// value here is an internal bug, not user input.
-	store, closeStore, err := openMemoryStore(cfg.Memory)
-	if err != nil {
-		return nil, err
-	}
-
-	persistentMem := memory.NewPersistentMemoryWithStore(store)
-
-	// Create memory manager.
-	memMgr := memory.NewManager(
-		memory.WithStore(persistentMem),
-		memory.WithPromoter(memory.PromoteAll()),
-		memory.WithCompressor(memory.NewSlidingWindowCompressor(cfg.Memory.SessionWindow)),
-	)
-
-	// Construct the process-level hook.Manager. The Manager fans events out
-	// to one or both of: the optional trace logger and the persistent
-	// session hook. Built before agents so its handle can be injected into
-	// every TaskAgent factory via opts.HookManager.
-	hookManager, sessionStore, planWorkspace, hookShutdown, err := buildHookManagerAndSession(cfg)
-	if err != nil {
-		closeStore()
-		return nil, fmt.Errorf("setup hooks: %w", err)
-	}
-
-	if hookManager != nil {
-		if opts == nil {
-			opts = &Options{}
-		}
-
-		opts.HookManager = hookManager
-	}
-
-	if planWorkspace != nil {
-		if opts == nil {
-			opts = &Options{}
-		}
-
-		opts.Workspace = planWorkspace
-	}
-
-	// IterationStore — wired only when the session subsystem is on (the
-	// store reuses <session-root>/<id>/ for its checkpoint files; without
-	// a stable session id there is nothing meaningful to resume).
-	iterStore, iterErr := buildIterationStore(cfg)
-	if iterErr != nil {
-		hookShutdown(context.Background())
-		closeStore()
-		return nil, iterErr
-	}
-	if iterStore != nil {
-		if opts == nil {
-			opts = &Options{}
-		}
-		opts.IterationStore = iterStore
-		slog.Info("vv: iteration checkpoint store enabled", "dir", sessionRootDir(cfg))
-	}
-
-	// MetricsStore / SessionMetricsHook / BuildReportSink — P0-5
-	// observability triple. Wired only when the session subsystem is
-	// on (the metrics file lives under the same per-session root). The
-	// hook is registered against the existing hook.Manager; if no
-	// manager exists yet (trace + session both off), one is brought up
-	// here for the metrics hook alone — same pattern the vector
-	// auto-write hook uses below.
-	metricsStore, metricsErr := buildMetricsStore(cfg)
-	if metricsErr != nil {
-		hookShutdown(context.Background())
-		closeStore()
-		return nil, metricsErr
-	}
-	if metricsStore != nil {
-		if opts == nil {
-			opts = &Options{}
-		}
-		opts.MetricsStore = metricsStore
-
-		metricsHook := buildMetricsHook(cfg, metricsStore)
-		opts.MetricsHook = metricsHook
-		// Adapt RecordCheckpointFailure to taskagent's callback shape:
-		// the metrics layer does not use the underlying save error
-		// (slog.Warn already logged it) so we drop it here. Errors
-		// from the metrics store itself are logged inside the hook.
-		opts.CheckpointFailureCB = func(ctx context.Context, sid string, _ error) {
-			_ = metricsHook.RecordCheckpointFailure(ctx, sid)
-		}
-
-		if hookManager == nil {
-			hookManager = hook.NewManager()
-			if startErr := hookManager.Start(context.Background()); startErr != nil {
-				closeStore()
-				return nil, fmt.Errorf("start hooks for metrics: %w", startErr)
-			}
-			hookShutdown = func(ctx context.Context) {
-				if err := hookManager.Stop(ctx); err != nil {
-					slog.Warn("vv: stop hooks", "error", err)
-				}
-			}
-			opts.HookManager = hookManager
-		}
-		hookManager.Register(metricsHook)
-		slog.Info("vv: session metrics hook registered", "dir", sessionRootDir(cfg))
-	}
-
-	sink, sinkErr := buildBuildReportSink(cfg)
-	if sinkErr != nil {
-		hookShutdown(context.Background())
-		closeStore()
-		return nil, sinkErr
-	}
-	if sink != nil {
-		if opts == nil {
-			opts = &Options{}
-		}
-		opts.BuildReportSink = sink
-		slog.Info("vv: build_report archive enabled", "dir", sessionRootDir(cfg))
-	}
-
-	// SessionTree subsystem — wired only when (1) the session subsystem is
-	// already on (sessionStore != nil ⇒ shared root exists) and (2) the
-	// session_tree.enabled flag is set. Construction is fail-fast: an
-	// invalid promoter config aborts startup so the user sees the
-	// problem at boot rather than at first promote.
-	if cfg.SessionTree.IsEnabled() {
-		if sessionStore == nil {
-			hookShutdown(context.Background())
-			closeStore()
-			return nil, fmt.Errorf("session_tree.enabled requires session.enabled (set session.enabled: true)")
-		}
-		treeStore, treeErr := buildTreeStore(cfg, wrappedLLM, hookManager)
-		if treeErr != nil {
-			hookShutdown(context.Background())
-			closeStore()
-			return nil, fmt.Errorf("session tree: %w", treeErr)
-		}
-		if opts == nil {
-			opts = &Options{}
-		}
-		opts.TreeStore = treeStore
-
-		// Auto-enable gating: wire an in-process AgentEnd-event counter to
-		// the same hook.Manager so SessionTreeSource activates per session
-		// once the threshold is crossed. hookManager is non-nil here
-		// because session subsystem requires it; defensive fallback skips
-		// the wiring otherwise.
-		if cfg.SessionTree.AutoEnableAfterEvents > 0 && hookManager != nil {
-			counter := newSessionEventCounter()
-			hookManager.Register(counter.Hook())
-			opts.TreePredicate = counter.Predicate(cfg.SessionTree.AutoEnableAfterEvents)
-			slog.Info("vv: session tree auto-enable gated",
-				"after_events", cfg.SessionTree.AutoEnableAfterEvents)
-		}
-
-		slog.Info("vv: session tree enabled",
-			"promotion", cfg.SessionTree.Promotion.IsEnabled(),
-			"promoter", cfg.SessionTree.Promotion.PromoterKind())
-	}
-
-	// Vector subsystem — independent of SessionTree; can be enabled with
-	// or without session.enabled. The store + embedder + (optional) hook
-	// are constructed here and stored on opts so buildExtraContextSources
-	// and buildPrimaryAssistant pick them up the same way they pick up
-	// Workspace / TreeStore.
-	if cfg.Vector.IsEnabled() {
-		subsys, vErr := buildVectorSubsystem(cfg.Vector)
-		if vErr != nil {
-			hookShutdown(context.Background())
-			closeStore()
-			return nil, fmt.Errorf("vector subsystem: %w", vErr)
-		}
-		if subsys != nil {
-			if opts == nil {
-				opts = &Options{}
-			}
-			opts.VectorStore = subsys.Store
-			opts.VectorEmbedder = subsys.Embedder
-			opts.VectorTopK = cfg.Vector.TopK
-			if subsys.Hook != nil {
-				if hookManager == nil {
-					// Hook manager is created when trace or session is on.
-					// Auto-write requires a manager; bring one up so the hook
-					// has a host. The lifecycle is owned by hookShutdown on
-					// the chained shutdown path.
-					hookManager = hook.NewManager()
-					if startErr := hookManager.Start(context.Background()); startErr != nil {
-						closeStore()
-						return nil, fmt.Errorf("start hooks for vector auto-write: %w", startErr)
-					}
-					hookShutdown = func(ctx context.Context) {
-						if err := hookManager.Stop(ctx); err != nil {
-							slog.Warn("vv: stop hooks", "error", err)
-						}
-					}
-					opts.HookManager = hookManager
-				}
-				hookManager.RegisterAsync(subsys.Hook)
-				if startErr := subsys.Hook.Start(context.Background()); startErr != nil {
-					hookShutdown(context.Background())
-					closeStore()
-					return nil, fmt.Errorf("start vector auto-write hook: %w", startErr)
-				}
-			}
-		}
-	}
-
-	// SessionTree ↔ Vector dual index — wires the vectorhook decorator
-	// over opts.TreeStore once both Tree and Vector subsystems are
-	// active. See maybeWrapTreeWithVectorIndex for the gating logic.
-	if err := maybeWrapTreeWithVectorIndex(cfg, opts); err != nil {
-		hookShutdown(context.Background())
-		closeStore()
-		return nil, err
-	}
-
+	// Router client opts — populated before the installer pipeline so the
+	// final agent-assembly installer sees them alongside the rest of Options.
 	if routerWrappedLLM != nil {
-		if opts == nil {
-			opts = &Options{}
-		}
-
 		opts.RouterLLM = routerWrappedLLM
 		opts.RouterModel = routerModel
 	}
 
-	// Set up all agents using the (possibly debug-wrapped) LLM client.
-	result, err := New(cfg, wrappedLLM, memMgr, persistentMem, opts)
+	// Optional-subsystem assembly runs as an ordered installer pipeline. Each
+	// installer amends opts in place and returns a cleanup for whatever it
+	// opened; runInstallers pushes cleanups onto a LIFO stack and, on the
+	// first failure, rolls the whole stack back in reverse — no half-built
+	// stage leaves a running hook or an open store behind. The order encodes
+	// the existing dependency chain: memory + hook/session first, then the
+	// session-scoped stores, tree, vector, the tree↔vector decorator, and
+	// finally agent assembly consuming the fully-populated Options.
+	a := &assembly{wrappedLLM: wrappedLLM}
+	cleanups, err := runInstallers(cfg, opts, []subsystemInstaller{
+		a.installMemory,
+		a.installHookSession,
+		a.installIteration,
+		a.installMetrics,
+		a.installBuildReport,
+		a.installTree,
+		a.installVector,
+		a.installTreeVector,
+		a.installAgents,
+	})
 	if err != nil {
-		hookShutdown(context.Background())
-		closeStore()
-
-		return nil, fmt.Errorf("setup agents: %w", err)
+		return nil, err
 	}
 
 	// Create conversation compactor using the LLM for summarization.
@@ -1136,14 +939,14 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	return &InitResult{
 		Config:          cfg,
 		LLMClient:       llmClient,
-		MemoryManager:   memMgr,
-		PersistentMem:   persistentMem,
-		SetupResult:     result,
+		MemoryManager:   a.memMgr,
+		PersistentMem:   a.persistentMem,
+		SetupResult:     a.result,
 		Compactor:       compactor,
 		SessionBudget:   sessionBudget,
 		DailyBudget:     dailyBudget,
-		SessionStore:    sessionStore,
-		Workspace:       planWorkspace,
+		SessionStore:    a.sessionStore,
+		Workspace:       a.planWorkspace,
 		TreeStore:       getTreeStore(opts),
 		VectorStore:     getVectorStore(opts),
 		VectorEmb:       getVectorEmbedder(opts),
@@ -1151,7 +954,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		MetricsStore:    getMetricsStore(opts),
 		MetricsHook:     getMetricsHook(opts),
 		BuildReportSink: getBuildReportSink(opts),
-		Shutdown:        chainShutdown(hookShutdown, closeStore),
+		Shutdown:        shutdownFromCleanups(cleanups),
 	}, nil
 }
 
@@ -1175,19 +978,6 @@ func openMemoryStore(cfg configs.MemoryConfig) (memory.Store, func(), error) {
 		return ss, func() { _ = ss.Close() }, nil
 	default:
 		return nil, func() {}, fmt.Errorf("unsupported memory backend %q", cfg.Backend)
-	}
-}
-
-// chainShutdown composes the trace-hook shutdown with the store close so
-// Init's Shutdown hook owns every resource the function opened.
-func chainShutdown(trace func(context.Context), closeStore func()) func(context.Context) {
-	return func(ctx context.Context) {
-		if trace != nil {
-			trace(ctx)
-		}
-		if closeStore != nil {
-			closeStore()
-		}
 	}
 }
 

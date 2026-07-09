@@ -79,7 +79,8 @@ func buildVectorSubsystem(cfg configs.VectorConfig) (*VectorSubsystem, error) {
 		subsys.Hook = hook
 	}
 
-	slog.Info("vv: vector subsystem enabled",
+	slog.Info(
+		"vv: vector subsystem enabled",
 		"backend", cfg.EffectiveBackend(),
 		"embedder", cfg.EffectiveEmbedder(),
 		"collection", cfg.EffectiveCollection(),

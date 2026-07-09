@@ -66,7 +66,8 @@ func serve(
 		return err
 	}
 
-	logger.Info("vv: mcp server ready",
+	logger.Info(
+		"vv: mcp server ready",
 		"transport", transportName(t.Kind),
 		"addr", t.Addr,
 		"exposed_tools", toolNames(exposed, exposedDispatcher),

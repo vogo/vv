@@ -337,7 +337,8 @@ func (m *model) handlePermissionCommand(args []string) tea.Cmd {
 	mode := configs.PermissionMode(args[0])
 	if !configs.IsValidPermissionMode(mode) {
 		return m.printSystem(fmt.Sprintf(
-			"Invalid permission mode: %q. Valid modes: default, accept-edits, auto, plan", args[0]))
+			"Invalid permission mode: %q. Valid modes: default, accept-edits, auto, plan", args[0],
+		))
 	}
 
 	ps.SetMode(mode)

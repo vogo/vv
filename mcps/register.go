@@ -78,7 +78,8 @@ func buildScanCallback(logger *slog.Logger) mcpserver.ScanCallback {
 	}
 
 	return func(_ context.Context, ev mcpserver.ScanEvent) {
-		logger.Warn("vv: mcp credential scanner hit",
+		logger.Warn(
+			"vv: mcp credential scanner hit",
 			"direction", ev.Direction,
 			"tool", ev.ToolName,
 			"action", string(ev.Action),

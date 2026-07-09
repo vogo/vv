@@ -57,6 +57,7 @@ func (c *chainedHook) OnAfterRun(ctx context.Context, agentID string, resp *sche
 type noopHook struct{}
 
 func (n *noopHook) OnBeforeRun(_ context.Context, _ string, _ *schema.RunRequest) error { return nil }
+
 func (n *noopHook) OnAfterRun(_ context.Context, _ string, _ *schema.RunResponse, _ error) {
 }
 
