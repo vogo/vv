@@ -25,8 +25,6 @@ session 领域把三个相互正交、却共享同一会话身份的 vage 子系
 | Session Tree | 会话级层级化目标-子任务图;支持折叠 | [models.md](models.md) |
 | Tree Node | Session Tree 中单个可寻址节点(goal/subtask/fact/observation/artifact_ref) | [models.md](models.md) |
 
-完整字段引用 [vv-prd/models/core/session/](../../../../vv-prd/models/core/session/) 与 [workspace/](../../../../vv-prd/models/core/workspace/model-plan-workspace.md)。
-
 ## Business rules(不变量)
 
 | ID | 规则 | 说明 |
@@ -41,7 +39,7 @@ session 领域把三个相互正交、却共享同一会话身份的 vage 子系
 | SESS-R8 | id-only 恢复 | MVP 仅复用 `session_id` 让记忆/plan/tree 共目录,**不重放对话历史**;完整 checkpoint+replay 在路线图中。会话不引入状态机:任何"当前状态"可由事件流回放计算得到。 |
 | SESS-R9 | 容量上限即错误 | plan.md ≤ 64 KiB、单条 note ≤ 32 KiB、note 数 ≤ 200、单棵树节点 ≤ 1024。超限对 LLM surface 一个明确错误(`ErrTreeFull` 等),由模型决定如何分拆,避免 prompt 无限增长。 |
 
-底层字段约束(IDPattern、节点不可变字段、删除约束)属 vage,见 [models.md](models.md) 与 vv-prd 模型,不在此复述。
+底层字段约束(IDPattern、节点不可变字段、删除约束)属 vage,见 [models.md](models.md),不在此复述。
 
 ## States & transitions
 

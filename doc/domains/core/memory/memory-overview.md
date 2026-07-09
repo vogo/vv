@@ -24,12 +24,6 @@
 | [design.md](design.md) | 三层视图、namespace 策略、磁盘布局、访问控制实现、file vs sqlite 后端、压缩机制、生命周期 |
 | [models.md](models.md) | Memory Entry、Session Memory、Vector Store、Vector Document 实体模型 |
 
-## vv-prd 对照
-
-- 模型:[../../../../vv-prd/models/core/memory/](../../../../vv-prd/models/core/memory/)(model-memory-entry / model-session-memory / model-vector-store / model-vector-document)
-- 流程:[../../../../vv-prd/procedures/core/memory/](../../../../vv-prd/procedures/core/memory/)(procedure-persistent-memory-management / procedure-session-memory-management)
-- 字典:[dictionary-memory-level](../../../../vv-prd/dictionaries/core/dictionary-memory-level.md)、[dictionary-memory-namespace](../../../../vv-prd/dictionaries/core/dictionary-memory-namespace.md)
-
 ## 关联不变量
 
 - 宪法 [§ 4 数据与一致性基线](../../../constitution.md):会话私有 namespace 条目绑定 `session_id`,跨会话不可读/写/删;CLI/HTTP user-path 仅限共享 namespace。

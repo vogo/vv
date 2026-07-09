@@ -26,8 +26,6 @@
 | [design.md](design.md) | 工具归类、装饰链、PathGuard、注入 Guard、credscrub Scanner、todo_write / web_search 设计、技术取舍 |
 | [models.md](models.md) | Tool/ToolDef、ToolProfile、Bash 分级结果、注入/凭据扫描结果、Todo 列表项 |
 
-## vv-prd 对照
+## 关联文档
 
-- 模型:[../../../../vv-prd/models/core/tools/model-tool.md](../../../../vv-prd/models/core/tools/model-tool.md)
-- 字典:[tool-source](../../../../vv-prd/dictionaries/core/dictionary-tool-source.md) · [tool-access-level](../../../../vv-prd/dictionaries/core/dictionary-tool-access-level.md) · [bash-risk-tier](../../../../vv-prd/dictionaries/core/dictionary-bash-risk-tier.md) · [tool-result-injection-action](../../../../vv-prd/dictionaries/core/dictionary-tool-result-injection-action.md) · [confirmation-action](../../../../vv-prd/dictionaries/core/dictionary-confirmation-action.md)
 - 安全约束量化:[../../../non-functional/security.md](../../../non-functional/security.md)

@@ -1,15 +1,15 @@
 # memory 领域 Models
 
-> 本文件给出本领域四个实体的用途、关键属性与关系。**完整字段清单与权威定义** 引用 [vv-prd/models/core/memory/](../../../../vv-prd/models/core/memory/);本文件只固化领域 spec 需要的属性与业务语义类型,不复述能从源码/PRD 恢复的细节。属性类型用业务语义类型(text / number / datetime / enum / reference / list / map)。
+> 本文件给出本领域四个实体的用途、关键属性与关系。本文件只固化领域 spec 需要的属性与业务语义类型,不复述能从源码/PRD 恢复的细节。属性类型用业务语义类型(text / number / datetime / enum / reference / list / map)。
 
 ## Memory Entry
 
-**用途**:持久记忆中的单条长期知识,按 `namespace` 分组、`key` 在 namespace 内唯一,跨会话与重启长存。为代理提供可复用的项目知识、用户偏好与约定。权威:[model-memory-entry.md](../../../../vv-prd/models/core/memory/model-memory-entry.md)。
+**用途**:持久记忆中的单条长期知识,按 `namespace` 分组、`key` 在 namespace 内唯一,跨会话与重启长存。为代理提供可复用的项目知识、用户偏好与约定。
 
 | 属性 | 语义类型 | 约束 | 说明 |
 |------|---------|------|------|
 | key | text | 必填,namespace 内唯一;仅字母数字/连字符/下划线 | 如 `go-style-guide` |
-| namespace | enum(Memory Namespace) | 必填 | 共享枚举或会话私有;见 [dictionary-memory-namespace](../../../../vv-prd/dictionaries/core/dictionary-memory-namespace.md) |
+| namespace | enum(Memory Namespace) | 必填 | 共享枚举或会话私有 |
 | session_id | text | 可空 | 共享条目与 legacy 记录为空;会话私有写入时由框架(`WithSessionID`)标记 |
 | content | text | 必填 | 自由文本知识 |
 | ttl | number(秒) | 默认 0 | 0=永不过期;>0 为惰性 on-read 过期(`now-updated_at>ttl`) |
@@ -20,7 +20,7 @@
 
 ## Session Memory
 
-**用途**:单次会话期间维护的对话级上下文,持有抽取的 facts、对话摘要与 token 估算。历史超 token budget 时摘要早期内容以腾出 token。权威:[model-session-memory.md](../../../../vv-prd/models/core/memory/model-session-memory.md)。
+**用途**:单次会话期间维护的对话级上下文,持有抽取的 facts、对话摘要与 token 估算。历史超 token budget 时摘要早期内容以腾出 token。
 
 | 属性 | 语义类型 | 约束 | 说明 |
 |------|---------|------|------|
@@ -33,7 +33,7 @@
 
 ## Vector Store
 
-**用途**:相似度召回基底——与 Memory Entry 的精确 KV 查不同,提供"找与查询最相似的 top-k 文档"(cosine)。是 Retrieval-Augmented Context 的基底:Embedder 把意图转查询向量,store 返回最相关文档,`VectorRecallSource` 渲染为单条 system 消息。框架自带 in-process `MapVectorStore` 并标准化 `VectorStore` 接口供真实后端实现。权威:[model-vector-store.md](../../../../vv-prd/models/core/memory/model-vector-store.md)。
+**用途**:相似度召回基底——与 Memory Entry 的精确 KV 查不同,提供"找与查询最相似的 top-k 文档"(cosine)。是 Retrieval-Augmented Context 的基底:Embedder 把意图转查询向量,store 返回最相关文档,`VectorRecallSource` 渲染为单条 system 消息。框架自带 in-process `MapVectorStore` 并标准化 `VectorStore` 接口供真实后端实现。
 
 | 属性 | 语义类型 | 约束 | 说明 |
 |------|---------|------|------|
@@ -45,7 +45,7 @@
 
 ## Vector Document
 
-**用途**:向量库中的单条索引项,把人类可读文本与其高维 embedding 配对以支持语义相似度检索。由 Embedder(外部 API 或 in-process `HashEmbedder`)产出,`VectorRecallSource` 在上下文构建期消费。权威:[model-vector-document.md](../../../../vv-prd/models/core/memory/model-vector-document.md)。
+**用途**:向量库中的单条索引项,把人类可读文本与其高维 embedding 配对以支持语义相似度检索。由 Embedder(外部 API 或 in-process `HashEmbedder`)产出,`VectorRecallSource` 在上下文构建期消费。
 
 | 属性 | 语义类型 | 约束 | 说明 |
 |------|---------|------|------|

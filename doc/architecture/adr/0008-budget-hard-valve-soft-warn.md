@@ -33,6 +33,6 @@ LLM 调用产生真实成本。无上限时,失控的代理循环或异常请求
 
 ## References
 
-- `specs/domains/core/budget/`、`specs/domains/core/cost-tracking/`、`specs/constitution.md` § 4
+- `doc/domains/core/budget/`、`doc/domains/core/cost-tracking/`、`doc/constitution.md` § 4
 - 代码:`vv/setup/`(中间件链)、预算 tracker
 - 相关:[0006](0006-pure-go-sqlite-memory-backend.md)

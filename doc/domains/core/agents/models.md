@@ -1,6 +1,6 @@
 # agents — 实体模型
 
-本领域的实体模型。完整字段权威清单引用 [model-agent](../../../../vv-prd/models/core/agents/model-agent.md);枚举见 [dictionary-agent-type](../../../../vv-prd/dictionaries/core/dictionary-agent-type.md) 与 [dictionary-tool-access-level](../../../../vv-prd/dictionaries/core/dictionary-tool-access-level.md)。源码:`vv/registries/`、`vv/agents/`。
+本领域的实体模型。源码:`vv/registries/`、`vv/agents/`。
 
 ## AgentDescriptor
 
@@ -27,7 +27,7 @@
 | task | ReAct 循环代理,带可选工具访问 | agents(coder/researcher/reviewer + 内部 planner) |
 | orchestrator | 任务理解、分解为 DAG、分发子代理、聚合结果 | orchestration |
 
-完整定义见 [dictionary-agent-type](../../../../vv-prd/dictionaries/core/dictionary-agent-type.md)。本领域的专家代理均为 `task` 型。
+本领域的专家代理均为 `task` 型。
 
 ## ToolProfile / ToolCapability
 
@@ -47,7 +47,7 @@
 | Execute | bash(受超时 / 路径 guardian 约束) |
 | Search | glob + grep |
 
-**四档预设**(与 [dictionary-tool-access-level](../../../../vv-prd/dictionaries/core/dictionary-tool-access-level.md) 对齐):
+**四档预设**:
 
 | Profile | Capabilities | 典型代理 |
 |---------|-------------|---------|
@@ -77,7 +77,7 @@
 | ExtraContextSources | reference 集合 | 追加到 ContextBuilder 的 Source(Plan Workspace / Session Tree 视图) |
 | IterationStore / BuildReportSink / CheckpointFailureCB | reference | checkpoint / 报告归档 / 失败计数接缝(均 nil=零成本路径) |
 
-**关系**:由 AgentDescriptor.Factory 消费,产出 `agent.Agent`;各接缝的注入策略见 [design.md](design.md)「Factory + profile 装配模式」。完整字段与 max_iterations/token_budget/working_dir 等属性的权威定义见 [model-agent](../../../../vv-prd/models/core/agents/model-agent.md)。
+**关系**:由 AgentDescriptor.Factory 消费,产出 `agent.Agent`;各接缝的注入策略见 [design.md](design.md)「Factory + profile 装配模式」。
 
 ## 实体关系
 

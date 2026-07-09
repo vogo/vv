@@ -42,5 +42,5 @@
 
 ## References
 
-- `specs/domains/core/agents/`、`specs/domains/core/tools/`
+- `doc/domains/core/agents/`、`doc/domains/core/tools/`
 - 代码:`vv/registries/tool_access.go`、`vv/agents/`

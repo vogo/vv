@@ -1,6 +1,6 @@
 # 业务术语表(Glossary)
 
-跨多个领域出现的业务术语集中定义于此,各领域 `spec.md` 引用而不重复定义。仅在某领域内部使用的术语,定义在该领域的 spec 数据字典中。枚举值的完整清单见 `shared/data-conventions/dictionaries.md`(回链 `vv-prd/dictionaries/`)。
+跨多个领域出现的业务术语集中定义于此,各领域 `spec.md` 引用而不重复定义。仅在某领域内部使用的术语,定义在该领域的 spec 数据字典中。枚举值的完整清单见 `shared/data-conventions/dictionaries.md`。
 
 ## 核心角色与代理
 

@@ -19,8 +19,6 @@ vv 的工程定位是 **挑选、组合、配置** vage 的可组合代理类型
 | **外部系统** | 以编程方式消费 vv HTTP API 的自动化系统与 CI/CD 流水线 |
 | **上游 LLM IDE** | 通过 MCP 协议把 vv 代理当作工具调用的 Claude Desktop / Cursor / Cline / Goose 等客户端 |
 
-完整角色与权限矩阵见 `vv-prd/architecture/roles.md`。
-
 ## 核心价值主张
 
 - **统一前门 Primary Assistant**:单一入口,路由由模型以工具调用方式自行承担,而非前置意图分类管道。
@@ -35,7 +33,7 @@ vv 的工程定位是 **挑选、组合、配置** vage 的可组合代理类型
 
 ### 覆盖(Covers)
 
-配置加载与 cwd 捕获、内建工具注册、四类专家代理 + Primary 编排、动态子代理、三层记忆、上下文压缩、token/成本追踪、session/daily 预算、CLI/HTTP/MCP 三模式、工作区与命令安全护栏、工具结果注入扫描、MCP 凭据过滤、trace 日志、离线评测。逐条清单见 `vv-prd/overview.md` § Covers。
+配置加载与 cwd 捕获、内建工具注册、四类专家代理 + Primary 编排、动态子代理、三层记忆、上下文压缩、token/成本追踪、session/daily 预算、CLI/HTTP/MCP 三模式、工作区与命令安全护栏、工具结果注入扫描、MCP 凭据过滤、trace 日志、离线评测。
 
 ### 不覆盖(Does Not Cover — 全局 Non-Goals)
 
@@ -48,8 +46,6 @@ vv 的工程定位是 **挑选、组合、配置** vage 的可组合代理类型
 - 记忆加密;trace 载荷的 PII / 密钥脱敏。
 - 从 JSONL trace 恢复会话;OpenTelemetry / Langfuse 导出。
 - 历史跨会话成本日志;货币换算(仅 USD)。
-
-逐条清单与每条的理由见 `vv-prd/overview.md` § Does Not Cover。
 
 ## 干系人
 
@@ -65,4 +61,3 @@ vv 的工程定位是 **挑选、组合、配置** vage 的可组合代理类型
 - 架构总览:[architecture/architecture.md](architecture/architecture.md)
 - 领域索引:[domains/core/core-overview.md](domains/core/core-overview.md)
 - 全局硬约束:[constitution.md](constitution.md)
-- 制品目录:`vv-prd/`

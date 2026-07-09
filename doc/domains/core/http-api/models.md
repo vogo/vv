@@ -1,12 +1,12 @@
 # http-api 领域模型(models)
 
-本领域只持久化一个实体(Async Task);其余两类是请求生命周期内的信封/事件结构。完整字段以 vv-prd 为准,此处给业务语义类型与关系。跨领域术语见 [../../../glossary.md](../../../glossary.md)。
+本领域只持久化一个实体(Async Task);其余两类是请求生命周期内的信封/事件结构。此处给业务语义类型与关系。跨领域术语见 [../../../glossary.md](../../../glossary.md)。
 
 ---
 
 ## 1. Async Task
 
-**用途**:async 模式(`POST /v1/agents/{id}/async`)下后台代理执行的句柄。跟踪状态、完成时存结果与 usage、支持取消。完整定义见 [../../../../vv-prd/models/core/server/model-async-task.md](../../../../vv-prd/models/core/server/model-async-task.md)。
+**用途**:async 模式(`POST /v1/agents/{id}/async`)下后台代理执行的句柄。跟踪状态、完成时存结果与 usage、支持取消。
 
 | 属性 | 业务语义类型 | 必填 | 说明 |
 |------|-------------|------|------|
@@ -20,13 +20,13 @@
 
 **关系**:每个 Task 关联一个 Agent(由该 agent 创建)。
 
-**状态**:状态机见 [spec.md](spec.md)「States & transitions」;值与排序见 [../../../../vv-prd/dictionaries/core/dictionary-task-status.md](../../../../vv-prd/dictionaries/core/dictionary-task-status.md)。pending/running 为活动态(可取消),completed/failed/cancelled 为终态。
+**状态**:状态机见 [spec.md](spec.md)「States & transitions」。pending/running 为活动态(可取消),completed/failed/cancelled 为终态。
 
 ---
 
 ## 2. HTTP Request / Response 信封
 
-**用途**:三种交互模式共享的请求/响应包装。请求与响应的**全字段**由 vv-prd applications/api/pages 承载(`003-run-agent` / `004-stream-agent` / `005-async-agent` 及 memory/sessions/eval 各 page);此处只列共享骨架。
+**用途**:三种交互模式共享的请求/响应包装;此处只列共享骨架。
 
 ### Request 信封(RunRequest)
 
@@ -55,7 +55,7 @@
 
 ## 3. SSE 事件
 
-**用途**:streaming 模式(`POST /v1/agents/{id}/stream`)下经 `text/event-stream` 推送的事件流;类型与 CLI 模式一致(vage 事件总线统一)。逐事件字段见 [../../../../vv-prd/procedures/core/agent-execution/procedure-streaming-request.md](../../../../vv-prd/procedures/core/agent-execution/procedure-streaming-request.md)。
+**用途**:streaming 模式(`POST /v1/agents/{id}/stream`)下经 `text/event-stream` 推送的事件流;类型与 CLI 模式一致(vage 事件总线统一)。
 
 | 类别 | 事件类型 | 关键载荷 |
 |------|----------|----------|
@@ -75,7 +75,7 @@
 
 ### 附:Pending Interaction(待回应记录)
 
-**用途**:`ask_user` 在 stream/async 下的服务端待回应记录,支撑反向 RPC(HTTP-R4)。完整流程见 [../../../../vv-prd/procedures/core/cli/procedure-http-user-question.md](../../../../vv-prd/procedures/core/cli/procedure-http-user-question.md)。
+**用途**:`ask_user` 在 stream/async 下的服务端待回应记录,支撑反向 RPC(HTTP-R4)。
 
 | 属性 | 业务语义类型 | 说明 |
 |------|-------------|------|

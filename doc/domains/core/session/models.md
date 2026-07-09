@@ -1,8 +1,6 @@
 # session — Domain Models
 
-本领域四个实体共用字符串 `session_id`、同一存储根。下表为业务语义视图;完整字段、约束与底层文件布局引用 vv-prd 模型,不在此复述。
-
-- 完整字段:[vv-prd/models/core/session/](../../../../vv-prd/models/core/session/) 与 [workspace/model-plan-workspace.md](../../../../vv-prd/models/core/workspace/model-plan-workspace.md)
+本领域四个实体共用字符串 `session_id`、同一存储根。下表为业务语义视图。
 
 实体关系总览:
 
@@ -34,7 +32,7 @@ erDiagram
 
 **关系**:1:1 共寿 Plan Workspace;0..1 拥有 Session Tree;承载全量 Trace Event(events.jsonl,行格式同 Trace File);与 Session Memory 共 session_id(正交)。
 
-**状态**:`state` 是标签,任意切换不影响事件追加;真正生命周期由共根目录的存在与否表达(Delete 即一次 RemoveAll)。详见 [model-persistent-session.md](../../../../vv-prd/models/core/session/model-persistent-session.md)。
+**状态**:`state` 是标签,任意切换不影响事件追加;真正生命周期由共根目录的存在与否表达(Delete 即一次 RemoveAll)。
 
 ## Plan Workspace
 
@@ -57,7 +55,7 @@ erDiagram
 
 **关系**:1:1 共寿 Persistent Session(共 session_id、共目录根、随 Session.Delete 一并删);写入触发 `workspace.plan_updated` / `workspace.note_written` 事件;与 Session Memory 共 session_id。
 
-**状态**:懒创建(首次写触发);超 MaxPlanBytes 时注入 prompt 截断保留尾部;删除随共根 RemoveAll。详见 [model-plan-workspace.md](../../../../vv-prd/models/core/workspace/model-plan-workspace.md)。
+**状态**:懒创建(首次写触发);超 MaxPlanBytes 时注入 prompt 截断保留尾部;删除随共根 RemoveAll。
 
 ## Session Tree
 
@@ -73,7 +71,7 @@ erDiagram
 
 **关系**:与 Persistent Session 共 session_id、同根(DELETE 自动清理);拥有 Tree Node 字典(按 id 寻址);与 Plan Workspace 互补(plan.md 给人看,tree 给 LLM 导航,二者经 `vctx.Source` 注入 prompt)。
 
-**状态**:折叠由 Promotion 驱动,触发器 `AnyOf(ChildrenCount, SubtreeBytes [, AllChildrenDone])`;auto-enable 门控控制是否渲染(SESS-R6)。事件:`session_tree.updated` / `.promotion.started|completed|failed`。详见 [model-session-tree.md](../../../../vv-prd/models/core/session/model-session-tree.md)。
+**状态**:折叠由 Promotion 驱动,触发器 `AnyOf(ChildrenCount, SubtreeBytes [, AllChildrenDone])`;auto-enable 门控控制是否渲染(SESS-R6)。事件:`session_tree.updated` / `.promotion.started|completed|failed`。
 
 ## Tree Node
 
@@ -102,4 +100,4 @@ erDiagram
 
 **关系**:属于 Session Tree(经 `Nodes[id]` 反查);父子(`parent`/`children`,root.parent="");`content_ref` 引用 Workspace File。
 
-**状态**:两个正交维度——生命周期 `status`(由 LLM 经 `tree_*` 工具驱动)与折叠标志 `promoted`(状态机见 [spec.md](spec.md))。可变字段:title/summary/status/content_ref/embedding_id/evidence/supersedes/pinned/promoted/metadata;不可变:type/parent(改值返回 `ErrImmutableField`)。删除约束:仅叶节点可 DeleteNode(非叶 `ErrHasChildren`),root 经 DeleteTree 整棵清(幂等)。详见 [model-tree-node.md](../../../../vv-prd/models/core/session/model-tree-node.md)。
+**状态**:两个正交维度——生命周期 `status`(由 LLM 经 `tree_*` 工具驱动)与折叠标志 `promoted`(状态机见 [spec.md](spec.md))。可变字段:title/summary/status/content_ref/embedding_id/evidence/supersedes/pinned/promoted/metadata;不可变:type/parent(改值返回 `ErrImmutableField`)。删除约束:仅叶节点可 DeleteNode(非叶 `ErrHasChildren`),root 经 DeleteTree 整棵清(幂等)。

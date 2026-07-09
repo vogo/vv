@@ -25,12 +25,6 @@
 | [design.md](design.md) | 数据集模型与执行策略、六评测器表、默认组合零成本理由、CLI vs HTTP 入口、并发/超时控制、退出码、与可观测性的关系、技术取舍 |
 | [models.md](models.md) | Eval Dataset、Eval Case、Evaluator、Eval Report / Summary 实体模型 |
 
-## vv-prd 对照
-
-- 流程:[../../../../vv-prd/procedures/core/eval/procedure-offline-eval.md](../../../../vv-prd/procedures/core/eval/procedure-offline-eval.md)
-- 应用页签:[../../../../vv-prd/applications/api/pages/core/eval/001-run-eval.md](../../../../vv-prd/applications/api/pages/core/eval/001-run-eval.md)
-- 字典:[dictionary-evaluator-name](../../../../vv-prd/dictionaries/core/dictionary-evaluator-name.md)
-
 ## 关联不变量
 
 - `-eval` 评测与 CLI 单提示(`-p`)、`--mode http|mcp` 互斥,见 [glossary.md](../../../glossary.md)「运行模式」小节。

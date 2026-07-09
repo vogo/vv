@@ -28,13 +28,6 @@
 | [design.md](design.md) | 三入口(交互式 TUI / 单提示 / 评测)、权限模式机制、确认与 ask_user 对话框、流式渲染、状态栏、内建命令、上下文压缩通知、技术取舍 |
 | [models.md](models.md) | CLI Session、CLI Message、权限模式状态 实体模型 |
 
-## vv-prd 对照
-
-- 模型:[../../../../vv-prd/models/core/cli/](../../../../vv-prd/models/core/cli/)(model-cli-session / model-cli-message)
-- 流程:[../../../../vv-prd/procedures/core/cli/](../../../../vv-prd/procedures/core/cli/)(startup / message-processing / tool-confirmation / runtime-permission-mode-switch / user-question / shutdown)
-- 应用与页签:[../../../../vv-prd/applications/cli/](../../../../vv-prd/applications/cli/)(application-cli / pages:001-main-conversation-view / 002-confirmation-dialog / 003-user-question-dialog)
-- 字典:[dictionary-permission-mode](../../../../vv-prd/dictionaries/core/dictionary-permission-mode.md)、[dictionary-confirmation-action](../../../../vv-prd/dictionaries/core/dictionary-confirmation-action.md)、[dictionary-cli-session-status](../../../../vv-prd/dictionaries/core/dictionary-cli-session-status.md)、[dictionary-cli-message-role](../../../../vv-prd/dictionaries/core/dictionary-cli-message-role.md)
-
 ## 关联不变量
 
 - 权限模式与 bash 风险分级见 [glossary.md](../../../glossary.md)「工具与安全」「运行模式」小节。

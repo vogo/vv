@@ -1,6 +1,6 @@
 # memory 领域 Spec
 
-> 本文件写 **WHAT / WHY**:三层记忆的职责边界、访问控制不变量与状态语义。实现细节(磁盘布局、后端、压缩算法)见 [design.md](design.md);字段全清单见 [models.md](models.md) 与 [vv-prd/models/core/memory/](../../../../vv-prd/models/core/memory/);流程逐步见 [vv-prd/procedures/core/memory/](../../../../vv-prd/procedures/core/memory/)。
+> 本文件写 **WHAT / WHY**:三层记忆的职责边界、访问控制不变量与状态语义。实现细节(磁盘布局、后端、压缩算法)见 [design.md](design.md);字段全清单见 [models.md](models.md)。
 
 ## Overview
 
@@ -26,11 +26,11 @@ memory 领域把 vage 的记忆抽象组合为 **三层记忆**,并叠加 vv 特
 
 ## Business rules
 
-> 规则 ID 以 `MEM-R*` 标注供 feature spec / 测试引用。底层逐步规则(MEM-01…MEM-13)由 vv-prd 两份 procedure 承载,本表只固化 **不变量与边界**,不复述步骤。
+> 规则 ID 以 `MEM-R*` 标注供 feature spec / 测试引用。底层逐步规则(MEM-01…MEM-13)不在本表展开,本表只固化 **不变量与边界**,不复述步骤。
 
 | ID | 规则 | 为什么 |
 |----|------|--------|
-| **MEM-R1** | **三层职责边界**:working 仅存活于单次请求执行,结束即弃,不落盘;session 存活于一次会话,持有事实 + 摘要;persistent 跨会话与重启长存。上层不得把某层用作另一层(如把每请求中间结果写入 persistent)。回链 vv-prd MEM-01/02/03。 | 三层寿命与范围不同;混用会污染长期记忆或丢失上下文 |
+| **MEM-R1** | **三层职责边界**:working 仅存活于单次请求执行,结束即弃,不落盘;session 存活于一次会话,持有事实 + 摘要;persistent 跨会话与重启长存。上层不得把某层用作另一层(如把每请求中间结果写入 persistent)。 | 三层寿命与范围不同;混用会污染长期记忆或丢失上下文 |
 | **MEM-R2** | **共享 vs 会话私有 namespace**:共享 namespace 是 **约定枚举**(`project` / `user` / `conventions` / `notes` / `default`),跨会话可读;任何不在此清单的 namespace 一律视为会话私有。namespace 名字是约定而非自由文本。 | 防止"每个代理自己起名"导致碎片化;让 user-path 能静态判定可写范围 |
 | **MEM-R3** | **会话私有访问控制不变量**(宪法 § 4):会话私有条目绑定写入时的 `session_id`;其他会话读返回 `not-found`,改/删返回 `ErrSessionForbidden`。代理仅能写当前会话(context 携带 `WithSessionID`)。 | 安全与隔离 > 功能;一个会话不得窥探/篡改另一会话的私有记忆 |
 | **MEM-R4** | **user-path 仅共享**:CLI `/memory` 与 HTTP `/v1/memory/*` 走 user-path(`WithUserPath`),只能 CRUD 共享 namespace;对会话私有 namespace 的写/删返回 forbidden(HTTP 403 / CLI forbidden 消息)。 | 避免前端误改某会话的私有内存;user-path 无会话身份,不能伪装成某会话 |
@@ -41,7 +41,7 @@ memory 领域把 vage 的记忆抽象组合为 **三层记忆**,并叠加 vv 特
 
 ### 上下文组装优先级
 
-组装交给代理的上下文时:**persistent 记忆 → session 摘要 → 近期 facts**(回链 vv-prd MEM-07)。仅 Coder 默认渲染 persistent 条目(项目级约定),其他代理默认不读以避免 prompt 膨胀(实现见 design.md)。
+组装交给代理的上下文时:**persistent 记忆 → session 摘要 → 近期 facts**。仅 Coder 默认渲染 persistent 条目(项目级约定),其他代理默认不读以避免 prompt 膨胀(实现见 design.md)。
 
 ## States & transitions
 
@@ -114,7 +114,7 @@ flowchart LR
 
 ## Data dictionary
 
-仅本领域内部术语;跨域术语见 [glossary](../../../glossary.md),枚举完整清单见 vv-prd 字典。
+仅本领域内部术语;跨域术语见 [glossary](../../../glossary.md)。
 
 | 术语 | 定义 |
 |------|------|

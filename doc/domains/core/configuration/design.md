@@ -1,6 +1,6 @@
 # configuration — Domain Design
 
-数据模型见 [models.md](models.md);字段语义详见 YAML 注释与 [model-configuration](../../../../vv-prd/models/core/config/model-configuration.md)。
+数据模型见 [models.md](models.md);字段语义详见 YAML 注释。
 
 ## 1. 配置来源优先级链
 

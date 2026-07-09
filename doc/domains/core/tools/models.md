@@ -1,6 +1,6 @@
 # tools 领域实体模型(models)
 
-> 业务语义类型(text / boolean / enum / number / structured / reference)。完整字段定义见 [../../../../vv-prd/models/core/tools/model-tool.md](../../../../vv-prd/models/core/tools/model-tool.md);业务行为见 [spec.md](spec.md);机制见 [design.md](design.md)。枚举值清单回链 vv-prd/dictionaries/。
+> 业务语义类型(text / boolean / enum / number / structured / reference)。业务行为见 [spec.md](spec.md);机制见 [design.md](design.md)。
 
 ## Tool / ToolDef
 
@@ -11,7 +11,7 @@
 | name | text | 是 | 唯一工具名(bash/read/write/edit/glob/grep/web_fetch/web_search/ask_user/todo_write) |
 | description | text | 是 | 给 LLM 看的能力描述,用于工具选择 |
 | parameters | structured | 是 | JSON Schema 入参定义,每个工具不同 |
-| source | enum([tool-source](../../../../vv-prd/dictionaries/core/dictionary-tool-source.md)) | 是 | local(内建)/ mcp / agent;MVP 全为 local |
+| source | enum(tool-source) | 是 | local(内建)/ mcp / agent;MVP 全为 local |
 | read_only | boolean | 是 | 是否仅读取观察而不改状态;决定 plan 模式可用性(TOOLS-R1) |
 
 **关系**:与 Agent 多对多(经注册表);由 Configuration 提供构造参数(超时、工作目录)。
@@ -27,7 +27,7 @@
 
 四档预设及能力→工具映射见 [design.md](design.md) § 能力分级。
 
-**关系**:被 AgentDescriptor(agents 领域)持有;`ProfileByName` 供动态代理(orchestration 领域)按 [tool-access-level](../../../../vv-prd/dictionaries/core/dictionary-tool-access-level.md) 解析;`BuildRegistry` 据此产出 `tool.Registry`。
+**关系**:被 AgentDescriptor(agents 领域)持有;`ProfileByName` 供动态代理(orchestration 领域)按 tool-access-level 解析;`BuildRegistry` 据此产出 `tool.Registry`。
 
 ## Bash 分级结果
 
@@ -35,7 +35,7 @@
 
 | 属性 | 类型 | 说明 |
 |------|------|------|
-| tier | enum([bash-risk-tier](../../../../vv-prd/dictionaries/core/dictionary-bash-risk-tier.md)) | safe / caution / dangerous / blocked;整条命令取所有子命令最大档 |
+| tier | enum(bash-risk-tier) | safe / caution / dangerous / blocked;整条命令取所有子命令最大档 |
 | matched_rules | reference 集合 | 命中的规则(默认库 + 用户 YAML 扩展) |
 | sub_commands | text 集合 | 按 `;`/`&&`/`||`/`$(...)`拆解后的子命令 |
 
@@ -49,7 +49,7 @@
 |------|------|------|
 | rule_hits | reference 集合 | 命中的规则名(20 规则包),含 `__truncated` 观测标记 |
 | severity | enum | Low / Medium / High(命中规则的最高档) |
-| action | enum([tool-result-injection-action](../../../../vv-prd/dictionaries/core/dictionary-tool-result-injection-action.md)) | log / rewrite / block;High 达 `block_on_severity` 无条件 block |
+| action | enum(tool-result-injection-action) | log / rewrite / block;High 达 `block_on_severity` 无条件 block |
 | direction | enum | guard.DirectionToolResult(固定) |
 | snippet | text | 命中片段(观测用) |
 

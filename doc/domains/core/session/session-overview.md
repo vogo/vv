@@ -31,7 +31,6 @@
 | [design.md](design.md) | 三子系统共根目录、启用关系表、元数据/事件流分离 + 异步 hook、Plan Workspace 协作语义、折叠器三档 + 触发 Any-of、auto-enable 门控、写树镜像、CLI/HTTP 入口、共根删除、技术取舍 |
 | [models.md](models.md) | Persistent Session、Plan Workspace、Session Tree、Tree Node 实体模型 |
 
-## vv-prd 对照
+## 关联文档
 
-- 模型:[../../../../vv-prd/models/core/session/](../../../../vv-prd/models/core/session/)(model-persistent-session.md、model-session-tree.md、model-tree-node.md)、[../../../../vv-prd/models/core/workspace/model-plan-workspace.md](../../../../vv-prd/models/core/workspace/model-plan-workspace.md)
 - 术语:[../../../glossary.md](../../../glossary.md);共根删除一致性见 [../../../constitution.md](../../../constitution.md) § 4
