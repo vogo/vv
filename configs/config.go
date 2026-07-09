@@ -705,6 +705,10 @@ func Load(path string, explicit bool) (*Config, error) {
 
 	applyEnvOverrides(cfg)
 
+	// Anthropic env fallback runs after VV_* overrides (so they keep priority)
+	// and before defaults (so an empty provider is not yet frozen to openai).
+	applyAnthropicEnvFallback(cfg)
+
 	applyDefaults(cfg)
 
 	if err := Validate(cfg); err != nil {

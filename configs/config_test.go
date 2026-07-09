@@ -214,6 +214,10 @@ llm:
 		t.Fatal(err)
 	}
 
+	// Ensure ambient ANTHROPIC_* (which the Anthropic env fallback consults
+	// when provider is empty) does not flip this openai-default assertion.
+	clearAnthropicEnv(t)
+
 	cfg, err := Load(path, true)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -244,6 +248,224 @@ llm:
 
 	if cfg.LLM.BaseURL != "" {
 		t.Errorf("base_url = %q, want empty for anthropic", cfg.LLM.BaseURL)
+	}
+}
+
+// clearAnthropicEnv unsets the three ANTHROPIC_* variables (and VV_LLM_*
+// provider) for the duration of the test so that ambient values on the host —
+// exactly the environment this fallback targets — do not perturb assertions
+// that expect the non-anthropic path. t.Setenv also blocks t.Parallel, which
+// keeps these Load tests from racing on process-global env state.
+func clearAnthropicEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_MODEL", "")
+}
+
+func TestLoad_AnthropicEnvFallback_APIKeyOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-fallback")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != "anthropic" {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "anthropic")
+	}
+
+	if cfg.LLM.APIKey != "sk-ant-fallback" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-ant-fallback")
+	}
+
+	// Anthropic provider must NOT acquire the openai default base URL.
+	if cfg.LLM.BaseURL != "" {
+		t.Errorf("base_url = %q, want empty for anthropic fallback", cfg.LLM.BaseURL)
+	}
+
+	// The inferred config must build an Anthropic-protocol client.
+	client, err := NewLLMClient(cfg.LLM)
+	if err != nil {
+		t.Fatalf("NewLLMClient: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestLoad_AnthropicEnvFallback_PerFieldFill(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+	t.Setenv("ANTHROPIC_BASE_URL", "https://anthropic.example/v1")
+	t.Setenv("ANTHROPIC_MODEL", "claude-sonnet-4")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != "anthropic" {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "anthropic")
+	}
+
+	if cfg.LLM.BaseURL != "https://anthropic.example/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://anthropic.example/v1")
+	}
+
+	if cfg.LLM.Model != "claude-sonnet-4" {
+		t.Errorf("model = %q, want %q", cfg.LLM.Model, "claude-sonnet-4")
+	}
+
+	// ANTHROPIC_API_KEY was not set, so APIKey must stay empty (not
+	// spuriously written from another field).
+	if cfg.LLM.APIKey != "" {
+		t.Errorf("api_key = %q, want empty (ANTHROPIC_API_KEY unset)", cfg.LLM.APIKey)
+	}
+}
+
+func TestLoad_AnthropicEnvFallback_DoesNotOverrideExplicitFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Provider empty on purpose (so the fallback fires), but api_key/model
+	// already supplied via YAML must be preserved.
+	content := `
+llm:
+  api_key: "yaml-key"
+  model: "yaml-model"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-fallback")
+	t.Setenv("ANTHROPIC_MODEL", "claude-anthropic-model")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://anthropic.example/v1")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != "anthropic" {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "anthropic")
+	}
+
+	// YAML values win over ANTHROPIC_* fallback.
+	if cfg.LLM.APIKey != "yaml-key" {
+		t.Errorf("api_key = %q, want %q (YAML wins)", cfg.LLM.APIKey, "yaml-key")
+	}
+
+	if cfg.LLM.Model != "yaml-model" {
+		t.Errorf("model = %q, want %q (YAML wins)", cfg.LLM.Model, "yaml-model")
+	}
+
+	// base_url was empty in YAML, so the fallback fills it.
+	if cfg.LLM.BaseURL != "https://anthropic.example/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://anthropic.example/v1")
+	}
+}
+
+func TestLoad_AnthropicEnvFallback_VVLLMTakesPriority(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+	// Explicit openai provider via VV_LLM_PROVIDER must block the fallback.
+	t.Setenv("VV_LLM_PROVIDER", "openai")
+	t.Setenv("VV_LLM_API_KEY", "vv-key")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-fallback")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != "openai" {
+		t.Errorf("provider = %q, want %q (VV_LLM_PROVIDER wins)", cfg.LLM.Provider, "openai")
+	}
+
+	if cfg.LLM.APIKey != "vv-key" {
+		t.Errorf("api_key = %q, want %q (VV_LLM_API_KEY wins)", cfg.LLM.APIKey, "vv-key")
+	}
+
+	// openai provider keeps its default base URL.
+	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
+	}
+}
+
+func TestLoad_AnthropicEnvFallback_YAMLProviderTakesPriority(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-fallback")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != "openai" {
+		t.Errorf("provider = %q, want %q (YAML provider wins)", cfg.LLM.Provider, "openai")
+	}
+
+	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
+	}
+}
+
+func TestLoad_NoAnthropicEnv_DefaultsToOpenAI(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != "" {
+		t.Errorf("provider = %q, want empty (openai default path)", cfg.LLM.Provider)
+	}
+
+	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
 	}
 }
 
