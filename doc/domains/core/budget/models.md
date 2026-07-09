@@ -1,10 +1,6 @@
 # budget 领域实体模型(models)
 
-本文件给出 budget 领域三个实体的领域模型(用途 + 属性 + 关系 + 状态)。完整字段、env 覆盖、YAML 路径等细粒度引用 vv-prd,不在此复述:
-
-- [vv-prd/models/core/budget/model-budget-config.md](../../../../vv-prd/models/core/budget/model-budget-config.md)
-- [vv-prd/models/core/budget/model-budget-tracker.md](../../../../vv-prd/models/core/budget/model-budget-tracker.md)
-- [vv-prd/dictionaries/core/dictionary-budget-scope.md](../../../../vv-prd/dictionaries/core/dictionary-budget-scope.md)
+本文件给出 budget 领域三个实体的领域模型(用途 + 属性 + 关系 + 状态)。
 
 ---
 
@@ -12,7 +8,7 @@
 
 **用途**:`vv.yaml` 中 `budget:` 块映射出的声明式上限,驱动 session / daily 两层 enforcement。每字段 opt-in——零值禁用该项;空 `budget` 块整体关闭 enforcement(零成本路径,BUDGET-R5)。
 
-**属性**(摘要,完整见 [vv-prd model-budget-config](../../../../vv-prd/models/core/budget/model-budget-config.md)):
+**属性**(摘要):
 
 | 属性 | 类型 | 必填 | 语义 |
 |------|------|------|------|
@@ -38,7 +34,7 @@
 
 **用途**:单一 scope(session 或 daily)的运行期、并发安全累加器。pre-call `Check` 门控下一次 LLM 调用;post-call `Add` 计入 LLM 返回的用量并报告 warn / exceeded 转换;`Snapshot` 给只读视图。
 
-**属性**(摘要,完整见 [vv-prd model-budget-tracker](../../../../vv-prd/models/core/budget/model-budget-tracker.md)):
+**属性**(摘要):
 
 | 属性 | 类型 | 语义 |
 |------|------|------|
@@ -69,7 +65,7 @@
 
 **用途**:标识一个限额 / 计数器所属的聚合层,供 Budget Tracker 与 enforcement 流程判定"在哪检查、更新哪个计数器"。
 
-**值**(完整见 [vv-prd dictionary-budget-scope](../../../../vv-prd/dictionaries/core/dictionary-budget-scope.md)):
+**值**:
 
 | 值 | 描述 | 窗口 |
 |----|------|------|

@@ -10,9 +10,9 @@ budget 领域把声明式的 token / USD 上限转化为运行期的 **硬性成
 
 | 实体 | 职责 | 引用 |
 |------|------|------|
-| Budget Config | `vv.yaml` 的 `budget:` 块映射出的声明式上限;每字段 opt-in,零值禁用该项 | [models.md](models.md)#budget-config、[vv-prd model-budget-config](../../../../vv-prd/models/core/budget/model-budget-config.md) |
-| Budget Tracker | 单一 scope(session 或 daily)的并发安全累加器,持有 used / hard / warn 状态,提供 Check / Add / Snapshot | [models.md](models.md)#budget-tracker、[vv-prd model-budget-tracker](../../../../vv-prd/models/core/budget/model-budget-tracker.md) |
-| Budget Scope | 标识聚合层(run / session / daily)的字典 | [models.md](models.md)#budget-scope、[vv-prd dictionary-budget-scope](../../../../vv-prd/dictionaries/core/dictionary-budget-scope.md) |
+| Budget Config | `vv.yaml` 的 `budget:` 块映射出的声明式上限;每字段 opt-in,零值禁用该项 | [models.md](models.md)#budget-config |
+| Budget Tracker | 单一 scope(session 或 daily)的并发安全累加器,持有 used / hard / warn 状态,提供 Check / Add / Snapshot | [models.md](models.md)#budget-tracker |
+| Budget Scope | 标识聚合层(run / session / daily)的字典 | [models.md](models.md)#budget-scope |
 
 三 scope 嵌套关系:`run ⊂ session ⊂ daily`。run 由 TaskAgent Run Budget(orchestration)在代理迭代内 enforce;session / daily 由 Budget Tracker 在 LLM 调用链上 enforce。两者互补,内层更紧可先触发,外层兜底。
 
@@ -20,7 +20,7 @@ budget 领域把声明式的 token / USD 上限转化为运行期的 **硬性成
 
 | ID | 规则 | 理由 / 边界 |
 |----|------|------------|
-| **BUDGET-R1** | 超过 session 或 daily 任一已配置硬上限时,必须在 LLM 调用 **到达网络前** 拒绝;拒绝错误满足 `errors.Is(err, ErrBudgetExceeded)` | 网络前拒绝才能阻止成本发生(constitution § 4)。pre-call `Check` 实现见 [procedure-budget-enforcement](../../../../vv-prd/procedures/core/budget/procedure-budget-enforcement.md) |
+| **BUDGET-R1** | 超过 session 或 daily 任一已配置硬上限时,必须在 LLM 调用 **到达网络前** 拒绝;拒绝错误满足 `errors.Is(err, ErrBudgetExceeded)` | 网络前拒绝才能阻止成本发生(constitution § 4)。 |
 | **BUDGET-R2** | HTTP 模式下,预算拒绝 surface 为 HTTP 429 | 由 http-api 的 budget-error 中间件改写;CLI 模式下为错误消息 + 一份 `0` remaining 的快照 |
 | **BUDGET-R3** | 首次越过 `warn_percent × limit`(默认 0.8)的 Add,每层每窗口发 **一次** `EventBudgetWarn`;`warn_fired` 一次性,仅在 daily 窗口滚动时重置 | session tracker 整个进程内最多告警一次;告警是软的,不拒绝调用 |
 | **BUDGET-R4** | Daily 窗口在 UTC 00:00 滚动,滚动时清零 used 计数与 `warn_fired`;计数进程内,重启清零 | UTC 对齐避免共享主机时区歧义;不持久化是有意取舍(见 design.md),持久化 deferred 至 P1-6 |

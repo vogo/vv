@@ -14,19 +14,19 @@ http-api 是 vv `mode: http` 下的对外边界领域。它把 [orchestration](.
 
 ## Core entities
 
-实体属性表、关系与状态见 [models.md](models.md);完整字段以 vv-prd 为准。
+实体属性表、关系与状态见 [models.md](models.md)。
 
 | 实体 | 用途 | 来源 |
 |------|------|------|
-| **Async Task** | async 模式下后台代理执行的句柄:跟踪状态、完成时存结果与 usage、支持取消。 | [../../../../vv-prd/models/core/server/model-async-task.md](../../../../vv-prd/models/core/server/model-async-task.md) |
+| **Async Task** | async 模式下后台代理执行的句柄:跟踪状态、完成时存结果与 usage、支持取消。 | [models.md](models.md) |
 | **HTTP Request 信封** | 三种交互模式共享的 RunRequest:messages + session_id + options(含 `debug`)。 | applications/api/pages `003/004/005-*-agent.md` |
-| **HTTP Response 信封** | sync 的 RunResponse(messages + usage + duration + `estimated_cost_usd`)、async 的 task 视图、错误信封(`code` + `message`)。 | applications/api/pages、[../../../../vv-prd/applications/api/application-api.md](../../../../vv-prd/applications/api/application-api.md) |
-| **SSE 事件** | streaming 模式下的事件流(见下方 Domain events)。 | [../../../../vv-prd/procedures/core/agent-execution/procedure-streaming-request.md](../../../../vv-prd/procedures/core/agent-execution/procedure-streaming-request.md) |
-| **Pending Interaction** | `ask_user` 在 stream/async 下的待回应记录:interaction id + 问题 + 超时。 | [../../../../vv-prd/procedures/core/cli/procedure-http-user-question.md](../../../../vv-prd/procedures/core/cli/procedure-http-user-question.md) |
+| **HTTP Response 信封** | sync 的 RunResponse(messages + usage + duration + `estimated_cost_usd`)、async 的 task 视图、错误信封(`code` + `message`)。 | applications/api/pages |
+| **SSE 事件** | streaming 模式下的事件流(见下方 Domain events)。 | [models.md](models.md) |
+| **Pending Interaction** | `ask_user` 在 stream/async 下的待回应记录:interaction id + 问题 + 超时。 | [models.md](models.md) |
 
 ## Business rules
 
-逐步流程与端点级规则(SYNC-* / STREAM-* / ASYNC-* / ASKHTTP-*)由 vv-prd procedures 承载,不在此复述。下列为本领域的**跨端点不变量**。
+逐步流程与端点级规则(SYNC-* / STREAM-* / ASYNC-* / ASKHTTP-*)不在此复述。下列为本领域的**跨端点不变量**。
 
 | 规则 ID | 名称 | 描述 |
 |---------|------|------|
@@ -41,7 +41,7 @@ http-api 是 vv `mode: http` 下的对外边界领域。它把 [orchestration](.
 
 ## States & transitions
 
-仅 Async Task 有持久状态机;sync/streaming 是请求生命周期内的瞬态,不建模为领域状态。状态值见 [../../../../vv-prd/dictionaries/core/dictionary-task-status.md](../../../../vv-prd/dictionaries/core/dictionary-task-status.md)。
+仅 Async Task 有持久状态机;sync/streaming 是请求生命周期内的瞬态,不建模为领域状态。
 
 ```mermaid
 stateDiagram-v2

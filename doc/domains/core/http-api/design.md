@@ -55,7 +55,7 @@ vage service 层的状态码无法被本领域直接改写,但 `vv/traces/budget
 
 ## sync / stream / async 三路径
 
-三条路径调用同一 Dispatcher,差异在交付通道与成本富化的落点。逐步流程见 vv-prd/procedures/core/agent-execution/。
+三条路径调用同一 Dispatcher,差异在交付通道与成本富化的落点。
 
 ```mermaid
 flowchart TD

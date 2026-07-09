@@ -27,9 +27,6 @@
 | [design.md](design.md) | 角色分工、ToolProfile 四档模型、注册表与描述符、Factory+profile 装配、ask_user/todo_write 注入、Guard/HookManager 注入、技术取舍 |
 | [models.md](models.md) | AgentDescriptor、AgentType、ToolProfile/ToolCapability、专家代理配置 |
 
-## vv-prd 对照
+## 关联文档
 
-- 模型:[../../../../vv-prd/models/core/agents/model-agent.md](../../../../vv-prd/models/core/agents/model-agent.md)
-- 角色与权限矩阵:[../../../../vv-prd/architecture/roles.md](../../../../vv-prd/architecture/roles.md)
-- 字典:[agent-type](../../../../vv-prd/dictionaries/core/dictionary-agent-type.md) · [tool-access-level](../../../../vv-prd/dictionaries/core/dictionary-tool-access-level.md)
 - 术语:[../../../glossary.md](../../../glossary.md)

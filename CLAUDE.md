@@ -8,7 +8,7 @@
 
 ## 文档与源码对照
 
-> 原 `doc/` 设计文档已迁移并重构为项目根的 **`specs/`** DDD 规格知识库。整体架构见 `../specs/architecture/architecture.md`,领域索引见 `../specs/domains/core/core-overview.md`。细粒度制品(模型字段、流程逐步、API 页、字典枚举)见 `../vv-prd/`。
+> 原 `doc/` 设计文档已迁移并重构为项目根的 **`specs/`** DDD 规格知识库。整体架构见 `../specs/architecture/architecture.md`,领域索引见 `../specs/domains/core/core-overview.md`。
 
 每个主题对应一个 specs 领域与一个或多个源码目录:
 

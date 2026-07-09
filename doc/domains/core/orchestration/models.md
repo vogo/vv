@@ -1,6 +1,6 @@
 # orchestration 领域模型(models)
 
-> 本文件给出本领域核心实体的用途、属性、关系与状态摘要。**完整字段定义为权威**,见 `vv-prd/models/core/planner/` 与 `vv-prd/models/core/workspace/`,本文件引用而不重复展开。源码结构对照 `vv/dispatches/types.go`。业务不变量见 [spec.md](spec.md);装配实现见 [design.md](design.md)。
+> 本文件给出本领域核心实体的用途、属性、关系与状态摘要。源码结构对照 `vv/dispatches/types.go`。业务不变量见 [spec.md](spec.md);装配实现见 [design.md](design.md)。
 
 实体关系概览:
 
@@ -30,8 +30,7 @@ erDiagram
 | created_at / completed_at | datetime | 是 / 否 | 生成时间;终态时置完成时间 |
 
 - **关系**:Has many Plan Step;由 Primary(经 `plan_task`)创建。
-- **状态**:见 [spec.md](spec.md)「Task Plan 状态机」;枚举权威值见 [../../../../vv-prd/dictionaries/core/dictionary-plan-status.md](../../../../vv-prd/dictionaries/core/dictionary-plan-status.md)。
-- **完整字段**:[../../../../vv-prd/models/core/planner/model-task-plan.md](../../../../vv-prd/models/core/planner/model-task-plan.md)。
+- **状态**:见 [spec.md](spec.md)「Task Plan 状态机」。
 
 ---
 
@@ -51,8 +50,7 @@ erDiagram
 | started_at / completed_at | datetime | 否 | 状态转移时置 |
 
 - **关系**:Belongs to 一个 Task Plan;自引用 depends_on(同一 plan 内);由静态 Agent 执行或内嵌一个 Dynamic Agent Spec。
-- **状态**:见 [spec.md](spec.md)「Plan Step 状态机」;枚举权威值见 [../../../../vv-prd/dictionaries/core/dictionary-plan-step-status.md](../../../../vv-prd/dictionaries/core/dictionary-plan-step-status.md)。DAG 当前以 `Skip` 策略 + `Optional` 节点执行,单步失败致下游 `skipped`。
-- **完整字段**:[../../../../vv-prd/models/core/planner/model-plan-step.md](../../../../vv-prd/models/core/planner/model-plan-step.md)。
+- **状态**:见 [spec.md](spec.md)「Plan Step 状态机」。DAG 当前以 `Skip` 策略 + `Optional` 节点执行,单步失败致下游 `skipped`。
 
 ---
 
@@ -70,7 +68,6 @@ erDiagram
 
 - **关系**:Belongs to(embedded)Plan Step。
 - **生命周期**:执行前由 `buildDynamicAgent` 构造为 `dynamic_<base_type>_<step_id>` 命名的 `taskagent`,执行后即弃,**不注册** 到代理注册表(见 [spec.md](spec.md) ORCH-R8、[design.md](design.md)「动态规格」)。
-- **完整字段**:[../../../../vv-prd/models/core/planner/model-dynamic-agent-spec.md](../../../../vv-prd/models/core/planner/model-dynamic-agent-spec.md)。
 
 ---
 
@@ -79,4 +76,4 @@ erDiagram
 - **用途**:每个 Persistent Session 持有的 **持久化记事板**(plan.md + notes/),把"任务在做什么、做到哪一步、有哪些关键事实"从短期 prompt 剥离到磁盘,使 LLM 跨 run / 跨进程恢复时立即看到上次进度。
 - **与本领域的关系**:Primary 经辅助动作 `plan_update` / `notes_write` / `notes_read` 读写;所有 dispatchable agent 经 `WorkspaceSource` 只读注入 prompt。它是 Primary 跨会话规划的载体,但 **存储、容量约束、生命周期、删除一致性均属 `session` 领域**,本领域不重复定义。
 - **与瞬态 Task Plan 的区别**:Task Plan 是一次请求内的 DAG 执行结构(瞬态);Plan Workspace 的 plan.md 是跨会话存活的人类可读任务大纲(持久化)。二者不同名同概念,勿混。
-- **完整定义**:[../../../../vv-prd/models/core/workspace/model-plan-workspace.md](../../../../vv-prd/models/core/workspace/model-plan-workspace.md);领域归属见 `specs/domains/core/session/`。
+- **领域归属**:见 `specs/domains/core/session/`。

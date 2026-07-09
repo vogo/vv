@@ -28,8 +28,7 @@
 | [design.md](design.md) | 代理暴露设计、两种传输对比、网络暴露安全门、白名单/expose_dispatcher、ask_user 非交互 interactor、凭据过滤在 server 边界、安全层复用、技术取舍 |
 | [models.md](models.md) | MCP Server 配置、暴露工具描述符、传输配置 |
 
-## vv-prd 对照
+## 关联文档
 
-- 应用规格:[../../../../vv-prd/applications/mcp/application-mcp.md](../../../../vv-prd/applications/mcp/application-mcp.md)
 - 安全 NFR:[../../../non-functional/security.md](../../../non-functional/security.md)(「MCP 网络暴露」+「MCP 凭据过滤」)
 - 术语:[../../../glossary.md](../../../glossary.md)(MCP 模式 / MCP 凭据过滤)

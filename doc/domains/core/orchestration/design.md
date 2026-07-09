@@ -19,8 +19,6 @@ Dispatcher 对外是一个普通的 `agent.StreamAgent`,对内只做一件事:**
 
 原管道在每一段都需要一次额外的 LLM 调用,而 Primary 把这些合并到自己的 ReAct 循环里,由模型自行决定走哪一条路径。代码中残留的 `ClassifyResult` / `IntentResult` / `SummaryPolicy` 等类型是历史兼容遗留(`vv/dispatches/types.go`),当前主路径不再驱动它们;`Dispatcher.Run` / `RunStream` 在 Primary 缺失时直接报错"classical pipeline removed"。
 
-> 注:`vv-prd/procedures/core/orchestration/procedure-orchestration.md` 仍以旧三段管道(intent 识别、Step 1.5 fast-path、Step 2–8)描述流程,与当前实现 **不一致**;以本设计为准,该 procedure 文档待回填。
-
 ## 两条物理路径
 
 请求进入后,Dispatcher 只根据递归深度二选一:

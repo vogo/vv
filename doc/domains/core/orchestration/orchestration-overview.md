@@ -25,11 +25,6 @@
 | [design.md](design.md) | 薄分发设计与三段管道废弃史、两条物理路径、Primary 四种选择、委派/规划语义、动态规格、流式 phase、递归预算传递、Session Tree 镜像、与 vage 边界 |
 | [models.md](models.md) | Task Plan、Plan Step、Dynamic Agent Spec、Plan Workspace(引用 session 领域) |
 
-## vv-prd 对照
+## 源码对照
 
-- 模型:[../../../../vv-prd/models/core/planner/](../../../../vv-prd/models/core/planner/)(task-plan / plan-step / dynamic-agent-spec)、[../../../../vv-prd/models/core/workspace/model-plan-workspace.md](../../../../vv-prd/models/core/workspace/model-plan-workspace.md)
-- 流程:[../../../../vv-prd/procedures/core/orchestration/procedure-orchestration.md](../../../../vv-prd/procedures/core/orchestration/procedure-orchestration.md)、[../../../../vv-prd/procedures/core/planner/](../../../../vv-prd/procedures/core/planner/)、[../../../../vv-prd/procedures/core/routing/procedure-routing.md](../../../../vv-prd/procedures/core/routing/procedure-routing.md)
-- 字典:[../../../../vv-prd/dictionaries/core/dictionary-plan-status.md](../../../../vv-prd/dictionaries/core/dictionary-plan-status.md)、[../../../../vv-prd/dictionaries/core/dictionary-plan-step-status.md](../../../../vv-prd/dictionaries/core/dictionary-plan-step-status.md)
 - 源码:`vv/dispatches/`(Dispatcher、Primary 中继、DAG 构建、动态代理、递归深度、phase tracker、Session Tree 镜像)
-
-> 说明:`procedure-plan-generation.md` / `procedure-plan-execution.md` / `procedure-routing.md` 均已标 **Superseded**,其职责已并入 Primary 的 ReAct 循环。`procedure-orchestration.md` 仍描述旧三段管道(含 intent 识别、fast-path),其语义在当前实现中已被统一 Primary 取代;读取该文件时以本领域 spec / design 为准。

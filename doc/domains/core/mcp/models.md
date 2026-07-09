@@ -1,6 +1,6 @@
 # mcp — 实体模型
 
-本领域的实体模型。完整配置字段权威清单引用 [application-mcp.md](../../../../vv-prd/applications/mcp/application-mcp.md)「Launch Flags」;安全约束量化见 [security.md](../../../non-functional/security.md)。源码:`vv/mcps/`(`transport.go` 定义 `Transport`/`Kind`),配置结构 `configs.MCPServerConfig`。
+本领域的实体模型。安全约束量化见 [security.md](../../../non-functional/security.md)。源码:`vv/mcps/`(`transport.go` 定义 `Transport`/`Kind`),配置结构 `configs.MCPServerConfig`。
 
 ## MCP Server 配置(`mcp.server.*`)
 
@@ -15,7 +15,7 @@
 | expose_dispatcher | enum(bool) | `false` | true 时额外暴露顶层 `dispatcher` 工具(MCP-R1) |
 | session_timeout | number(秒) | `0`(不超时) | HTTP session 空闲多久后关闭 |
 
-**关系**:被 `Serve` / `BuildServer` 消费;`agents` 经 AgentLookup 解析为具体代理(引用 [agents](../agents/) 描述符);`auth_token` / `addr` / `transport` 经 `ValidateMCPServer`(config-time)与 `ResolveTransport`(startup-time)双层校验后产出 **传输配置**。完整字段与环境变量映射见 [application-mcp.md](../../../../vv-prd/applications/mcp/application-mcp.md)。
+**关系**:被 `Serve` / `BuildServer` 消费;`agents` 经 AgentLookup 解析为具体代理(引用 [agents](../agents/) 描述符);`auth_token` / `addr` / `transport` 经 `ValidateMCPServer`(config-time)与 `ResolveTransport`(startup-time)双层校验后产出 **传输配置**。
 
 ## 暴露工具描述符(Exposed Tool)
 

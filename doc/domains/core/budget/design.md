@@ -19,7 +19,7 @@ flowchart LR
 
 最外层是硬约束:被拒绝的请求 **绝不能** 被内层 retry 放大、也 **绝不能** 被重复计数(BUDGET-R1、BUDGET-R6 的前提)。这是把预算放在最外层而非贴近网络层的根本原因——内层中间件可能放大或重试调用,只有最外层拦截才能保证"拒绝在网络前发生且仅计数一次"。
 
-调用顺序由 enforcement 流程固定为 `Check → LLM call → Add`,逐步细节见 [procedure-budget-enforcement](../../../../vv-prd/procedures/core/budget/procedure-budget-enforcement.md),不在此复述。流式调用同样在 pre-call 做 Check,把 post-call Record 推迟到 stream close,保证迟到的 usage 仍被计入。
+调用顺序由 enforcement 流程固定为 `Check → LLM call → Add`。流式调用同样在 pre-call 做 Check,把 post-call Record 推迟到 stream close,保证迟到的 usage 仍被计入。
 
 ## 两度量:token vs USD
 

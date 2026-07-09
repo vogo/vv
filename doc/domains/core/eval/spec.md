@@ -26,7 +26,7 @@ eval 领域提供 vv 的**离线评测与质量度量**能力:给定一组评测
 
 | Rule ID | 规则 | 说明 |
 |---------|------|------|
-| **EVAL-R1** | 六评测器,四个经配置暴露 | `eval.evaluators` 接受 `latency`、`cost`、`contains`、`llm_judge`;`exact_match`、`tool_call` 存在于 `vage/eval` 框架层但不经 vv 配置键暴露,仅可程序化对接 vv 评测运行器。枚举见 [dictionary-evaluator-name](../../../../vv-prd/dictionaries/core/dictionary-evaluator-name.md)。 |
+| **EVAL-R1** | 六评测器,四个经配置暴露 | `eval.evaluators` 接受 `latency`、`cost`、`contains`、`llm_judge`;`exact_match`、`tool_call` 存在于 `vage/eval` 框架层但不经 vv 配置键暴露,仅可程序化对接 vv 评测运行器。 |
 | **EVAL-R2** | 默认组合零额外成本 | 默认评测器列表为 `[latency, cost]`,二者只消费 `Actual` 中已有数据(响应时长、token 用量),**不产生额外 LLM 调用**。这保证首次使用零额外开销。 |
 | **EVAL-R3** | `llm_judge` 必须显式 opt-in | `llm_judge` 每用例多一次 LLM 调用,只有显式列入 `eval.evaluators` 才启用;启用时复用主 LLM client,模型取 `eval.llm_judge_model`,缺省回落到 `llm.model`;LLM client 缺失或模型为空 → 构建失败(HTTP 500 / 退出码 1)。 |
 | **EVAL-R4** | 退出码语义(CLI) | 所有用例通过(无 failed、无 error)→ 退出码 0;否则 → 退出码 1。CLI 评测属"短期任务模式":跑完即退出,退出码反映是否通过。 |
@@ -37,7 +37,7 @@ eval 领域提供 vv 的**离线评测与质量度量**能力:给定一组评测
 | **EVAL-R9** | 解析失败也写入报告 | JSONL 行解析失败不是致命错误:跳过该行、计入错误、并在最终报告中以合成结果 `line-N` 呈现(CLI);HTTP 路径下个别畸形用例同理以非空 `error` 计入 `error_cases` 而不中止整批。 |
 | **EVAL-R10** | 每用例独立超时计为错误 | 每用例独立 wall-clock 超时(`eval.timeout_ms`);超时被记为 `EvalResult.Error = "timeout"`,便于运维过滤;超时计入错误而非通过。 |
 
-> 各规则的实现位置(配置默认、组合策略、超时与取消的并发记账)见 [design.md](design.md);本节只声明不变量与意图,不复述代码逻辑。流程逐步对照 [procedure-offline-eval.md](../../../../vv-prd/procedures/core/eval/procedure-offline-eval.md) 的 EVAL-01…EVAL-08。
+> 各规则的实现位置(配置默认、组合策略、超时与取消的并发记账)见 [design.md](design.md);本节只声明不变量与意图,不复述代码逻辑。
 
 ## Domain events
 
