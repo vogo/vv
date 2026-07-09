@@ -39,5 +39,5 @@
 
 ## References
 
-- `specs/domains/core/memory/`、`specs/constitution.md` § 4
+- `doc/domains/core/memory/`、`doc/constitution.md` § 4
 - 代码:`vv/memories/`

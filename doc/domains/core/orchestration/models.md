@@ -76,4 +76,4 @@ erDiagram
 - **用途**:每个 Persistent Session 持有的 **持久化记事板**(plan.md + notes/),把"任务在做什么、做到哪一步、有哪些关键事实"从短期 prompt 剥离到磁盘,使 LLM 跨 run / 跨进程恢复时立即看到上次进度。
 - **与本领域的关系**:Primary 经辅助动作 `plan_update` / `notes_write` / `notes_read` 读写;所有 dispatchable agent 经 `WorkspaceSource` 只读注入 prompt。它是 Primary 跨会话规划的载体,但 **存储、容量约束、生命周期、删除一致性均属 `session` 领域**,本领域不重复定义。
 - **与瞬态 Task Plan 的区别**:Task Plan 是一次请求内的 DAG 执行结构(瞬态);Plan Workspace 的 plan.md 是跨会话存活的人类可读任务大纲(持久化)。二者不同名同概念,勿混。
-- **领域归属**:见 `specs/domains/core/session/`。
+- **领域归属**:见 `doc/domains/core/session/`。

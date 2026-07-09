@@ -60,7 +60,7 @@
 
 ## 7. 工程原则
 
-- **WHAT/HOW 分离**:`spec.md` 写业务行为,`design.md` 写实现;`specs/` 写代码无法表达的意图与边界,不复述代码逻辑。
+- **WHAT/HOW 分离**:`spec.md` 写业务行为,`design.md` 写实现;`doc/` 写代码无法表达的意图与边界,不复述代码逻辑。
 - **测试底线**:`make build` = format → lint → test 必须通过;单元测试无外部依赖;集成测试隔离在 `integrations/`。
 - **函数式选项**:工具/代理配置统一用 functional options 模式。
 - **context 贯穿**:一切跨函数边界的操作都经 `context.Context` 传递。

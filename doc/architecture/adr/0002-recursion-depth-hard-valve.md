@@ -28,12 +28,12 @@
 
 ## Compliance
 
-- 测试:必须覆盖"达深度上限切 Fallback""委派 +1 正确传递"(见 `specs/testing/testing-strategy.md`)。
+- 测试:必须覆盖"达深度上限切 Fallback""委派 +1 正确传递"(见 `doc/testing/testing-strategy.md`)。
 - 代码:任何新增的委派/规划路径必须经 context 传递并 +1 递归深度。
 
 ## References
 
-- `specs/domains/core/orchestration/`、`specs/architecture/architecture.md` § 递归预算
-- `specs/constitution.md` § 5
+- `doc/domains/core/orchestration/`、`doc/architecture/architecture.md` § 递归预算
+- `doc/constitution.md` § 5
 - 代码:`vv/dispatches/dispatch.go`、`vv/agents/primary.go`
 - 相关:[0001](0001-unified-primary-front-door.md)
