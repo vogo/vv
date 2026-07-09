@@ -184,7 +184,8 @@ func (d *Dispatcher) buildDynamicAgent(stepID string, spec *DynamicAgentSpec) (*
 
 	var opts []taskagent.Option
 
-	opts = append(opts,
+	opts = append(
+		opts,
 		taskagent.WithChatCompleter(d.llm),
 		taskagent.WithModel(model),
 		taskagent.WithSystemPrompt(prompt.StringPrompt(systemPrompt)),

@@ -377,13 +377,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.app.estimatedTokens = msg.newTokens
 		}
 		return m, m.printSystem(
-			fmt.Sprintf("[context compressed: summarized %d messages to stay within model limits]", msg.summarizedCount))
+			fmt.Sprintf("[context compressed: summarized %d messages to stay within model limits]", msg.summarizedCount),
+		)
 
 	case manualCompactResultMsg:
 		m.app.history = msg.compressed
 		m.app.estimatedTokens = msg.newTokens
 		return m, m.printSystem(
-			fmt.Sprintf("[context compressed: summarized %d messages]", msg.summarizedCount))
+			fmt.Sprintf("[context compressed: summarized %d messages]", msg.summarizedCount),
+		)
 
 	case emergencyCompactResultMsg:
 		return m.handleEmergencyCompactResult(msg)
@@ -631,7 +633,8 @@ func (m *model) invokeAgent(ctx context.Context, _ string) tea.Cmd {
 
 			if estimatedTokens > threshold {
 				compressed, newTokens, compacted, err := memory.CompactIfNeeded(
-					ctx, m.app.compactor, history, threshold)
+					ctx, m.app.compactor, history, threshold,
+				)
 				if err == nil && compacted {
 					n := len(history) - len(compressed)
 					history = compressed
