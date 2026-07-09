@@ -70,7 +70,21 @@ flowchart TD
     A8 --> out[返回 InitResult/Result 聚合句柄]
 ```
 
-顺序由隐含依赖固化:事件总线必须在 hook 注册前;记忆管理器必须在代理工厂前;Session Tree 必须在 session 之后。
+顺序由隐含依赖固化:事件总线必须在 hook 注册前;记忆管理器必须在代理工厂前;Session Tree 必须在 session 之后。**八阶段的业务依赖顺序不变**;可选子系统的装配落地为一条有序 installer 管线(见下节)。
+
+### 4.1 有序 installer 管线与资源所有权
+
+可选子系统(记忆、事件总线/session、iteration checkpoint、metrics、build_report、Session Tree、Vector、Tree↔Vector 装饰、代理装配)统一为一组**有序 `subsystemInstaller`**:每个 installer 输入 `cfg` 与可变 `Options`,就地补充 `Options`,并返回一个 `cleanup`(禁用/软降级阶段返回空 cleanup)与 `error`。`Init` 退化为**遍历该有序列表**,把每个成功阶段的 cleanup 压入一个 LIFO 栈。
+
+资源所有权按明确的交接规则流转,消灭了逐分支手写的部分回滚:
+
+- **阶段内失败自行清理**:installer 在返回 `error` 前必须先释放它本阶段已构造的局部资源——此时还没有 cleanup 进栈,是最容易形成泄漏的路径(例如 vector auto-write hook 启动失败,须先停 hook、再关本阶段刚建的 vector store)。
+- **阶段成功后由逆序栈接管**:一旦 installer 成功返回,其资源只由压入栈的 cleanup 持有;任一后续阶段失败,`Init` 统一**逆序执行全部 cleanup**,不再各分支手写清理。
+- **成功后转交 Shutdown**:全部 installer 成功时,同一 cleanup 栈转交 `InitResult.Shutdown`,按同一逆序释放;cleanup 以 `sync.Once` 包裹,保证只执行一次,避免失败回滚与正常 Shutdown 双重释放。
+
+逆序约束体现「先停止消费者、再关闭其依赖资源」:vector auto-write hook / hook manager 必须先于 vector store,所有 hook 必须先于持久化 memory store 关闭。因此栈底是 memory store(最先构造、最后释放),hook/session 次之,vector 等靠后阶段最先释放。
+
+「按需懒启动 hook manager」收敛为**唯一接缝**(`ensureHookManager`):trace / session 全关但 metrics 或 vector auto-write 仍需 hook 宿主时,由该接缝创建并启动 manager,登记其停止动作;metrics 与 vector 共用此接缝,源码中不存在第二套「manager 为空则新建」流程。
 
 ## 5. LLM 中间件链
 
@@ -141,13 +155,14 @@ Primary 不是普通 dispatchable 代理:
 
 ## 10. Shutdown 独立 3s 上下文
 
-Shutdown 在与主上下文**解耦**的独立 3 秒超时上下文执行(CONFIG-R12):
+Shutdown 在与主上下文**解耦**的独立 3 秒超时上下文执行(CONFIG-R12)。它就是装配阶段积累的同一 cleanup 栈的**逆序释放**,拿到调用方提供的独立超时上下文后依次收尾:
 
-- 关闭事件总线(trace/session 异步 hook 落盘)。
+- 停止 vector auto-write hook,关闭 vector store(如后端实现 `io.Closer`)。
+- 关闭事件总线(trace/session 异步 hook 落盘),含懒启动接缝所建 manager。
 - 关闭 memory store(SQLite 后端需 close)。
 - 关闭调试 sink。
 
-理由:主上下文在 SIGINT 那刻已被取消,若用它收尾,异步 hook 与 store 来不及写完最后一批事件。独立超时既保证有限时间内完成,又不被外层取消牵连。
+cleanup 携带 `context.Context`,使 hook 落盘的排空受这一 3s 上下文约束(而非绑定 `Background`);`sync.Once` 保证重复调用 Shutdown 不会二次释放。理由:主上下文在 SIGINT 那刻已被取消,若用它收尾,异步 hook 与 store 来不及写完最后一批事件。独立超时既保证有限时间内完成,又不被外层取消牵连。
 
 ## 11. Path 与安全边界
 
@@ -167,7 +182,7 @@ Shutdown 在与主上下文**解耦**的独立 3 秒超时上下文执行(CONFIG
 |------|------|
 | 单一构造点(装配中心) | 把"按配置组合子系统"的复杂度集中一处,让上下游各自简单 |
 | 零成本默认 | 未启用子系统不付任何运行期代价,行为等价无该特性构建 |
-| 失败回滚 | 半成品资源不泄露,启动要么完整成功要么干净退出 |
+| 失败回滚(有序 installer + 逆序 cleanup 栈) | 半成品资源不泄露,启动要么完整成功要么干净退出;逆序栈免去各分支手写部分回滚,成功后原栈转交 Shutdown |
 | 权限拦截最内层 / debug 最外层 | 前者需原始工具名做策略;后者需记录实际收到的结果 |
 | Fallback Primary 无工具、迭代=1 | 递归预算超限时的硬保险,避免失控 |
 | Shutdown 3s 独立上下文 | 主上下文已取消,需独立时限保证异步收尾写完 |
