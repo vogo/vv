@@ -2,8 +2,10 @@ package prompt_tests
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -81,7 +83,7 @@ func buildVVBinary(t *testing.T) string {
 	binary := filepath.Join(dir, "vv")
 
 	cmd := exec.Command("go", "build", "-o", binary, ".")
-	cmd.Dir = filepath.Join(projectRoot(), "vv")
+	cmd.Dir = projectRoot()
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -91,10 +93,27 @@ func buildVVBinary(t *testing.T) string {
 	return binary
 }
 
-// projectRoot returns the path to the vagents monorepo root.
+// projectRoot returns the vv module root directory (the one containing go.mod).
+// It is located dynamically by walking up from this test file's location so the
+// tests work on any machine and checkout path.
 func projectRoot() string {
-	// Working directory varies across test invocations, so use a known absolute path.
-	return "/Users/hk/workspaces/github/vogo/vagents"
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("projectRoot: unable to determine caller location")
+	}
+
+	dir := filepath.Dir(file)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			panic("projectRoot: go.mod not found walking up from " + file)
+		}
+		dir = parent
+	}
 }
 
 // filterEnv returns a copy of env with the named variables removed.
