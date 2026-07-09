@@ -65,13 +65,11 @@ func (d *Dispatcher) buildNodes(plan *Plan, req *schema.RunRequest, contextSumma
 
 			runner = dynAgent
 		} else {
-			// Existing static dispatch.
-			subAgent, ok := d.subAgents[step.Agent]
-			if !ok {
-				subAgent, ok = d.subAgents["coder"]
-				if !ok {
-					return nil, fmt.Errorf("orchestrator: no agent available for %q", step.Agent)
-				}
+			// Existing static dispatch: exact match on step.Agent always wins;
+			// only when it misses do we consult the optional configured default.
+			subAgent, err := d.resolveStaticAgent(step.Agent)
+			if err != nil {
+				return nil, err
 			}
 
 			runner = subAgent
@@ -126,6 +124,28 @@ func (d *Dispatcher) buildNodes(plan *Plan, req *schema.RunRequest, contextSumma
 	}
 
 	return nodes, nil
+}
+
+// resolveStaticAgent maps a static plan step's agent ID to a registered
+// sub-agent. Resolution order: exact match on stepAgent wins; on a miss, if a
+// DAG default agent ID is configured it is looked up; otherwise the step is
+// unresolvable and a diagnosable error is returned. The default fallback is
+// disabled unless the caller configured it via WithDAGDefaultAgentID.
+func (d *Dispatcher) resolveStaticAgent(stepAgent string) (agent.Agent, error) {
+	if subAgent, ok := d.subAgents[stepAgent]; ok {
+		return subAgent, nil
+	}
+
+	if d.dagDefaultAgentID == "" {
+		return nil, fmt.Errorf("orchestrator: no agent registered for plan step agent %q and no DAG default agent configured", stepAgent)
+	}
+
+	subAgent, ok := d.subAgents[d.dagDefaultAgentID]
+	if !ok {
+		return nil, fmt.Errorf("orchestrator: no agent registered for plan step agent %q; configured DAG default agent %q is also not registered", stepAgent, d.dagDefaultAgentID)
+	}
+
+	return subAgent, nil
 }
 
 // buildDynamicAgent creates an ephemeral taskagent from a DynamicAgentSpec.
@@ -184,7 +204,8 @@ func (d *Dispatcher) buildDynamicAgent(stepID string, spec *DynamicAgentSpec) (*
 
 	var opts []taskagent.Option
 
-	opts = append(opts,
+	opts = append(
+		opts,
 		taskagent.WithChatCompleter(d.llm),
 		taskagent.WithModel(model),
 		taskagent.WithSystemPrompt(prompt.StringPrompt(systemPrompt)),

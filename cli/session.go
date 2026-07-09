@@ -113,7 +113,8 @@ func PrintSessionList(ctx context.Context, store session.SessionStore, w io.Writ
 		if events, lerr := store.ListEvents(ctx, s.ID); lerr == nil {
 			count = len(events)
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(
+			tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			s.ID,
 			dashIfEmpty(s.AgentID),
 			dashIfEmpty(s.Title),

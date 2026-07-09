@@ -85,7 +85,8 @@ func TestSearXNG_Live_RealInstance(t *testing.T) {
 	}
 
 	reg := tool.NewRegistry()
-	if err := websearch.Register(reg,
+	if err := websearch.Register(
+		reg,
 		websearch.WithProvider(provider),
 		websearch.WithTimeout(15*time.Second),
 		websearch.WithDefaultMaxResults(5),

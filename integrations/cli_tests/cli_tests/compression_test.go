@@ -49,7 +49,8 @@ func TestIntegration_Compression_ProactiveCompactEndToEnd(t *testing.T) {
 
 	// Add turns until we exceed the threshold. Each turn ~100 tokens.
 	for i := 1; i <= 20; i++ {
-		history = append(history,
+		history = append(
+			history,
 			schema.NewUserMessage(fmt.Sprintf("User message %d: %s", i, strings.Repeat("x", 200))),
 		)
 		history = append(history, schema.Message{
@@ -74,7 +75,8 @@ func TestIntegration_Compression_ProactiveCompactEndToEnd(t *testing.T) {
 
 	// Simulate proactive compaction path.
 	compressed, newTokens, compacted, err := memory.CompactIfNeeded(
-		context.Background(), compactor, history, compactionThreshold)
+		context.Background(), compactor, history, compactionThreshold,
+	)
 	if err != nil {
 		t.Fatalf("CompactIfNeeded: %v", err)
 	}
@@ -158,7 +160,8 @@ func TestIntegration_Compression_NoCompactBelowThreshold(t *testing.T) {
 	compactionThreshold := int(effectiveMax * contextCfg.EffectiveCompressionThreshold())
 
 	result, tokens, compacted, err := memory.CompactIfNeeded(
-		context.Background(), compactor, history, compactionThreshold)
+		context.Background(), compactor, history, compactionThreshold,
+	)
 	if err != nil {
 		t.Fatalf("CompactIfNeeded: %v", err)
 	}
@@ -419,7 +422,8 @@ func TestIntegration_Compression_EmergencyCompactSimulation(t *testing.T) {
 		{Message: aimodel.Message{Role: aimodel.RoleSystem, Content: aimodel.NewTextContent("System prompt.")}},
 	}
 	for i := 1; i <= 15; i++ {
-		history = append(history,
+		history = append(
+			history,
 			schema.NewUserMessage(fmt.Sprintf("Q%d: %s", i, strings.Repeat("x", 80))),
 		)
 		history = append(history, schema.Message{

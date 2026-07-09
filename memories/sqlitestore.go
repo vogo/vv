@@ -305,7 +305,8 @@ func (s *SQLiteStore) Set(ctx context.Context, key string, value any, ttl int64)
 			updated_at = excluded.updated_at,
 			ttl        = excluded.ttl`
 
-	if _, err := s.db.ExecContext(ctx, q,
+	if _, err := s.db.ExecContext(
+		ctx, q,
 		ns, name, rowSid, key, strValue, now, now, ttl,
 	); err != nil {
 		return fmt.Errorf("sqlitestore: set %s: %w", key, err)
