@@ -1,10 +1,10 @@
 # cost-tracking 领域实体模型(models)
 
-> 业务语义类型(text / number / float / boolean / reference)。完整字段清单回链 `vv-prd/models/core/costtracker/`，本文不重复复述、只给领域读者的速览与关系。规则见 [spec.md](spec.md)，实现见 [design.md](design.md)。
+> 业务语义类型(text / number / float / boolean / reference)。本文只给领域读者的速览与关系。规则见 [spec.md](spec.md)，实现见 [design.md](design.md)。
 
 ## Token Usage
 
-**用途**:捕获单次 LLM API 调用的 token 消耗。瞬态值对象，不持久化，经中间件回调从 LLM 响应向上传播至 CLI 与 HTTP 层。完整字段见 [`vv-prd/.../model-token-usage.md`](../../../../vv-prd/models/core/costtracker/model-token-usage.md)。
+**用途**:捕获单次 LLM API 调用的 token 消耗。瞬态值对象，不持久化，经中间件回调从 LLM 响应向上传播至 CLI 与 HTTP 层。
 
 | 属性 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -21,7 +21,7 @@
 
 ## Session Cost Tracker
 
-**用途**:在累加边界(CLI=session / HTTP=request，COST-R2)内汇总 token 与估算成本，提供 CLI 状态栏与 HTTP 响应所需数据。完整字段见 [`vv-prd/.../model-session-cost-tracker.md`](../../../../vv-prd/models/core/costtracker/model-session-cost-tracker.md)。
+**用途**:在累加边界(CLI=session / HTTP=request，COST-R2)内汇总 token 与估算成本，提供 CLI 状态栏与 HTTP 响应所需数据。
 
 | 属性 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -46,7 +46,7 @@
 
 ## Model Pricing
 
-**用途**:定义某模型的 USD 费率，用于估算成本。启动期从配置(默认 + YAML + 环境变量)解析，运行期不变。无匹配条目时成本不可用(CLI "N/A" / HTTP null)。完整字段与默认价格表见 [`vv-prd/.../model-model-pricing.md`](../../../../vv-prd/models/core/costtracker/model-model-pricing.md)。
+**用途**:定义某模型的 USD 费率，用于估算成本。启动期从配置(默认 + YAML + 环境变量)解析，运行期不变。无匹配条目时成本不可用(CLI "N/A" / HTTP null)。
 
 | 属性 | 类型 | 必填 | 说明 |
 |------|------|------|------|

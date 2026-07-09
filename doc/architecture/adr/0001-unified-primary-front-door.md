@@ -34,7 +34,7 @@ vv 早期采用 `intent → execute → summarize` 三段管道:先用一次 LLM
 
 ## References
 
-- `specs/domains/core/orchestration/`(spec.md / design.md)
-- `specs/architecture/architecture.md` § 统一前门
+- `doc/domains/core/orchestration/`(spec.md / design.md)
+- `doc/architecture/architecture.md` § 统一前门
 - 代码:`vv/dispatches/`、`vv/agents/primary.go`
 - 相关:[0002](0002-recursion-depth-hard-valve.md)

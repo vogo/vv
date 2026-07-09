@@ -1,10 +1,10 @@
 # 共享数据字典
 
-跨领域引用的枚举/字典集中索引于此。**完整枚举值清单**(每个枚举的所有取值与语义)是制品级细节,由 `vv-prd/dictionaries/core/` 承载,本文件只给索引与归属领域,引用而不复述。
+跨领域引用的枚举/字典集中索引于此。**完整枚举值清单**(每个枚举的所有取值与语义)是制品级细节,本文件只给索引与归属领域,引用而不复述。
 
 | 字典 | 取值要点 | 归属领域 | 制品来源 |
 |------|---------|---------|---------|
-| Agent Type | task / orchestrator | agents, orchestration | `vv-prd/dictionaries/core/dictionary-agent-type.md` |
+| Agent Type | task / orchestrator | agents, orchestration | `dictionary-agent-type.md` |
 | Tool Source | 工具来源(内建 / MCP …) | tools | `dictionary-tool-source.md` |
 | Tool Access Level | 动态子代理工具级别:full / read-only / review / none(对应 ToolProfile) | agents, orchestration | `dictionary-tool-access-level.md` |
 | Bash Risk Tier | Safe / Caution / Dangerous / Blocked | tools | `dictionary-bash-risk-tier.md` |

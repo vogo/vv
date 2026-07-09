@@ -70,7 +70,7 @@ flowchart TD
 
 - CLI 入口与 `-p` 单提示同属"短期任务模式":跑完即退出,退出码反映是否通过。流程逐步见 `runner.go` 的 `RunCLI`。
 - HTTP 入口默认**关闭**,避免把评测能力暴露给业务调用者;启用是有意的 opt-in 安全姿态。`httpapis.Serve` 检查 `cfg.Eval.Enabled` 决定是否注册路由,使"功能在不在"通过路径的 404 而非专用标志可观测。两入口共用同一 `EvalConfig` 与同一 LLM client。
-- 端点契约(请求/响应体、错误码 400/404/500)见 [001-run-eval.md](../../../../vv-prd/applications/api/pages/core/eval/001-run-eval.md)。
+- 端点契约(请求/响应体、错误码 400/404/500)由 `httpapis` 层定义。
 
 ## 并发 / 超时控制
 

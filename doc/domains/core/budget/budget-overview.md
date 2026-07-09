@@ -32,10 +32,7 @@
 | [design.md](design.md) | 中间件最外层位置、硬阀门 + 告警阈值、token vs USD 两度量、daily 进程内计数取舍、价格表可覆盖、零成本路径、三层快照渲染、技术取舍 |
 | [models.md](models.md) | Budget Config、Budget Tracker、Budget Scope 实体模型 |
 
-## vv-prd 对照
+## 关联文档
 
-- 模型:[../../../../vv-prd/models/core/budget/](../../../../vv-prd/models/core/budget/)(model-budget-config.md、model-budget-tracker.md)
-- 流程:[../../../../vv-prd/procedures/core/budget/procedure-budget-enforcement.md](../../../../vv-prd/procedures/core/budget/procedure-budget-enforcement.md)
-- 字典:[../../../../vv-prd/dictionaries/core/dictionary-budget-scope.md](../../../../vv-prd/dictionaries/core/dictionary-budget-scope.md)
 - 源码:`vv/traces/budgets/`(tracker.go、wire.go、error.go)、`vv/httpapis/budget.go`、`vv/cli/budget.go`
 - 术语:[../../../glossary.md](../../../glossary.md);预算硬阀门不变量见 [../../../constitution.md](../../../constitution.md) § 4

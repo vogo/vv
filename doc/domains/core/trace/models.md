@@ -1,6 +1,6 @@
 # trace 领域实体模型(models)
 
-> 业务语义类型(text / number / bool / octal / enum / reference)。**完整字段清单与 YAML/env 示例回链 [../../../../vv-prd/models/core/trace/](../../../../vv-prd/models/core/trace/),此处只保留领域读者需要的实体语义与关系。**
+> 业务语义类型(text / number / bool / octal / enum / reference)。**此处只保留领域读者需要的实体语义与关系。**
 
 本领域三个核心实体:**Trace Config**(控制是否/在哪落盘)、**Trace Event**(一行)、**Trace File**(一个文件)。Debug sink 与 Hook 是行为型扩展点而非数据实体,语义见 [design.md](design.md)。
 
@@ -26,8 +26,6 @@ erDiagram
 
 **关系**:Extends [configuration](../configuration/configuration-overview.md)(`trace:` 是其顶层块);Governs Trace File(`dir` + project-hash 定目录,`max_file_bytes` 定轮转);与 Trace Event 间接相关(只决定是否/在哪持久化,不定义事件形状)。
 
-完整字段:[model-trace-config.md](../../../../vv-prd/models/core/trace/model-trace-config.md)。
-
 ---
 
 ## Trace Event
@@ -45,7 +43,7 @@ erDiagram
 
 **关系**:Appears in Trace File(每个事件是一行);Governed by Trace Config(是否持久化);与 Session Memory 经 `session_id` 关联(P2-14 resume 可回放);携带与 Cost Tracker 同源的 token 维度(`llm_call_end.data`)。
 
-**有序性 / 丢失场景**及事件类型全清单不在此复述,见 [model-trace-event.md](../../../../vv-prd/models/core/trace/model-trace-event.md) 与 `vage/schema/event.go`。
+**有序性 / 丢失场景**及事件类型全清单不在此复述,见 `vage/schema/event.go`。
 
 ---
 
@@ -68,4 +66,4 @@ erDiagram
 
 **关系**:Configured by Trace Config(位置 + 轮转策略);Contains Trace Event(每行一个);与 [cli](../cli/cli-overview.md) / HTTP 的会话 id 关联;[session](../session/session-overview.md)(P2-14)与 SFT 导出(P3-5)是未来消费者。
 
-轮转算法 / 并发与所有权细节见 [model-trace-file.md](../../../../vv-prd/models/core/trace/model-trace-file.md) 与 `vv/traces/tracelog/tracelog.go`。
+轮转算法 / 并发与所有权细节见 `vv/traces/tracelog/tracelog.go`。

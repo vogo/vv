@@ -1,6 +1,6 @@
 # cli 领域实体模型(models)
 
-> 业务语义类型(text / number / datetime / enum / reference / set / boolean / map)。完整字段定义引用 `vv-prd/models/core/cli/`;此处给关系与状态全景,不复制可从代码恢复的细节。行为规则见 [spec.md](spec.md),实现取舍见 [design.md](design.md)。
+> 业务语义类型(text / number / datetime / enum / reference / set / boolean / map)。此处给关系与状态全景,不复制可从代码恢复的细节。行为规则见 [spec.md](spec.md),实现取舍见 [design.md](design.md)。
 
 ## 实体关系
 
@@ -17,7 +17,7 @@ erDiagram
 
 ## CLI Session
 
-**用途**:单个交互终端会话的内存状态容器,协调代理执行与用户确认流。会话随 vv CLI 启动而生,随用户退出而灭。完整字段见 [model-cli-session](../../../../vv-prd/models/core/cli/model-cli-session.md)。
+**用途**:单个交互终端会话的内存状态容器,协调代理执行与用户确认流。会话随 vv CLI 启动而生,随用户退出而灭。
 
 ### 属性
 
@@ -46,7 +46,7 @@ erDiagram
 
 ### 状态
 
-6 态枚举见 [dictionary-cli-session-status](../../../../vv-prd/dictionaries/core/dictionary-cli-session-status.md);迁移全景见 [spec.md](spec.md) 状态机。关键迁移摘要:
+6 态枚举与迁移全景见 [spec.md](spec.md) 状态机。关键迁移摘要:
 
 | 现态 | 触发 | 目标态 | 后置动作 |
 |------|------|--------|----------|
@@ -63,7 +63,7 @@ erDiagram
 
 ## CLI Message
 
-**用途**:对话中的单条消息;来源为用户输入、代理输出、系统通知,或工具/编排阶段/子代理生命周期的预渲染显示元素。仅内存,不持久化。完整字段见 [model-cli-message](../../../../vv-prd/models/core/cli/model-cli-message.md)。
+**用途**:对话中的单条消息;来源为用户输入、代理输出、系统通知,或工具/编排阶段/子代理生命周期的预渲染显示元素。仅内存,不持久化。
 
 ### 属性
 
@@ -85,7 +85,7 @@ erDiagram
 
 ### 角色(role 枚举)
 
-9 值,完整见 [dictionary-cli-message-role](../../../../vv-prd/dictionaries/core/dictionary-cli-message-role.md):`user` / `agent` / `system` / `tool` / `tool_result` / `error` / `phase` / `subagent` / `context_summary`。其中 `tool` / `tool_result` / `phase` / `subagent` / `context_summary` 为预渲染(`rendered=true`)显示元素。
+9 值:`user` / `agent` / `system` / `tool` / `tool_result` / `error` / `phase` / `subagent` / `context_summary`。其中 `tool` / `tool_result` / `phase` / `subagent` / `context_summary` 为预渲染(`rendered=true`)显示元素。
 
 ---
 
@@ -101,8 +101,6 @@ erDiagram
 | accept-edits | Accept Edits | 额外自动放行 write/edit;bash 仍确认 | 2 |
 | auto | Auto | 全部放行,无确认 | 3 |
 | plan | Plan | 只读放行;写/执行自动拒绝(只读模式) | 4 |
-
-完整定义见 [dictionary-permission-mode](../../../../vv-prd/dictionaries/core/dictionary-permission-mode.md)。
 
 ### 关系与状态
 

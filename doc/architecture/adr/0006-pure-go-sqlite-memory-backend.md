@@ -34,5 +34,5 @@
 
 ## References
 
-- `specs/domains/core/memory/`、`specs/constitution.md` § 2(CGO_ENABLED=0)
+- `doc/domains/core/memory/`、`doc/constitution.md` § 2(CGO_ENABLED=0)
 - 代码:`vv/memories/`、`vv/setup/`

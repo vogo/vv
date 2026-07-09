@@ -26,7 +26,7 @@ classDiagram
 
 **关系**:聚合 0..* 个 Eval Case;经 Runner 一对一映射出一份 Eval Report。
 
-> 字段完整定义引用 [001-run-eval.md](../../../../vv-prd/applications/api/pages/core/eval/001-run-eval.md) 的请求体表与 `vv/eval/dataset.go`(`caseLine`、`LoadError`)。
+> 字段完整定义引用 `vv/eval/dataset.go`(`caseLine`、`LoadError`)。
 
 ## Eval Case
 
@@ -43,7 +43,7 @@ classDiagram
 
 **关系**:属于一个 Eval Dataset;被一个或多个 Evaluator 评测;产出一条 Eval Result。
 
-> 字段引用 [procedure-offline-eval.md](../../../../vv-prd/procedures/core/eval/procedure-offline-eval.md)(Step 3)、[001-run-eval.md](../../../../vv-prd/applications/api/pages/core/eval/001-run-eval.md) 与 `vage/eval/eval.go`(`EvalCase`)。
+> 字段引用 `vage/eval/eval.go`(`EvalCase`)。
 
 ## Evaluator
 
@@ -60,7 +60,7 @@ classDiagram
 
 **关系**:评测一个 Eval Case;由 `configs.EvalConfig.Evaluators` 选择;未知名在启动期被 `configs.ValidateEval` 拒绝。
 
-> 枚举与额外成本引用 [dictionary-evaluator-name](../../../../vv-prd/dictionaries/core/dictionary-evaluator-name.md);装配引用 `vv/eval/evaluator.go`、配置字段引用 `vv/configs/config.go`(`EvalConfig`)。
+> 装配引用 `vv/eval/evaluator.go`、配置字段引用 `vv/configs/config.go`(`EvalConfig`)。
 
 ## Eval Report / Summary
 
@@ -103,4 +103,4 @@ classDiagram
 
 **关系**:Report 聚合 0..* 个 Result;每个 Result 聚合 0..* 个 Detail;Result 与 Eval Case 经 `caseId` 一对一对应。
 
-> 字段引用 [001-run-eval.md](../../../../vv-prd/applications/api/pages/core/eval/001-run-eval.md)(成功响应示例)、`vage/eval/eval.go`(`EvalReport` / `EvalResult` / `EvalDetail`)与 `vv/eval/report.go`(Summary 渲染)。
+> 字段引用 `vage/eval/eval.go`(`EvalReport` / `EvalResult` / `EvalDetail`)与 `vv/eval/report.go`(Summary 渲染)。

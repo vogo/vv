@@ -33,5 +33,5 @@ Session / Plan Workspace / Session Tree **共用一个会话目录根**。`DELET
 
 ## References
 
-- `specs/domains/core/session/`
+- `doc/domains/core/session/`
 - 代码:`vv/setup/`(会话装配)

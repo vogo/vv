@@ -33,6 +33,6 @@ vv 有多个观测/持久化子系统:trace JSONL、session 事件持久化、bu
 
 ## References
 
-- `specs/domains/core/trace/`、`specs/non-functional/{performance,availability}.md`
-- `specs/architecture/architecture.md` § 零成本默认
+- `doc/domains/core/trace/`、`doc/non-functional/{performance,availability}.md`
+- `doc/architecture/architecture.md` § 零成本默认
 - 代码:`vv/traces/`、`vv/hooks/`、`vv/debugs/`、`vv/setup/`

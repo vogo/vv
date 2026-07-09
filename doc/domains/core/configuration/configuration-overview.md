@@ -20,9 +20,3 @@
 | [spec.md](spec.md) | 业务行为、不变量(CONFIG-R*)、启动生命周期、Anti-scenario |
 | [design.md](design.md) | 优先级链、模式分派、装配 8 阶段、中间件/装饰链、契约 |
 | [models.md](models.md) | Configuration 实体、InitResult 聚合句柄、Options |
-
-## vv-prd 对照
-
-- 模型:[../../../../vv-prd/models/core/config/model-configuration.md](../../../../vv-prd/models/core/config/model-configuration.md)
-- 流程:[../../../../vv-prd/procedures/core/config/procedure-application-startup.md](../../../../vv-prd/procedures/core/config/procedure-application-startup.md)
-- 字典:[../../../../vv-prd/dictionaries/core/dictionary-run-mode.md](../../../../vv-prd/dictionaries/core/dictionary-run-mode.md)

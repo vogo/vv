@@ -1,6 +1,6 @@
 # 非功能需求:安全
 
-安全是 vv 的最高价值(`constitution.md` § 1)。本文件量化跨领域的安全要求;具体实现见 `domains/core/tools/design.md` 与 `domains/core/mcp/design.md`,详细规则枚举见 `vv-prd/`。
+安全是 vv 的最高价值(`constitution.md` § 1)。本文件量化跨领域的安全要求;具体实现见 `domains/core/tools/design.md` 与 `domains/core/mcp/design.md`。
 
 ## 工作区隔离
 

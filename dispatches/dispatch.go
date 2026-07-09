@@ -57,6 +57,13 @@ type Dispatcher struct {
 	maxIterations  int
 	runTokenBudget int
 
+	// dagDefaultAgentID is the optional sub-agent ID used to resolve a static
+	// plan step whose step.Agent is not registered. Zero value disables the
+	// fallback: an unknown static agent then yields a diagnosable build error.
+	// This is distinct from fallbackAgent (recursion-depth degradation) — it
+	// only names an entry looked up in subAgents, never a separate instance.
+	dagDefaultAgentID string
+
 	projectInstructions string
 
 	maxRecursionDepth int
@@ -126,6 +133,18 @@ func WithMaxConcurrency(n int) Option {
 func WithFallbackAgent(a agent.Agent) Option {
 	return func(d *Dispatcher) {
 		d.fallbackAgent = a
+	}
+}
+
+// WithDAGDefaultAgentID sets the sub-agent ID used to resolve a static plan
+// step whose step.Agent is not registered. It is disabled by default (zero
+// value); production assembly does not set it implicitly. This is NOT the same
+// as WithFallbackAgent: the latter names an executable agent for recursion
+// depth / DAG-build degradation, whereas this only names a subAgents entry
+// consulted when exact match on step.Agent misses.
+func WithDAGDefaultAgentID(id string) Option {
+	return func(d *Dispatcher) {
+		d.dagDefaultAgentID = id
 	}
 }
 

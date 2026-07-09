@@ -8,13 +8,13 @@
 
 ## 文档与源码对照
 
-> 原 `doc/` 设计文档已迁移并重构为项目根的 **`specs/`** DDD 规格知识库。整体架构见 `../specs/architecture/architecture.md`,领域索引见 `../specs/domains/core/core-overview.md`。细粒度制品(模型字段、流程逐步、API 页、字典枚举)见 `../vv-prd/`。
+> 设计文档以 **`doc/`** DDD 规格知识库形式维护。整体架构见 `doc/architecture/architecture.md`,领域索引见 `doc/domains/core/core-overview.md`。
 
-每个主题对应一个 specs 领域与一个或多个源码目录:
+每个主题对应一个 doc 领域与一个或多个源码目录:
 
-| 主题 | 领域规格(`../specs/domains/core/`) | 源码目录 |
+| 主题 | 领域规格(`doc/domains/core/`) | 源码目录 |
 |------|---------|---------|
-| 整体架构与设计原则 | `../specs/architecture/architecture.md` | — |
+| 整体架构与设计原则 | `doc/architecture/architecture.md` | — |
 | 启动入口 / 装配中心 / 配置体系 | configuration/ | main.go、setup/、configs/ |
 | 分发器与 Primary / 编排规划 | orchestration/ | dispatches/ |
 | 代理设计 / 注册表与能力分级 | agents/ | agents/、registries/ |

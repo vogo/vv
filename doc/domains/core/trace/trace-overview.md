@@ -46,4 +46,4 @@ active
 | [design.md](design.md) | HOW:四子系统共享事件总线、Trace 异步落盘/缓冲/分目录/轮转、Trace vs Session 对比、Debug 多模式 sink + 最外层位置、Hooks 扩展点、事件优先 + 旁路订阅架构、技术取舍 |
 | [models.md](models.md) | 实体模型:Trace Config、Trace Event、Trace File |
 
-完整字段清单回链 [../../../../vv-prd/models/core/trace/](../../../../vv-prd/models/core/trace/);落盘流程回链 [../../../../vv-prd/procedures/core/trace/procedure-trace-logging.md](../../../../vv-prd/procedures/core/trace/procedure-trace-logging.md)。术语见 [../../../glossary.md](../../../glossary.md);trace 不脱敏的安全负空间见 [../../../non-functional/security.md](../../../non-functional/security.md)。
+术语见 [../../../glossary.md](../../../glossary.md);trace 不脱敏的安全负空间见 [../../../non-functional/security.md](../../../non-functional/security.md)。

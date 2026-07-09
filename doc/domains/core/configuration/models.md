@@ -1,6 +1,6 @@
 # configuration — Models
 
-本领域三个实体:`Configuration`(输入)、`InitResult`(装配输出聚合)、`Options`(上层注入接缝)。完整字段清单与每字段语义/默认/env 覆盖见 [model-configuration](../../../../vv-prd/models/core/config/model-configuration.md) 与 `vv/configs/config.go` 的 YAML 注释——此处只写分组语义与关系,不复述字段表。
+本领域三个实体:`Configuration`(输入)、`InitResult`(装配输出聚合)、`Options`(上层注入接缝)。完整字段清单与每字段语义/默认/env 覆盖见 `vv/configs/config.go` 的 YAML 注释——此处只写分组语义与关系,不复述字段表。
 
 ## 1. Configuration
 
