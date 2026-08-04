@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 )
@@ -22,10 +21,11 @@ func TestRun_UnifiedMode_ForwardsToPrimary(t *testing.T) {
 		id: "primary",
 		response: &schema.RunResponse{
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("hello back"),
-				}, "primary"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "hello back")
+					m.AgentID = "primary"
+					return m
+				}(),
 			},
 		},
 	}
@@ -38,7 +38,7 @@ func TestRun_UnifiedMode_ForwardsToPrimary(t *testing.T) {
 		WithPrimaryAssistant(primary),
 	)
 
-	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("hi")}}
+	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")}}
 
 	resp, err := d.Run(context.Background(), req)
 	if err != nil {
@@ -53,7 +53,7 @@ func TestRun_UnifiedMode_ForwardsToPrimary(t *testing.T) {
 		t.Errorf("chat.ranCount = %d, want 0 (fallback must be skipped when primary present)", chat.ranCount())
 	}
 
-	if len(resp.Messages) == 0 || resp.Messages[0].Content.Text() != "hello back" {
+	if len(resp.Messages) == 0 || resp.Messages[0].Text() != "hello back" {
 		t.Errorf("response = %+v, want primary's text verbatim", resp.Messages)
 	}
 }
@@ -72,7 +72,7 @@ func TestRun_NilPrimary_ReturnsError(t *testing.T) {
 		WithFallbackAgent(chat),
 	)
 
-	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("anything")}}
+	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "anything")}}
 
 	_, err := d.Run(context.Background(), req)
 	if err == nil {
@@ -102,7 +102,7 @@ func TestRunStream_NilPrimary_ReturnsError(t *testing.T) {
 	)
 
 	stream, err := d.RunStream(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("anything")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "anything")},
 	})
 	if err != nil {
 		t.Fatalf("RunStream: %v", err)
@@ -153,7 +153,7 @@ func TestSetPrimaryAssistant_PostConstruction_AttachesAgent(t *testing.T) {
 		t.Fatalf("SetPrimaryAssistant did not attach the agent; got %v", d.primaryAssistant)
 	}
 
-	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("x")}}
+	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "x")}}
 	if _, err := d.Run(context.Background(), req); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase(t *testing.T) {
 	)
 
 	stream, err := d.RunStream(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("hello")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hello")},
 	})
 	if err != nil {
 		t.Fatalf("RunStream: %v", err)
@@ -262,10 +262,11 @@ func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 		id: "primary-fallback",
 		response: &schema.RunResponse{
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("fallback primary answer"),
-				}, "primary-fallback"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "fallback primary answer")
+					m.AgentID = "primary-fallback"
+					return m
+				}(),
 			},
 		},
 	}
@@ -283,7 +284,7 @@ func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 
 	ctx := IncrementDepth(context.Background())
 
-	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("nested")}}
+	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "nested")}}
 	resp, err := d.Run(ctx, req)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -301,7 +302,7 @@ func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 		t.Errorf("primary.ranCount = %d, want 0 (depth guard must short-circuit before primary branch)", primary.ranCount())
 	}
 
-	if len(resp.Messages) == 0 || resp.Messages[0].Content.Text() != "fallback primary answer" {
+	if len(resp.Messages) == 0 || resp.Messages[0].Text() != "fallback primary answer" {
 		t.Errorf("response = %+v, want fallback primary answer", resp.Messages)
 	}
 }
@@ -330,7 +331,7 @@ func TestRunStream_DepthExceeded_EmitsStaticSummarizePhase(t *testing.T) {
 	ctx := IncrementDepth(context.Background())
 
 	stream, err := d.RunStream(ctx, &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("nested")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "nested")},
 	})
 	if err != nil {
 		t.Fatalf("RunStream: %v", err)
@@ -398,7 +399,7 @@ func (s *streamableStubAgent) RunStream(ctx context.Context, req *schema.RunRequ
 
 		if len(resp.Messages) > 0 {
 			if err := send(schema.NewEvent(schema.EventTextDelta, s.id, req.SessionID, schema.TextDeltaData{
-				Delta: resp.Messages[0].Content.Text(),
+				Delta: resp.Messages[0].Text(),
 			})); err != nil {
 				return err
 			}

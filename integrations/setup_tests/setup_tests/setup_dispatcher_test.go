@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/configs"
@@ -53,16 +53,7 @@ agents:
 	}
 
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("test response"),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "test response", schema.Usage{}),
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -150,16 +141,7 @@ agents:
 //   - Dispatcher satisfies agent.Agent and agent.StreamAgent
 func TestIntegration_SetupNew_DispatcherDirectDispatch(t *testing.T) {
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "chat"}`),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, `{"mode": "direct", "agent": "chat"}`, schema.Usage{}),
 	}
 
 	cfg := &configs.Config{
@@ -179,7 +161,7 @@ func TestIntegration_SetupNew_DispatcherDirectDispatch(t *testing.T) {
 	var _ agent.StreamAgent = result.Dispatcher
 
 	resp, err := result.Dispatcher.Run(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("hello")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hello")},
 		SessionID: "test-session",
 	})
 	if err != nil {
@@ -202,20 +184,11 @@ func TestIntegration_SetupNew_DispatcherStreaming(t *testing.T) {
 	directJSON := `{"mode": "direct", "agent": "coder"}`
 
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent(directJSON),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, directJSON, schema.Usage{}),
 	}
 
 	// Use a stubStreamAgent (defined in cli_test.go) for the sub-agent to avoid
-	// the nil stream issue from mockChatCompleter's ChatCompletionStream.
+	// the nil stream issue from mockChatCompleter's CallStream.
 	coderStub := &stubStreamAgent{id: "coder", response: "stream done"}
 
 	reg := registries.New()
@@ -249,7 +222,7 @@ func TestIntegration_SetupNew_DispatcherStreaming(t *testing.T) {
 	var _ agent.StreamAgent = dispatcher
 
 	stream, err := dispatcher.RunStream(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("hello stream")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hello stream")},
 		SessionID: "test-session",
 	})
 	if err != nil {
@@ -308,16 +281,7 @@ func TestIntegration_SetupNew_DispatcherPlanExecution(t *testing.T) {
 	}}`
 
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent(planJSON),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, planJSON, schema.Usage{}),
 	}
 
 	cfg := &configs.Config{
@@ -333,7 +297,7 @@ func TestIntegration_SetupNew_DispatcherPlanExecution(t *testing.T) {
 	}
 
 	resp, err := result.Dispatcher.Run(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("Research and implement a feature")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "Research and implement a feature")},
 		SessionID: "test-session",
 	})
 	if err != nil {
@@ -356,16 +320,7 @@ func TestIntegration_SetupNew_DispatcherPlanExecution(t *testing.T) {
 //   - Response is from the chat agent
 func TestIntegration_SetupNew_DispatcherFallback(t *testing.T) {
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("This is not valid JSON"),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "This is not valid JSON", schema.Usage{}),
 	}
 
 	cfg := &configs.Config{
@@ -380,7 +335,7 @@ func TestIntegration_SetupNew_DispatcherFallback(t *testing.T) {
 	}
 
 	resp, err := result.Dispatcher.Run(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("test fallback")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "test fallback")},
 		SessionID: "test-session",
 	})
 	if err != nil {

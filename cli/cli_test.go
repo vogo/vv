@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
@@ -18,17 +17,19 @@ type stubStreamAgent struct {
 
 var _ agent.StreamAgent = (*stubStreamAgent)(nil)
 
-func (s *stubStreamAgent) ID() string          { return s.id }
-func (s *stubStreamAgent) Name() string        { return s.id }
-func (s *stubStreamAgent) Description() string { return s.id }
+func (s *stubStreamAgent) ID() string                { return s.id }
+func (s *stubStreamAgent) Name() string              { return s.id }
+func (s *stubStreamAgent) Description() string       { return s.id }
+func (s *stubStreamAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(s.response),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, s.response)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }
@@ -55,28 +56,27 @@ func TestMultiTurnHistory(t *testing.T) {
 	app := New(orchestrator, &configs.Config{}, nil, nil, nil)
 
 	// Simulate adding messages to history.
-	app.history = append(app.history, schema.NewUserMessage("first message"))
-	app.history = append(app.history, schema.NewAssistantMessage(
-		aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("first response")},
-		"coder",
-	))
-	app.history = append(app.history, schema.NewUserMessage("second message"))
+	app.history = append(app.history, schema.NewUserMessage(schema.ProtocolOpenAIChat, "first message"))
+	assistant := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "first response")
+	assistant.AgentID = "coder"
+	app.history = append(app.history, assistant)
+	app.history = append(app.history, schema.NewUserMessage(schema.ProtocolOpenAIChat, "second message"))
 
 	if len(app.history) != 3 {
 		t.Errorf("history len = %d, want 3", len(app.history))
 	}
 
 	// Verify the messages are correct.
-	if app.history[0].Content.Text() != "first message" {
-		t.Errorf("history[0] = %q, want %q", app.history[0].Content.Text(), "first message")
+	if app.history[0].Text() != "first message" {
+		t.Errorf("history[0] = %q, want %q", app.history[0].Text(), "first message")
 	}
 
-	if app.history[1].Content.Text() != "first response" {
-		t.Errorf("history[1] = %q, want %q", app.history[1].Content.Text(), "first response")
+	if app.history[1].Text() != "first response" {
+		t.Errorf("history[1] = %q, want %q", app.history[1].Text(), "first response")
 	}
 
-	if app.history[2].Content.Text() != "second message" {
-		t.Errorf("history[2] = %q, want %q", app.history[2].Content.Text(), "second message")
+	if app.history[2].Text() != "second message" {
+		t.Errorf("history[2] = %q, want %q", app.history[2].Text(), "second message")
 	}
 }
 

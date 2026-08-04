@@ -51,7 +51,7 @@ func New(model string, pricing *Pricing) *Tracker {
 
 // Add records tokens from a single LLM call.
 //
-// promptTokens (from aimodel.Usage.PromptTokens) includes cache-read tokens
+// promptTokens (from schema.Usage.PromptTokens) includes cache-read tokens
 // for Anthropic (via totalInputTokens()). The cost calculation separates them:
 // non-cached input tokens are charged at the input rate, cache-read tokens at
 // the (lower) cache rate.

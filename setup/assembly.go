@@ -24,8 +24,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/hook"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/session"
 	"github.com/vogo/vage/workspace"
@@ -57,7 +57,7 @@ type subsystemInstaller func(cfg *configs.Config, opts *Options) (cleanup, error
 // *assembly so they share this state through the receiver rather than through
 // Options.
 type assembly struct {
-	wrappedLLM    aimodel.ChatCompleter
+	wrappedLLM    largemodel.Caller
 	memMgr        *memory.Manager
 	persistentMem memory.Memory
 

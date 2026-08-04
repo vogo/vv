@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vogo/vage/schema"
 )
 
 func TestDefaultPath_ContainsVaga(t *testing.T) {
@@ -299,6 +301,9 @@ func TestLoad_AnthropicEnvFallback_APIKeyOnly(t *testing.T) {
 	}
 	if client == nil {
 		t.Fatal("expected non-nil client")
+	}
+	if client.Protocol() != schema.ProtocolAnthropicMessages {
+		t.Fatalf("protocol = %q, want %q", client.Protocol(), schema.ProtocolAnthropicMessages)
 	}
 }
 
@@ -746,6 +751,9 @@ func TestNewLLMClient_OpenAIWithAPIKey(t *testing.T) {
 	if client == nil {
 		t.Fatal("expected non-nil client")
 	}
+	if client.Protocol() != schema.ProtocolOpenAIChat {
+		t.Fatalf("protocol = %q, want %q", client.Protocol(), schema.ProtocolOpenAIChat)
+	}
 }
 
 func TestNewLLMClient_AnthropicWithAPIKey(t *testing.T) {
@@ -760,6 +768,9 @@ func TestNewLLMClient_AnthropicWithAPIKey(t *testing.T) {
 
 	if client == nil {
 		t.Fatal("expected non-nil client")
+	}
+	if client.Protocol() != schema.ProtocolAnthropicMessages {
+		t.Fatalf("protocol = %q, want %q", client.Protocol(), schema.ProtocolAnthropicMessages)
 	}
 }
 
@@ -776,6 +787,9 @@ func TestNewLLMClient_EmptyProviderDefaultsToOpenAI(t *testing.T) {
 
 	if client == nil {
 		t.Fatal("expected non-nil client")
+	}
+	if client.Protocol() != schema.ProtocolOpenAIChat {
+		t.Fatalf("protocol = %q, want %q", client.Protocol(), schema.ProtocolOpenAIChat)
 	}
 }
 

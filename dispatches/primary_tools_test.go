@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
@@ -79,10 +78,11 @@ func TestRegisterDelegateTools_HandlerRunsAgent(t *testing.T) {
 		id: "coder",
 		response: &schema.RunResponse{
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("refactored foo.go"),
-				}, "coder"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "refactored foo.go")
+					m.AgentID = "coder"
+					return m
+				}(),
 			},
 		},
 	}
@@ -212,10 +212,11 @@ func TestRegisterPlanTaskTool_HandlerRunsPlan(t *testing.T) {
 
 	exec := &capturingPlanExec{resp: &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent("step-1 done; step-2 done"),
-			}, "plan-gen"),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "step-1 done; step-2 done")
+				m.AgentID = "plan-gen"
+				return m
+			}(),
 		},
 	}}
 
@@ -312,9 +313,10 @@ type depthSpyAgent struct {
 
 var _ agent.Agent = (*depthSpyAgent)(nil)
 
-func (s *depthSpyAgent) ID() string          { return s.id }
-func (s *depthSpyAgent) Name() string        { return s.id }
-func (s *depthSpyAgent) Description() string { return s.id }
+func (s *depthSpyAgent) ID() string                { return s.id }
+func (s *depthSpyAgent) Name() string              { return s.id }
+func (s *depthSpyAgent) Description() string       { return s.id }
+func (s *depthSpyAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *depthSpyAgent) Run(ctx context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	if s.onRun != nil {
@@ -323,10 +325,11 @@ func (s *depthSpyAgent) Run(ctx context.Context, _ *schema.RunRequest) (*schema.
 
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent("ok"),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "ok")
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }
@@ -340,6 +343,8 @@ type capturingPlanExec struct {
 	err     error
 	onRun   func(ctx context.Context)
 }
+
+func (c *capturingPlanExec) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (c *capturingPlanExec) RunPlan(ctx context.Context, plan *Plan, req *schema.RunRequest) (*schema.RunResponse, error) {
 	c.calls++

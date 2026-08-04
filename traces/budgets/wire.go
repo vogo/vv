@@ -20,7 +20,6 @@ package budgets
 import (
 	"context"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/traces/costtraces"
@@ -33,7 +32,7 @@ type Dispatcher func(ctx context.Context, event schema.Event)
 
 // Wire builds a pair of closures suitable for largemodel.NewBudgetMiddleware.
 // The pre-check fires session.Check then daily.Check, returning the first
-// non-nil error. The post-record converts aimodel.Usage → (tokens, cost USD)
+// non-nil error. The post-record converts schema.Usage → (tokens, cost USD)
 // using the supplied pricing (may be nil) and applies the result to each
 // tracker, emitting EventBudgetWarn / EventBudgetExceeded as thresholds are
 // first crossed.
@@ -57,7 +56,7 @@ func Wire(session, daily *Tracker, pricing *costtraces.Pricing, dispatch Dispatc
 		return nil
 	}
 
-	postRecord := func(ctx context.Context, u aimodel.Usage) {
+	postRecord := func(ctx context.Context, u schema.Usage) {
 		tokens := int64(u.PromptTokens + u.CompletionTokens)
 
 		var costUSD float64

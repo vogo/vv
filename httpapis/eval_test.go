@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	vageeval "github.com/vogo/vage/eval"
 	"github.com/vogo/vage/schema"
@@ -19,21 +18,20 @@ import (
 // last user message with a fixed usage profile so evaluators have inputs.
 type stubAgent struct{}
 
-func (stubAgent) ID() string          { return "stub" }
-func (stubAgent) Name() string        { return "stub" }
-func (stubAgent) Description() string { return "test stub" }
+func (stubAgent) ID() string                { return "stub" }
+func (stubAgent) Name() string              { return "stub" }
+func (stubAgent) Description() string       { return "test stub" }
+func (stubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (stubAgent) Run(_ context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	text := ""
 	if len(req.Messages) > 0 {
-		text = req.Messages[len(req.Messages)-1].Content.Text()
+		text = req.Messages[len(req.Messages)-1].Text()
 	}
 
 	return &schema.RunResponse{
-		Messages: []schema.Message{{
-			Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent(text)},
-		}},
-		Usage:    &aimodel.Usage{PromptTokens: 5, CompletionTokens: 5, TotalTokens: 10},
+		Messages: []schema.Message{schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, text)},
+		Usage:    &schema.Usage{PromptTokens: 5, CompletionTokens: 5, TotalTokens: 10},
 		Duration: 5,
 	}, nil
 }

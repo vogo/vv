@@ -24,10 +24,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
+	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/session"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
@@ -41,19 +42,12 @@ type resumeStubChat struct {
 	text string
 }
 
-func (s *resumeStubChat) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
-	return &aimodel.ChatResponse{
-		Choices: []aimodel.Choice{
-			{
-				Message:      aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent(s.text)},
-				FinishReason: aimodel.FinishReasonStop,
-			},
-		},
-		Usage: aimodel.Usage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10},
-	}, nil
+func (s *resumeStubChat) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+func (s *resumeStubChat) Call(_ context.Context, _ *largemodel.Request) (*largemodel.Response, error) {
+	return largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, s.text, schema.Usage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}), nil
 }
 
-func (s *resumeStubChat) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (s *resumeStubChat) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, errors.New("resumeStubChat: streaming not supported")
 }
 
@@ -196,9 +190,9 @@ func TestRunResume_PrimaryHappyPath(t *testing.T) {
 		SessionID: "sid-primary-resume",
 		AgentID:   agents.PrimaryAgentID,
 		Iteration: 0,
-		Messages: []aimodel.Message{
-			{Role: aimodel.RoleSystem, Content: aimodel.NewTextContent("you are vv")},
-			{Role: aimodel.RoleUser, Content: aimodel.NewTextContent("continue")},
+		Messages: []schema.Message{
+			schema.NewSystemMessage(schema.ProtocolOpenAIChat, "you are vv"),
+			schema.NewUserMessage(schema.ProtocolOpenAIChat, "continue"),
 		},
 	}
 	if err := store.Save(context.Background(), cp); err != nil {
@@ -210,7 +204,7 @@ func TestRunResume_PrimaryHappyPath(t *testing.T) {
 	stub := &resumeStubChat{text: "resumed final answer"}
 	primary := taskagent.New(
 		agent.Config{ID: agents.PrimaryAgentID, Name: "Primary"},
-		taskagent.WithChatCompleter(stub),
+		taskagent.WithCaller(stub),
 		taskagent.WithModel("test-model"),
 		taskagent.WithMaxIterations(2),
 		taskagent.WithIterationStore(store),

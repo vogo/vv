@@ -58,7 +58,7 @@ func RegisterResearcher(reg *registries.Registry) {
 
 			taskOpts = append(
 				taskOpts,
-				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithCaller(opts.LLM),
 				taskagent.WithModel(opts.Model),
 				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(opts.MaxIterations),

@@ -56,7 +56,7 @@ func TestIntegration_Enabled_AsyncDoesNotBlock(t *testing.T) {
 
 		req := &schema.RunRequest{
 			SessionID: "async-burst",
-			Messages:  []schema.Message{schema.NewUserMessage("burst")},
+			Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "burst")},
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

@@ -56,7 +56,7 @@ func PrintTree(ctx context.Context, store tree.SessionTreeStore, sessionID strin
 	}
 
 	for _, m := range res.Messages {
-		text := m.Content.Text()
+		text := m.Text()
 		if text == "" {
 			continue
 		}

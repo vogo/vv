@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 )
@@ -22,17 +21,19 @@ type stubStreamAgent struct {
 
 var _ agent.StreamAgent = (*stubStreamAgent)(nil)
 
-func (s *stubStreamAgent) ID() string          { return s.id }
-func (s *stubStreamAgent) Name() string        { return s.id }
-func (s *stubStreamAgent) Description() string { return s.id }
+func (s *stubStreamAgent) ID() string                { return s.id }
+func (s *stubStreamAgent) Name() string              { return s.id }
+func (s *stubStreamAgent) Description() string       { return s.id }
+func (s *stubStreamAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(s.response),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, s.response)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }
@@ -62,9 +63,10 @@ type mockPromptStreamAgent struct {
 	producer func(ctx context.Context, send func(schema.Event) error) error
 }
 
-func (m *mockPromptStreamAgent) ID() string          { return m.id }
-func (m *mockPromptStreamAgent) Name() string        { return m.id }
-func (m *mockPromptStreamAgent) Description() string { return m.id }
+func (m *mockPromptStreamAgent) ID() string                { return m.id }
+func (m *mockPromptStreamAgent) Name() string              { return m.id }
+func (m *mockPromptStreamAgent) Description() string       { return m.id }
+func (m *mockPromptStreamAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (m *mockPromptStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{}, nil

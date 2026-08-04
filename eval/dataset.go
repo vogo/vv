@@ -13,7 +13,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/eval"
 	"github.com/vogo/vage/schema"
 )
@@ -146,7 +145,7 @@ func decodeRunRequest(raw json.RawMessage) (*schema.RunRequest, error) {
 			return nil, err
 		}
 
-		return &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(text)}}, nil
+		return &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, text)}}, nil
 	}
 
 	var req schema.RunRequest
@@ -156,6 +155,22 @@ func decodeRunRequest(raw json.RawMessage) (*schema.RunRequest, error) {
 
 	if len(req.Messages) == 0 {
 		return nil, errors.New("request has no messages")
+	}
+	// v0.7 datasets used the flat {role,content} message shape. Preserve
+	// those fixtures as OpenAI-chat messages while new datasets use v0.8's
+	// protocol-tagged native wire representation.
+	if req.Messages[0].Protocol == "" {
+		var legacy struct {
+			Messages []struct {
+				Role    schema.Role `json:"role"`
+				Content string      `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal(trimmed, &legacy); err == nil && len(legacy.Messages) == len(req.Messages) {
+			for i, m := range legacy.Messages {
+				req.Messages[i] = schema.NewTextMessage(schema.ProtocolOpenAIChat, m.Role, m.Content)
+			}
+		}
 	}
 
 	return &req, nil
@@ -176,11 +191,9 @@ func decodeRunResponse(raw json.RawMessage) (*schema.RunResponse, error) {
 			return nil, err
 		}
 
-		return &schema.RunResponse{
-			Messages: []schema.Message{{
-				Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent(text)},
-			}},
-		}, nil
+		return &schema.RunResponse{Messages: []schema.Message{
+			schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, text),
+		}}, nil
 	}
 
 	var resp schema.RunResponse

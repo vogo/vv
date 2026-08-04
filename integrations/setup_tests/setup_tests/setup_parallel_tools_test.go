@@ -25,8 +25,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/setup"
@@ -38,12 +38,14 @@ import (
 // distinct LLM turns (tool-call turn, then "stop" turn).
 type queuedMockCompleter struct {
 	mu        sync.Mutex
-	responses []*aimodel.ChatResponse
-	requests  []*aimodel.ChatRequest
+	responses []*largemodel.Response
+	requests  []*largemodel.Request
 	idx       int
 }
 
-func (m *queuedMockCompleter) ChatCompletion(_ context.Context, req *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (m *queuedMockCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (m *queuedMockCompleter) Call(_ context.Context, req *largemodel.Request) (*largemodel.Response, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -56,58 +58,31 @@ func (m *queuedMockCompleter) ChatCompletion(_ context.Context, req *aimodel.Cha
 	return resp, nil
 }
 
-func (m *queuedMockCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (m *queuedMockCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, errors.New("mock: stream not supported")
 }
 
 // twoReadToolCallResponse returns an assistant message whose ToolCalls slice
 // asks the coder to read the two file paths supplied, in the given order.
-func twoReadToolCallResponse(pathA, pathB string) *aimodel.ChatResponse {
+func twoReadToolCallResponse(pathA, pathB string) *largemodel.Response {
 	argsA := `{"file_path":"` + pathA + `"}`
 	argsB := `{"file_path":"` + pathB + `"}`
-	return &aimodel.ChatResponse{
-		Choices: []aimodel.Choice{{
-			Message: aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(""),
-				ToolCalls: []aimodel.ToolCall{
-					{
-						ID:       "call-read-A",
-						Type:     "function",
-						Function: aimodel.FunctionCall{Name: "read", Arguments: argsA},
-					},
-					{
-						ID:       "call-read-B",
-						Type:     "function",
-						Function: aimodel.FunctionCall{Name: "read", Arguments: argsB},
-					},
-				},
-			},
-			FinishReason: aimodel.FinishReasonToolCalls,
-		}},
-		Usage: aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-	}
+	return largemodel.FakeToolCallResponse(schema.ProtocolOpenAIChat, []schema.ToolCall{
+		{ID: "call-read-A", Name: "read", Arguments: argsA},
+		{ID: "call-read-B", Name: "read", Arguments: argsB},
+	}, schema.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15})
 }
 
 // stopTextResponse returns a plain-text assistant response that ends the loop.
-func stopTextResponse(text string) *aimodel.ChatResponse {
-	return &aimodel.ChatResponse{
-		Choices: []aimodel.Choice{{
-			Message: aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(text),
-			},
-			FinishReason: aimodel.FinishReasonStop,
-		}},
-		Usage: aimodel.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5},
-	}
+func stopTextResponse(text string) *largemodel.Response {
+	return largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, text, schema.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5})
 }
 
 // runCoderWithTwoReads builds a coder agent via setup.New using the supplied
 // MaxParallelToolCalls and drives it through one tool-call round (two reads
 // against fileA and fileB). It returns the tool-result messages the second
 // LLM request would see, in the exact order they were appended.
-func runCoderWithTwoReads(t *testing.T, maxParallel int) []aimodel.Message {
+func runCoderWithTwoReads(t *testing.T, maxParallel int) []schema.Message {
 	t.Helper()
 
 	tmp := t.TempDir()
@@ -136,7 +111,7 @@ func runCoderWithTwoReads(t *testing.T, maxParallel int) []aimodel.Message {
 	}
 
 	mock := &queuedMockCompleter{
-		responses: []*aimodel.ChatResponse{
+		responses: []*largemodel.Response{
 			twoReadToolCallResponse(fileA, fileB),
 			stopTextResponse("done"),
 		},
@@ -158,7 +133,7 @@ func runCoderWithTwoReads(t *testing.T, maxParallel int) []aimodel.Message {
 
 	_, err = coderAgent.Run(context.Background(), &schema.RunRequest{
 		SessionID: "parallel-tools-session",
-		Messages:  []schema.Message{schema.NewUserMessage("read both files")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "read both files")},
 	})
 	if err != nil {
 		t.Fatalf("coder.Run: %v", err)
@@ -171,9 +146,9 @@ func runCoderWithTwoReads(t *testing.T, maxParallel int) []aimodel.Message {
 	}
 	secondReq := mock.requests[1]
 
-	var toolMsgs []aimodel.Message
+	var toolMsgs []schema.Message
 	for _, m := range secondReq.Messages {
-		if m.Role == aimodel.RoleTool {
+		if m.Role() == schema.RoleTool {
 			toolMsgs = append(toolMsgs, m)
 		}
 	}
@@ -200,14 +175,14 @@ func TestIntegration_SetupNew_ParallelToolCalls_DefaultCap(t *testing.T) {
 
 	wantIDs := []string{"call-read-A", "call-read-B"}
 	for i, m := range toolMsgs {
-		if m.ToolCallID != wantIDs[i] {
-			t.Errorf("toolMsgs[%d].ToolCallID = %q, want %q", i, m.ToolCallID, wantIDs[i])
+		if m.ToolCallID() != wantIDs[i] {
+			t.Errorf("toolMsgs[%d].ToolCallID = %q, want %q", i, m.ToolCallID(), wantIDs[i])
 		}
 	}
 
 	wantSubstrings := []string{"content-alpha", "content-beta"}
 	for i, want := range wantSubstrings {
-		got := toolMsgs[i].Content.Text()
+		got := toolMsgs[i].Text()
 		if got == "" {
 			t.Errorf("toolMsgs[%d] body is empty", i)
 			continue
@@ -237,14 +212,14 @@ func TestIntegration_SetupNew_ParallelToolCalls_SerialCap(t *testing.T) {
 
 	wantIDs := []string{"call-read-A", "call-read-B"}
 	for i, m := range toolMsgs {
-		if m.ToolCallID != wantIDs[i] {
-			t.Errorf("toolMsgs[%d].ToolCallID = %q, want %q", i, m.ToolCallID, wantIDs[i])
+		if m.ToolCallID() != wantIDs[i] {
+			t.Errorf("toolMsgs[%d].ToolCallID = %q, want %q", i, m.ToolCallID(), wantIDs[i])
 		}
 	}
 
 	wantSubstrings := []string{"content-alpha", "content-beta"}
 	for i, want := range wantSubstrings {
-		got := toolMsgs[i].Content.Text()
+		got := toolMsgs[i].Text()
 		if !containsSubstring(got, want) {
 			t.Errorf("toolMsgs[%d] body = %q, want to contain %q", i, got, want)
 		}

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/tool"
 	vvagents "github.com/vogo/vv/agents"
@@ -28,44 +28,17 @@ import (
 // name with pre-canned JSON arguments. It mirrors toolCallChatResponse from
 // the earlier suite but keeps the distinct call-ID prefix so side-by-side
 // test failures stay readable.
-func primaryToolCallResponse(name, argsJSON string) *aimodel.ChatResponse {
-	return &aimodel.ChatResponse{
-		Choices: []aimodel.Choice{
-			{
-				Message: aimodel.Message{
-					Role: aimodel.RoleAssistant,
-					ToolCalls: []aimodel.ToolCall{
-						{
-							ID:   "tc_primary_" + name,
-							Type: "function",
-							Function: aimodel.FunctionCall{
-								Name:      name,
-								Arguments: argsJSON,
-							},
-						},
-					},
-				},
-				FinishReason: aimodel.FinishReasonToolCalls,
-			},
-		},
-	}
+func primaryToolCallResponse(name, argsJSON string) *largemodel.Response {
+	return largemodel.FakeToolCallResponse(schema.ProtocolOpenAIChat, []schema.ToolCall{
+		{ID: "tc_primary_" + name, Name: name, Arguments: argsJSON},
+	}, schema.Usage{})
 }
 
 // primaryTextResponse builds a plain-text assistant message (no tool calls).
 // Used when the Primary's final iteration should fold a previous tool result
 // into the user-visible response.
-func primaryTextResponse(text string) *aimodel.ChatResponse {
-	return &aimodel.ChatResponse{
-		Choices: []aimodel.Choice{
-			{
-				Message: aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent(text),
-				},
-				FinishReason: aimodel.FinishReasonStop,
-			},
-		},
-	}
+func primaryTextResponse(text string) *largemodel.Response {
+	return largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, text, schema.Usage{})
 }
 
 // newPrimaryDispatcher wires a Dispatcher in unified mode with a real
@@ -75,7 +48,7 @@ func primaryTextResponse(text string) *aimodel.ChatResponse {
 func newPrimaryDispatcher(
 	t *testing.T,
 	coder, researcher, reviewer, chat agent.Agent,
-	mockLLM aimodel.ChatCompleter,
+	mockLLM largemodel.Caller,
 ) *dispatches.Dispatcher {
 	t.Helper()
 
@@ -107,7 +80,7 @@ func newPrimaryDispatcher(
 
 	primary := taskagent.New(
 		agent.Config{ID: vvagents.PrimaryAgentID, Name: "Primary Assistant", Description: "test primary"},
-		taskagent.WithChatCompleter(mockLLM),
+		taskagent.WithCaller(mockLLM),
 		taskagent.WithModel("test-model"),
 		taskagent.WithSystemPrompt(prompt.StringPrompt(vvagents.PrimarySystemPrompt)),
 		taskagent.WithToolRegistry(toolReg),
@@ -129,7 +102,7 @@ func TestPrimary_AnswersDirectly(t *testing.T) {
 	chat := &callTrackingAgent{id: "chat"}
 
 	mockLLM := &sequentialMockLLM{
-		responses: []*aimodel.ChatResponse{
+		responses: []*largemodel.Response{
 			primaryTextResponse("Hi there! What can I help with?"),
 		},
 	}
@@ -137,7 +110,7 @@ func TestPrimary_AnswersDirectly(t *testing.T) {
 	d := newPrimaryDispatcher(t, coder, researcher, reviewer, chat, mockLLM)
 
 	resp, err := d.Run(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("hi")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")},
 		SessionID: "m4-direct",
 	})
 	if err != nil {
@@ -154,7 +127,7 @@ func TestPrimary_AnswersDirectly(t *testing.T) {
 		}
 	}
 
-	if len(resp.Messages) == 0 || !strings.Contains(resp.Messages[0].Content.Text(), "Hi there") {
+	if len(resp.Messages) == 0 || !strings.Contains(resp.Messages[0].Text(), "Hi there") {
 		t.Errorf("unexpected direct-answer response: %+v", resp.Messages)
 	}
 }
@@ -167,10 +140,11 @@ func TestPrimary_DelegatesToCoder(t *testing.T) {
 		id: "coder",
 		response: &schema.RunResponse{
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("wrote fn add() { return a + b }"),
-				}, "coder"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "wrote fn add() { return a + b }")
+					m.AgentID = "coder"
+					return m
+				}(),
 			},
 		},
 	}
@@ -179,7 +153,7 @@ func TestPrimary_DelegatesToCoder(t *testing.T) {
 	chat := &callTrackingAgent{id: "chat"}
 
 	mockLLM := &sequentialMockLLM{
-		responses: []*aimodel.ChatResponse{
+		responses: []*largemodel.Response{
 			primaryToolCallResponse(dispatches.DelegateToolName("coder"), `{"task":"write add() in add.go"}`),
 			primaryTextResponse("Done — coder created add()."),
 		},
@@ -188,7 +162,7 @@ func TestPrimary_DelegatesToCoder(t *testing.T) {
 	d := newPrimaryDispatcher(t, coder, researcher, reviewer, chat, mockLLM)
 
 	resp, err := d.Run(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("write add() in add.go")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "write add() in add.go")},
 		SessionID: "m4-delegate",
 	})
 	if err != nil {
@@ -209,7 +183,7 @@ func TestPrimary_DelegatesToCoder(t *testing.T) {
 		}
 	}
 
-	if len(resp.Messages) == 0 || !strings.Contains(resp.Messages[0].Content.Text(), "Done") {
+	if len(resp.Messages) == 0 || !strings.Contains(resp.Messages[0].Text(), "Done") {
 		t.Errorf("unexpected delegated response: %+v", resp.Messages)
 	}
 }
@@ -222,10 +196,11 @@ func TestPrimary_PlanTask(t *testing.T) {
 		id: "coder",
 		response: &schema.RunResponse{
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("coder did step-2"),
-				}, "coder"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "coder did step-2")
+					m.AgentID = "coder"
+					return m
+				}(),
 			},
 		},
 	}
@@ -233,10 +208,11 @@ func TestPrimary_PlanTask(t *testing.T) {
 		id: "researcher",
 		response: &schema.RunResponse{
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("researcher did step-1"),
-				}, "researcher"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "researcher did step-1")
+					m.AgentID = "researcher"
+					return m
+				}(),
 			},
 		},
 	}
@@ -249,7 +225,7 @@ func TestPrimary_PlanTask(t *testing.T) {
 		`]}`
 
 	mockLLM := &sequentialMockLLM{
-		responses: []*aimodel.ChatResponse{
+		responses: []*largemodel.Response{
 			primaryToolCallResponse(dispatches.PrimaryToolPlanTask, args),
 			primaryTextResponse("Plan completed."),
 		},
@@ -258,7 +234,7 @@ func TestPrimary_PlanTask(t *testing.T) {
 	d := newPrimaryDispatcher(t, coder, researcher, reviewer, chat, mockLLM)
 
 	resp, err := d.Run(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("do the thing in two steps")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "do the thing in two steps")},
 		SessionID: "m4-plan",
 	})
 	if err != nil {
@@ -277,7 +253,7 @@ func TestPrimary_PlanTask(t *testing.T) {
 		t.Error("reviewer must not run when plan did not name it")
 	}
 
-	if len(resp.Messages) == 0 || !strings.Contains(resp.Messages[0].Content.Text(), "Plan completed") {
+	if len(resp.Messages) == 0 || !strings.Contains(resp.Messages[0].Text(), "Plan completed") {
 		t.Errorf("unexpected plan response: %+v", resp.Messages)
 	}
 }
@@ -303,7 +279,7 @@ func TestPrimary_NilReturnsError(t *testing.T) {
 	// Deliberately NO SetPrimaryAssistant — must error.
 
 	_, err := d.Run(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("hi")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")},
 		SessionID: "m7-nil-primary",
 	})
 	if err == nil {

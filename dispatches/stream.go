@@ -86,7 +86,7 @@ func (d *Dispatcher) forwardSubAgentStream(
 
 		// Emit the response text as a single TextDelta + AgentEnd.
 		if len(resp.Messages) > 0 {
-			text := resp.Messages[0].Content.Text()
+			text := resp.Messages[0].Text()
 			if text != "" {
 				if err := send(schema.NewEvent(schema.EventTextDelta, subAgent.ID(), sessionID, schema.TextDeltaData{Delta: text})); err != nil {
 					return err

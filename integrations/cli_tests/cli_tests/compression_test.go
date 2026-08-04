@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
@@ -44,21 +43,16 @@ func TestIntegration_Compression_ProactiveCompactEndToEnd(t *testing.T) {
 	// Build a conversation that exceeds the threshold.
 	// Threshold = 2000 * 0.9 (safety) * 0.5 = 900 tokens.
 	history := []schema.Message{
-		{Message: aimodel.Message{Role: aimodel.RoleSystem, Content: aimodel.NewTextContent("You are a helpful assistant.")}},
+		schema.NewSystemMessage(schema.ProtocolOpenAIChat, "You are a helpful assistant."),
 	}
 
 	// Add turns until we exceed the threshold. Each turn ~100 tokens.
 	for i := 1; i <= 20; i++ {
 		history = append(
 			history,
-			schema.NewUserMessage(fmt.Sprintf("User message %d: %s", i, strings.Repeat("x", 200))),
+			schema.NewUserMessage(schema.ProtocolOpenAIChat, fmt.Sprintf("User message %d: %s", i, strings.Repeat("x", 200))),
 		)
-		history = append(history, schema.Message{
-			Message: aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(fmt.Sprintf("Response %d: %s", i, strings.Repeat("y", 200))),
-			},
-		})
+		history = append(history, schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, fmt.Sprintf("Response %d: %s", i, strings.Repeat("y", 200))))
 	}
 
 	// Calculate threshold as the CLI does.
@@ -101,8 +95,8 @@ func TestIntegration_Compression_ProactiveCompactEndToEnd(t *testing.T) {
 		if m.Metadata != nil {
 			if c, ok := m.Metadata["compressed"].(bool); ok && c {
 				foundSummary = true
-				if m.Role != aimodel.RoleSystem {
-					t.Errorf("summary role = %q, want system", m.Role)
+				if m.Role() != schema.RoleSystem {
+					t.Errorf("summary role = %q, want system", m.Role())
 				}
 				break
 			}
@@ -113,14 +107,14 @@ func TestIntegration_Compression_ProactiveCompactEndToEnd(t *testing.T) {
 	}
 
 	// Verify system prompt is preserved.
-	if compressed[0].Content.Text() != "You are a helpful assistant." {
+	if compressed[0].Text() != "You are a helpful assistant." {
 		t.Error("system prompt should be preserved")
 	}
 
 	// Verify protected turns are preserved (last 2 user/assistant pairs).
 	lastUserIdx := -1
 	for i := len(compressed) - 1; i >= 0; i-- {
-		if compressed[i].Role == aimodel.RoleUser {
+		if compressed[i].Role() == schema.RoleUser {
 			lastUserIdx = i
 			break
 		}
@@ -128,8 +122,8 @@ func TestIntegration_Compression_ProactiveCompactEndToEnd(t *testing.T) {
 	if lastUserIdx < 0 {
 		t.Fatal("no user message found in compressed history")
 	}
-	if !strings.Contains(compressed[lastUserIdx].Content.Text(), "User message 20") {
-		t.Errorf("last protected user message should be from turn 20, got: %q", compressed[lastUserIdx].Content.Text())
+	if !strings.Contains(compressed[lastUserIdx].Text(), "User message 20") {
+		t.Errorf("last protected user message should be from turn 20, got: %q", compressed[lastUserIdx].Text())
 	}
 }
 
@@ -150,9 +144,9 @@ func TestIntegration_Compression_NoCompactBelowThreshold(t *testing.T) {
 
 	// Small conversation well below threshold.
 	history := []schema.Message{
-		{Message: aimodel.Message{Role: aimodel.RoleSystem, Content: aimodel.NewTextContent("System prompt.")}},
-		schema.NewUserMessage("Hello"),
-		{Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("Hi there!")}},
+		schema.NewSystemMessage(schema.ProtocolOpenAIChat, "System prompt."),
+		schema.NewUserMessage(schema.ProtocolOpenAIChat, "Hello"),
+		schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "Hi there!"),
 	}
 
 	safetyMargin := 0.10
@@ -340,7 +334,7 @@ func TestIntegration_Compression_OverflowDetection(t *testing.T) {
 		},
 		{
 			name: "API error 413 returns true",
-			err: &aimodel.APIError{
+			err: &largemodel.APIError{
 				StatusCode: 413,
 				Message:    "payload too large",
 			},
@@ -348,7 +342,7 @@ func TestIntegration_Compression_OverflowDetection(t *testing.T) {
 		},
 		{
 			name: "API error context_length_exceeded returns true",
-			err: &aimodel.APIError{
+			err: &largemodel.APIError{
 				StatusCode: 400,
 				Code:       "context_length_exceeded",
 			},
@@ -356,7 +350,7 @@ func TestIntegration_Compression_OverflowDetection(t *testing.T) {
 		},
 		{
 			name: "API error with maximum context length message returns true",
-			err: &aimodel.APIError{
+			err: &largemodel.APIError{
 				StatusCode: 400,
 				Code:       "invalid_request_error",
 				Message:    "This model's Maximum context length is 200000 tokens.",
@@ -365,7 +359,7 @@ func TestIntegration_Compression_OverflowDetection(t *testing.T) {
 		},
 		{
 			name: "API error request_too_large code returns true",
-			err: &aimodel.APIError{
+			err: &largemodel.APIError{
 				StatusCode: 400,
 				Code:       "request_too_large",
 			},
@@ -373,7 +367,7 @@ func TestIntegration_Compression_OverflowDetection(t *testing.T) {
 		},
 		{
 			name: "unrelated API error returns false",
-			err: &aimodel.APIError{
+			err: &largemodel.APIError{
 				StatusCode: 400,
 				Code:       "invalid_request",
 				Message:    "Invalid JSON in request body",
@@ -387,7 +381,7 @@ func TestIntegration_Compression_OverflowDetection(t *testing.T) {
 		},
 		{
 			name: "wrapped API error returns true",
-			err: fmt.Errorf("request failed: %w", &aimodel.APIError{
+			err: fmt.Errorf("request failed: %w", &largemodel.APIError{
 				StatusCode: 413,
 				Message:    "too large",
 			}),
@@ -419,19 +413,14 @@ func TestIntegration_Compression_EmergencyCompactSimulation(t *testing.T) {
 
 	// Build large conversation.
 	history := []schema.Message{
-		{Message: aimodel.Message{Role: aimodel.RoleSystem, Content: aimodel.NewTextContent("System prompt.")}},
+		schema.NewSystemMessage(schema.ProtocolOpenAIChat, "System prompt."),
 	}
 	for i := 1; i <= 15; i++ {
 		history = append(
 			history,
-			schema.NewUserMessage(fmt.Sprintf("Q%d: %s", i, strings.Repeat("x", 80))),
+			schema.NewUserMessage(schema.ProtocolOpenAIChat, fmt.Sprintf("Q%d: %s", i, strings.Repeat("x", 80))),
 		)
-		history = append(history, schema.Message{
-			Message: aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(fmt.Sprintf("A%d: %s", i, strings.Repeat("y", 120))),
-			},
-		})
+		history = append(history, schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, fmt.Sprintf("A%d: %s", i, strings.Repeat("y", 120))))
 	}
 
 	// First attempt: normal compaction.
@@ -441,7 +430,7 @@ func TestIntegration_Compression_EmergencyCompactSimulation(t *testing.T) {
 	}
 
 	// Simulate overflow error detection.
-	overflowErr := &aimodel.APIError{
+	overflowErr := &largemodel.APIError{
 		StatusCode: 400,
 		Code:       "context_length_exceeded",
 		Message:    "maximum context length exceeded",
@@ -493,10 +482,10 @@ func TestIntegration_Compression_TokenEstimationConsistency(t *testing.T) {
 	runningTotal := 0
 
 	msgs := []schema.Message{
-		schema.NewUserMessage("Hello, how are you?"),
-		{Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("I'm doing well, thanks!")}},
-		schema.NewUserMessage("Can you help me with Go code?"),
-		{Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("Of course! What do you need?")}},
+		schema.NewUserMessage(schema.ProtocolOpenAIChat, "Hello, how are you?"),
+		schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "I'm doing well, thanks!"),
+		schema.NewUserMessage(schema.ProtocolOpenAIChat, "Can you help me with Go code?"),
+		schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "Of course! What do you need?"),
 	}
 
 	for _, msg := range msgs {
@@ -512,11 +501,11 @@ func TestIntegration_Compression_TokenEstimationConsistency(t *testing.T) {
 
 	// Verify EstimateTextTokens matches DefaultTokenEstimator for text content.
 	for _, msg := range msgs {
-		textEstimate := memory.EstimateTextTokens(msg.Content.Text())
+		textEstimate := memory.EstimateTextTokens(msg.Text())
 		msgEstimate := memory.DefaultTokenEstimator(msg)
 		if textEstimate != msgEstimate {
 			t.Errorf("EstimateTextTokens(%q) = %d, DefaultTokenEstimator = %d",
-				msg.Content.Text(), textEstimate, msgEstimate)
+				msg.Text(), textEstimate, msgEstimate)
 		}
 	}
 }

@@ -26,7 +26,7 @@ func RunPrompt(ctx context.Context, orchestrator agent.StreamAgent, prompt strin
 
 	// Build request with a single user message.
 	req := &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage(prompt)},
+		Messages:  []schema.Message{schema.NewUserMessage(orchestrator.Protocol(), prompt)},
 		SessionID: sessionID,
 	}
 

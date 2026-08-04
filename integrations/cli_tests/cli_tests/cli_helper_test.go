@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
@@ -21,17 +20,19 @@ type stubStreamAgent struct {
 
 var _ agent.StreamAgent = (*stubStreamAgent)(nil)
 
-func (s *stubStreamAgent) ID() string          { return s.id }
-func (s *stubStreamAgent) Name() string        { return s.id }
-func (s *stubStreamAgent) Description() string { return s.id }
+func (s *stubStreamAgent) ID() string                { return s.id }
+func (s *stubStreamAgent) Name() string              { return s.id }
+func (s *stubStreamAgent) Description() string       { return s.id }
+func (s *stubStreamAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(s.response),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, s.response)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }

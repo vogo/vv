@@ -23,7 +23,7 @@ func TestDecodeCaseLine_StringInput(t *testing.T) {
 		t.Fatalf("want 1 message, got %+v", c.Input)
 	}
 
-	if got := c.Input.Messages[0].Content.Text(); got != "hello world" {
+	if got := c.Input.Messages[0].Text(); got != "hello world" {
 		t.Errorf("content = %q", got)
 	}
 
@@ -44,7 +44,7 @@ func TestDecodeCaseLine_ObjectInput(t *testing.T) {
 		t.Fatalf("messages missing: %+v", c.Input)
 	}
 
-	if got := c.Input.Messages[0].Content.Text(); got != "explain go" {
+	if got := c.Input.Messages[0].Text(); got != "explain go" {
 		t.Errorf("content = %q", got)
 	}
 
@@ -89,7 +89,7 @@ func TestDecodeCaseLine_WithExpectedString(t *testing.T) {
 		t.Fatalf("expected missing: %+v", c.Expected)
 	}
 
-	if got := c.Expected.Messages[0].Content.Text(); got != "hello there" {
+	if got := c.Expected.Messages[0].Text(); got != "hello there" {
 		t.Errorf("expected content = %q", got)
 	}
 }

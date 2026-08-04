@@ -23,28 +23,29 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
 )
 
-// stubCompleter is a deterministic aimodel.ChatCompleter that returns a
+// stubCompleter is a deterministic largemodel.Caller that returns a
 // fixed usage profile on every call and increments an atomic counter so
 // tests can assert that the middleware never reached the (simulated)
 // network after a hard-limit rejection.
 type stubCompleter struct {
 	calls atomic.Int64
-	usage aimodel.Usage
+	usage schema.Usage
 }
 
-func (s *stubCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (s *stubCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (s *stubCompleter) Call(_ context.Context, _ *largemodel.Request) (*largemodel.Response, error) {
 	s.calls.Add(1)
-	return &aimodel.ChatResponse{ID: "stub", Usage: s.usage}, nil
+	return &largemodel.Response{ID: "stub", Usage: s.usage}, nil
 }
 
-func (s *stubCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (s *stubCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	s.calls.Add(1)
 	// Streaming path is not exercised here; return nil (WrapStream-safe).
 	return nil, nil
@@ -84,8 +85,8 @@ func wrap(
 	session, daily *budgets.Tracker,
 	pricing *costtraces.Pricing,
 	dispatch largemodel.DispatchFunc,
-	base aimodel.ChatCompleter,
-) aimodel.ChatCompleter {
+	base largemodel.Caller,
+) largemodel.Caller {
 	t.Helper()
 
 	var disp budgets.Dispatcher

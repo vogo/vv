@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/registries"
 )
@@ -104,17 +104,18 @@ func TestFactory_WithProjectInstructions(t *testing.T) {
 
 // captureChatCompleter captures the ChatRequest sent to it.
 type captureChatCompleter struct {
-	captured *aimodel.ChatRequest
-	response *aimodel.ChatResponse
+	captured *largemodel.Request
+	response *largemodel.Response
 }
 
-func (c *captureChatCompleter) ChatCompletion(_ context.Context, req *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (c *captureChatCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+func (c *captureChatCompleter) Call(_ context.Context, req *largemodel.Request) (*largemodel.Response, error) {
 	c.captured = req
 
 	return c.response, nil
 }
 
-func (c *captureChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (c *captureChatCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, nil
 }
 
@@ -122,16 +123,7 @@ func TestSystemPrompt_ContainsProjectInstructions(t *testing.T) {
 	instructions := "UNIQUE_PROJECT_MARKER_12345"
 
 	capture := &captureChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("Hello!"),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "Hello!", schema.Usage{}),
 	}
 
 	reg := registries.New()
@@ -154,7 +146,7 @@ func TestSystemPrompt_ContainsProjectInstructions(t *testing.T) {
 	// Run the agent to trigger an LLM call.
 	runReq := &schema.RunRequest{
 		Messages: []schema.Message{
-			schema.NewUserMessage("test prompt"),
+			schema.NewUserMessage(schema.ProtocolOpenAIChat, "test prompt"),
 		},
 	}
 
@@ -173,11 +165,11 @@ func TestSystemPrompt_ContainsProjectInstructions(t *testing.T) {
 	}
 
 	systemMsg := capture.captured.Messages[0]
-	if systemMsg.Role != aimodel.RoleSystem {
-		t.Fatalf("first message role = %q, want %q", systemMsg.Role, aimodel.RoleSystem)
+	if systemMsg.Role() != schema.RoleSystem {
+		t.Fatalf("first message role = %q, want %q", systemMsg.Role(), schema.RoleSystem)
 	}
 
-	text := systemMsg.Content.Text()
+	text := systemMsg.Text()
 	if !strings.Contains(text, instructions) {
 		t.Errorf("system prompt should contain project instructions %q, got:\n%s", instructions, text)
 	}

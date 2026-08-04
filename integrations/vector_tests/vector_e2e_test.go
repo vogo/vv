@@ -198,9 +198,10 @@ func TestVector_HTTPDisabledReturns503(t *testing.T) {
 // httpapis.Serve when we only care about the vector routes.
 type stubAgent struct{}
 
-func (stubAgent) ID() string          { return "stub" }
-func (stubAgent) Name() string        { return "Stub" }
-func (stubAgent) Description() string { return "stub for vector e2e" }
+func (stubAgent) ID() string                { return "stub" }
+func (stubAgent) Name() string              { return "Stub" }
+func (stubAgent) Description() string       { return "stub for vector e2e" }
+func (stubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 func (stubAgent) Run(_ context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	_ = req
 	return &schema.RunResponse{}, nil

@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/session"
@@ -62,7 +62,7 @@ func newRequestID() string {
 // supplying both the IterationStore and the agent resolver
 // (InitResult.ResumeAgent). nil is permitted so call sites that wire the
 // HTTP server without going through setup.Init still compile.
-func Serve(ctx context.Context, cfg *configs.Config, llm aimodel.ChatCompleter, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker, sessionStore session.SessionStore, planWorkspace workspace.Workspace, treeStore tree.SessionTreeStore, vectorStore vector.VectorStore, vectorEmbedder vector.Embedder, initResult *setup.InitResult) error {
+func Serve(ctx context.Context, cfg *configs.Config, llm largemodel.Caller, dispatcher agent.Agent, agents []agent.Agent, persistentMem memory.Memory, interactionStore *InteractionStore, compactor *memory.ConversationCompactor, sessionBudget, dailyBudget *budgets.Tracker, sessionStore session.SessionStore, planWorkspace workspace.Workspace, treeStore tree.SessionTreeStore, vectorStore vector.VectorStore, vectorEmbedder vector.Embedder, initResult *setup.InitResult) error {
 	// Register tools (full registry for HTTP service).
 	toolRegistry, err := tools.Register(cfg.Tools)
 	if err != nil {

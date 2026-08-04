@@ -248,8 +248,8 @@ var modelPricingEnvBindings = []envBinding{
 //
 // Note: when OPENAI_API_KEY and ANTHROPIC_* are both set with no explicit
 // provider, this fallback selects anthropic — the standard Anthropic
-// convention wins. aimodel.NewClient's own AI_API_KEY/OPENAI_API_KEY/
-// ANTHROPIC_API_KEY fallback is untouched; this only decides the protocol.
+// convention wins. This block selects the protocol and fills only missing
+// fields; explicit YAML and VV_LLM_* values remain authoritative.
 func applyAnthropicEnvFallback(cfg *Config) {
 	if cfg.LLM.Provider != "" {
 		return

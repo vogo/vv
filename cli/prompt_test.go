@@ -20,9 +20,10 @@ type mockStreamAgent struct {
 
 var _ agent.StreamAgent = (*mockStreamAgent)(nil)
 
-func (m *mockStreamAgent) ID() string          { return m.id }
-func (m *mockStreamAgent) Name() string        { return m.id }
-func (m *mockStreamAgent) Description() string { return m.id }
+func (m *mockStreamAgent) ID() string                { return m.id }
+func (m *mockStreamAgent) Name() string              { return m.id }
+func (m *mockStreamAgent) Description() string       { return m.id }
+func (m *mockStreamAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (m *mockStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{}, nil

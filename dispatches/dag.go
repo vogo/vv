@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/orchestrate"
@@ -18,7 +17,7 @@ import (
 )
 
 // runPlan builds and executes a DAG from the plan.
-func (d *Dispatcher) runPlan(ctx context.Context, req *schema.RunRequest, plan *Plan, classifyUsage *aimodel.Usage, contextSummary string) (*schema.RunResponse, error) {
+func (d *Dispatcher) runPlan(ctx context.Context, req *schema.RunRequest, plan *Plan, classifyUsage *schema.Usage, contextSummary string) (*schema.RunResponse, error) {
 	nodes, err := d.buildNodes(plan, req, contextSummary)
 	if err != nil {
 		slog.Warn("orchestrator: DAG build failed, falling back to chat", "error", err)
@@ -82,7 +81,7 @@ func (d *Dispatcher) buildNodes(plan *Plan, req *schema.RunRequest, contextSumma
 			ID:          step.ID,
 			Runner:      runner,
 			Deps:        step.DependsOn,
-			InputMapper: BuildInputMapper(d.workingDir, contextSummary, plan.Goal, stepCopy, stepCopy.DependsOn, req.SessionID),
+			InputMapper: BuildInputMapper(runner.Protocol(), d.workingDir, contextSummary, plan.Goal, stepCopy, stepCopy.DependsOn, req.SessionID),
 			Optional:    true,
 		})
 	}
@@ -105,7 +104,7 @@ func (d *Dispatcher) buildNodes(plan *Plan, req *schema.RunRequest, contextSumma
 						fmt.Fprintf(&sb, "## Step: %s\n", id)
 
 						for _, m := range resp.Messages {
-							sb.WriteString(m.Content.Text())
+							sb.WriteString(m.Text())
 							sb.WriteString("\n")
 						}
 
@@ -114,7 +113,7 @@ func (d *Dispatcher) buildNodes(plan *Plan, req *schema.RunRequest, contextSumma
 				}
 
 				return &schema.RunRequest{
-					Messages:  []schema.Message{schema.NewUserMessage(sb.String())},
+					Messages:  []schema.Message{schema.NewUserMessage(d.planGen.Protocol(), sb.String())},
 					SessionID: req.SessionID,
 				}, nil
 			},
@@ -206,7 +205,7 @@ func (d *Dispatcher) buildDynamicAgent(stepID string, spec *DynamicAgentSpec) (*
 
 	opts = append(
 		opts,
-		taskagent.WithChatCompleter(d.llm),
+		taskagent.WithCaller(d.llm),
 		taskagent.WithModel(model),
 		taskagent.WithSystemPrompt(prompt.StringPrompt(systemPrompt)),
 		taskagent.WithMaxIterations(maxIter),
@@ -286,6 +285,8 @@ func (h *hookedAgent) Run(ctx context.Context, req *schema.RunRequest) (*schema.
 
 	return resp, err
 }
+
+func (h *hookedAgent) Protocol() schema.Protocol { return h.inner.Protocol() }
 
 // RunStream implements agent.StreamAgent for hookedAgent, enabling streaming through hooked agents.
 func (h *hookedAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {

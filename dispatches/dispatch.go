@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/session/tree"
 	"github.com/vogo/vv/configs"
@@ -44,7 +44,7 @@ func (pt *phaseTracker) wrap(send func(schema.Event) error) func(schema.Event) e
 // classical fastPath/intent/execute/summarize pipeline has been retired.
 type Dispatcher struct {
 	agent.Base
-	llm            aimodel.ChatCompleter
+	llm            largemodel.Caller
 	model          string
 	registry       *registries.Registry
 	subAgents      map[string]agent.Agent
@@ -113,7 +113,7 @@ func New(
 }
 
 // WithLLM sets the LLM client used for dynamic agent creation in plan steps.
-func WithLLM(llm aimodel.ChatCompleter, model string) Option {
+func WithLLM(llm largemodel.Caller, model string) Option {
 	return func(d *Dispatcher) {
 		d.llm = llm
 		d.model = model

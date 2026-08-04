@@ -118,7 +118,7 @@ func runRealCase(t *testing.T, name, userPrompt string) caseResult {
 	start := time.Now()
 
 	resp, err := result.Dispatcher.Run(ctx, &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage(userPrompt)},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, userPrompt)},
 	})
 	if err != nil {
 		t.Fatalf("Dispatcher.Run(%q): %v", name, err)
@@ -139,7 +139,7 @@ func runRealCase(t *testing.T, name, userPrompt string) caseResult {
 	}
 
 	if resp != nil && len(resp.Messages) > 0 {
-		text := resp.Messages[0].Content.Text()
+		text := resp.Messages[0].Text()
 		if len(text) > 200 {
 			text = text[:200] + "..."
 		}

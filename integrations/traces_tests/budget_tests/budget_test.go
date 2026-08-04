@@ -30,7 +30,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/traces/budgets"
@@ -49,7 +48,7 @@ func TestIntegration_SessionHardTokens(t *testing.T) {
 		t.Fatal("expected non-nil session tracker")
 	}
 
-	stub := &stubCompleter{usage: aimodel.Usage{PromptTokens: 60, CompletionTokens: 40}} // 100 tokens / call
+	stub := &stubCompleter{usage: schema.Usage{PromptTokens: 60, CompletionTokens: 40}} // 100 tokens / call
 	disp, _ := newCollectingDispatcher()
 	completer := wrap(t, session, nil, nil, disp, stub)
 
@@ -57,13 +56,13 @@ func TestIntegration_SessionHardTokens(t *testing.T) {
 
 	// Two successful calls consume the full 200-token session budget.
 	for i := range 2 {
-		if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+		if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 			t.Fatalf("call %d unexpected err: %v", i+1, err)
 		}
 	}
 
 	// Third call must be rejected at pre-check, without incrementing stub.
-	_, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{})
+	_, err := completer.Call(ctx, &largemodel.Request{})
 	if err == nil {
 		t.Fatal("expected budget-exceeded error, got nil")
 	}
@@ -97,7 +96,7 @@ func TestIntegration_SessionWarnPercent(t *testing.T) {
 		t.Fatal("expected non-nil session tracker")
 	}
 
-	stub := &stubCompleter{usage: aimodel.Usage{PromptTokens: 60, CompletionTokens: 40}} // 100 tokens / call
+	stub := &stubCompleter{usage: schema.Usage{PromptTokens: 60, CompletionTokens: 40}} // 100 tokens / call
 	disp, getEvents := newCollectingDispatcher()
 	completer := wrap(t, session, nil, nil, disp, stub)
 
@@ -105,7 +104,7 @@ func TestIntegration_SessionWarnPercent(t *testing.T) {
 
 	// 4 calls → 400 tokens: below warn threshold (50% of 1000 = 500).
 	for i := range 4 {
-		if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+		if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 			t.Fatalf("call %d unexpected err: %v", i+1, err)
 		}
 	}
@@ -121,14 +120,14 @@ func TestIntegration_SessionWarnPercent(t *testing.T) {
 	}
 
 	// 5th call brings usage to 500 → first warn crossing.
-	if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+	if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 		t.Fatalf("5th call err: %v", err)
 	}
 
 	// Calls 6–9 take usage to 900, well past warn but under limit; must
 	// remain a one-shot event.
 	for i := range 4 {
-		if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+		if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 			t.Fatalf("post-warn call %d err: %v", i+1, err)
 		}
 	}
@@ -163,7 +162,7 @@ func TestIntegration_DailyWindowRoll(t *testing.T) {
 		t.Fatal("expected non-nil daily tracker")
 	}
 
-	stub := &stubCompleter{usage: aimodel.Usage{PromptTokens: 60, CompletionTokens: 40}} // 100 tokens / call
+	stub := &stubCompleter{usage: schema.Usage{PromptTokens: 60, CompletionTokens: 40}} // 100 tokens / call
 	disp, getEvents := newCollectingDispatcher()
 	completer := wrap(t, nil, daily, nil, disp, stub)
 
@@ -172,7 +171,7 @@ func TestIntegration_DailyWindowRoll(t *testing.T) {
 	// 9 calls → 900 tokens (90% of 1000). This also crosses the 80% warn
 	// threshold, so we expect exactly one warn event in day N.
 	for i := range 9 {
-		if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+		if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 			t.Fatalf("day N call %d err: %v", i+1, err)
 		}
 	}
@@ -197,7 +196,7 @@ func TestIntegration_DailyWindowRoll(t *testing.T) {
 
 	// Next call should roll the window before recording: counter starts
 	// at 0, then +100 lands us at 100.
-	if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+	if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 		t.Fatalf("day N+1 first call err: %v", err)
 	}
 
@@ -209,7 +208,7 @@ func TestIntegration_DailyWindowRoll(t *testing.T) {
 	// Fill to 800 in the new window → should emit a fresh warn event
 	// (warnFired was reset on roll).
 	for i := range 7 {
-		if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+		if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 			t.Fatalf("day N+1 fill call %d err: %v", i+1, err)
 		}
 	}
@@ -239,7 +238,7 @@ func TestIntegration_NestedAgent(t *testing.T) {
 	// Pick a hard limit comfortably above the combined total so neither
 	// goroutine is rejected — we are verifying aggregation, not gating.
 	session := budgets.NewSession(budgets.Config{HardTokens: (parentCalls + childCalls) * perCall * 10})
-	stub := &stubCompleter{usage: aimodel.Usage{PromptTokens: 60, CompletionTokens: 40}}
+	stub := &stubCompleter{usage: schema.Usage{PromptTokens: 60, CompletionTokens: 40}}
 	completer := wrap(t, session, nil, nil, nil, stub)
 
 	ctx := context.Background()
@@ -250,7 +249,7 @@ func TestIntegration_NestedAgent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := range parentCalls {
-			if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+			if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 				t.Errorf("parent call %d err: %v", i+1, err)
 				return
 			}
@@ -260,7 +259,7 @@ func TestIntegration_NestedAgent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := range childCalls {
-			if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+			if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 				t.Errorf("child call %d err: %v", i+1, err)
 				return
 			}
@@ -281,7 +280,7 @@ func TestIntegration_NestedAgent(t *testing.T) {
 }
 
 // Scenario: concurrent_tools
-// Parallel Wrap(...).ChatCompletion calls from many goroutines simulate
+// Parallel Wrap(...).Call calls from many goroutines simulate
 // multiple tool executions running concurrently. The final tracker total
 // must equal goroutines × perCall exactly — zero races, zero lost
 // updates. Run under `go test -race` to exercise the mutex.
@@ -292,7 +291,7 @@ func TestIntegration_ConcurrentTools(t *testing.T) {
 	)
 
 	session := budgets.NewSession(budgets.Config{HardTokens: goroutines * perCall * 100})
-	stub := &stubCompleter{usage: aimodel.Usage{PromptTokens: 7, CompletionTokens: 3}} // 10 tokens
+	stub := &stubCompleter{usage: schema.Usage{PromptTokens: 7, CompletionTokens: 3}} // 10 tokens
 	completer := wrap(t, session, nil, nil, nil, stub)
 
 	ctx := context.Background()
@@ -303,7 +302,7 @@ func TestIntegration_ConcurrentTools(t *testing.T) {
 	for range goroutines {
 		go func() {
 			defer wg.Done()
-			if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+			if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 				t.Errorf("concurrent call err: %v", err)
 			}
 		}()
@@ -346,7 +345,7 @@ func TestIntegration_CostAndTokensBoth(t *testing.T) {
 	}
 
 	stub := &stubCompleter{
-		usage: aimodel.Usage{PromptTokens: 1000, CompletionTokens: 1000},
+		usage: schema.Usage{PromptTokens: 1000, CompletionTokens: 1000},
 	}
 
 	completer := wrap(t, session, nil, pricing, nil, stub)
@@ -354,20 +353,20 @@ func TestIntegration_CostAndTokensBoth(t *testing.T) {
 	ctx := context.Background()
 
 	// Call 1: cost accrues to 0.018, tokens to 2000 — both under limit.
-	if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+	if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 		t.Fatalf("call 1 err: %v", err)
 	}
 
 	// Call 2: cost accrues to 0.036 (>= 0.030), tokens to 4000 (<< 10000).
 	// This call still succeeds because pre-check runs BEFORE Add; only
 	// the post-Add state crosses the limit.
-	if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+	if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 		t.Fatalf("call 2 err: %v", err)
 	}
 
 	// Call 3: pre-check sees Used >= Limit on the cost dimension and
 	// rejects with Dimension=="cost" (tokens still have headroom).
-	_, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{})
+	_, err := completer.Call(ctx, &largemodel.Request{})
 	if err == nil {
 		t.Fatal("expected budget-exceeded error, got nil")
 	}
@@ -399,12 +398,12 @@ func TestIntegration_NoPricingModel(t *testing.T) {
 		t.Fatal("expected non-nil session tracker")
 	}
 
-	stub := &stubCompleter{usage: aimodel.Usage{PromptTokens: 1000, CompletionTokens: 1000}}
+	stub := &stubCompleter{usage: schema.Usage{PromptTokens: 1000, CompletionTokens: 1000}}
 	completer := wrap(t, costOnly, nil, nil /* pricing */, nil, stub)
 
 	ctx := context.Background()
 	for i := range 20 {
-		if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+		if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 			t.Fatalf("cost-only call %d unexpectedly rejected: %v", i+1, err)
 		}
 	}
@@ -415,16 +414,16 @@ func TestIntegration_NoPricingModel(t *testing.T) {
 
 	// Part 2: tokens limit in the same no-pricing setup is still enforced.
 	tokensOnly := budgets.NewSession(budgets.Config{HardTokens: 500})
-	stub2 := &stubCompleter{usage: aimodel.Usage{PromptTokens: 300, CompletionTokens: 200}} // 500 per call
+	stub2 := &stubCompleter{usage: schema.Usage{PromptTokens: 300, CompletionTokens: 200}} // 500 per call
 	completer2 := wrap(t, tokensOnly, nil, nil, nil, stub2)
 
 	// First call fills the entire 500-token budget.
-	if _, err := completer2.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+	if _, err := completer2.Call(ctx, &largemodel.Request{}); err != nil {
 		t.Fatalf("tokens-only call 1 err: %v", err)
 	}
 
 	// Second call must be rejected.
-	if _, err := completer2.ChatCompletion(ctx, &aimodel.ChatRequest{}); !budgets.IsExceeded(err) {
+	if _, err := completer2.Call(ctx, &largemodel.Request{}); !budgets.IsExceeded(err) {
 		t.Fatalf("expected budget-exceeded on 2nd call, got %v", err)
 	}
 }
@@ -443,17 +442,17 @@ func TestIntegration_DisabledAll(t *testing.T) {
 
 	// Defensive: even if someone wraps with nil closures, behavior must
 	// be transparent — equal call count and identical response.
-	baseline := &stubCompleter{usage: aimodel.Usage{PromptTokens: 10, CompletionTokens: 5}}
+	baseline := &stubCompleter{usage: schema.Usage{PromptTokens: 10, CompletionTokens: 5}}
 	wrapped := largemodel.NewBudgetMiddleware(nil, nil).Wrap(baseline)
 
 	ctx := context.Background()
 
-	resp1, err1 := baseline.ChatCompletion(ctx, &aimodel.ChatRequest{})
+	resp1, err1 := baseline.Call(ctx, &largemodel.Request{})
 	if err1 != nil {
 		t.Fatalf("baseline call err: %v", err1)
 	}
 
-	resp2, err2 := wrapped.ChatCompletion(ctx, &aimodel.ChatRequest{})
+	resp2, err2 := wrapped.Call(ctx, &largemodel.Request{})
 	if err2 != nil {
 		t.Fatalf("wrapped call err: %v", err2)
 	}
@@ -481,7 +480,7 @@ func TestIntegration_ExceededEventDispatch(t *testing.T) {
 		t.Fatal("expected non-nil session tracker")
 	}
 
-	stub := &stubCompleter{usage: aimodel.Usage{PromptTokens: 60, CompletionTokens: 40}} // 100 tokens / call
+	stub := &stubCompleter{usage: schema.Usage{PromptTokens: 60, CompletionTokens: 40}} // 100 tokens / call
 	disp, getEvents := newCollectingDispatcher()
 	completer := wrap(t, session, nil, nil, disp, stub)
 
@@ -489,12 +488,12 @@ func TestIntegration_ExceededEventDispatch(t *testing.T) {
 
 	// First call: 100 used, which equals the hard limit — Add returns an
 	// Exceeded result and the dispatcher fires EventBudgetExceeded.
-	if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); err != nil {
+	if _, err := completer.Call(ctx, &largemodel.Request{}); err != nil {
 		t.Fatalf("first call err: %v", err)
 	}
 
 	// Second call: pre-check must reject.
-	if _, err := completer.ChatCompletion(ctx, &aimodel.ChatRequest{}); !budgets.IsExceeded(err) {
+	if _, err := completer.Call(ctx, &largemodel.Request{}); !budgets.IsExceeded(err) {
 		t.Fatalf("expected budget-exceeded on 2nd call, got %v", err)
 	}
 

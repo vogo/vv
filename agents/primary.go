@@ -63,7 +63,7 @@ func RegisterPrimary(reg *registries.Registry) {
 			sysPrompt := AppendProjectInstructions(PrimarySystemPrompt, opts.ProjectInstructions)
 
 			taskOpts := []taskagent.Option{
-				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithCaller(opts.LLM),
 				taskagent.WithModel(opts.Model),
 				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(opts.MaxIterations),

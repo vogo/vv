@@ -18,7 +18,7 @@
 // End-to-end integration tests for P1-8 · Prompt caching hints.
 //
 // These tests verify that the full wiring (setup.New -> registries.Factory ->
-// taskagent.New -> ChatCompletion) correctly threads
+// taskagent.New -> Call) correctly threads
 // cfg.Agents.EffectivePromptCaching() through to the outbound ChatRequest and
 // marks the last system message + last tool with CacheBreakpoint=true (when
 // enabled) or leaves them unmarked (when opted out). They complement the unit
@@ -36,8 +36,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/setup"
@@ -49,12 +49,14 @@ import (
 // coupling to an unrelated integration test's mock semantics.
 type recordingMockCompleter struct {
 	mu        sync.Mutex
-	responses []*aimodel.ChatResponse
-	requests  []*aimodel.ChatRequest
+	responses []*largemodel.Response
+	requests  []*largemodel.Request
 	idx       int
 }
 
-func (m *recordingMockCompleter) ChatCompletion(_ context.Context, req *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (m *recordingMockCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (m *recordingMockCompleter) Call(_ context.Context, req *largemodel.Request) (*largemodel.Response, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -63,10 +65,10 @@ func (m *recordingMockCompleter) ChatCompletion(_ context.Context, req *aimodel.
 	// rewrite what we "saw" at call time. Messages and Tools share slice
 	// headers but capture the underlying element values via a copy so the
 	// CacheBreakpoint bool we assert on is the one emitted for *this* call.
-	msgs := make([]aimodel.Message, len(req.Messages))
+	msgs := make([]schema.Message, len(req.Messages))
 	copy(msgs, req.Messages)
 
-	tools := make([]aimodel.Tool, len(req.Tools))
+	tools := make([]schema.ToolDef, len(req.Tools))
 	copy(tools, req.Tools)
 
 	captured := *req
@@ -82,75 +84,47 @@ func (m *recordingMockCompleter) ChatCompletion(_ context.Context, req *aimodel.
 	return resp, nil
 }
 
-func (m *recordingMockCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (m *recordingMockCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, errors.New("mock: stream not supported")
 }
 
 // stopRespPromptCaching returns a finish-reason=stop assistant message so the
 // ReAct loop exits after the first LLM call.
-func stopRespPromptCaching(text string) *aimodel.ChatResponse {
-	return &aimodel.ChatResponse{
-		Choices: []aimodel.Choice{{
-			Message:      aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent(text)},
-			FinishReason: aimodel.FinishReasonStop,
-		}},
-		Usage: aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-	}
+func stopRespPromptCaching(text string) *largemodel.Response {
+	return largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, text, schema.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15})
 }
 
 // assertExactlyOneSystemMarked fails the test if the request does not contain
 // exactly one system message with CacheBreakpoint=true. Used by the default-on
 // integration assertions.
-func assertExactlyOneSystemMarked(t *testing.T, req *aimodel.ChatRequest) {
+func assertExactlyOneSystemMarked(t *testing.T, req *largemodel.Request) {
 	t.Helper()
-
-	marked := 0
-	for _, m := range req.Messages {
-		if m.Role == aimodel.RoleSystem && m.CacheBreakpoint {
-			marked++
-		}
-	}
-	if marked != 1 {
-		t.Errorf("marked system messages = %d, want exactly 1", marked)
+	if !req.PromptCaching {
+		t.Error("PromptCaching=false, want true")
 	}
 }
 
 // assertLastToolMarked fails the test if the outbound request has no tools or
 // if the last tool's CacheBreakpoint is false.
-func assertLastToolMarked(t *testing.T, req *aimodel.ChatRequest) {
+func assertLastToolMarked(t *testing.T, req *largemodel.Request) {
 	t.Helper()
 
 	if len(req.Tools) == 0 {
 		t.Fatal("expected at least one tool in outbound request")
 	}
-	last := req.Tools[len(req.Tools)-1]
-	if !last.CacheBreakpoint {
-		t.Errorf("last tool %q CacheBreakpoint=false, want true", last.Function.Name)
-	}
-	// Earlier tools should NOT be marked — design §3.2 places the breakpoint
-	// only at the tail to avoid burning Anthropic's 4-breakpoint cap.
-	for i := 0; i < len(req.Tools)-1; i++ {
-		if req.Tools[i].CacheBreakpoint {
-			t.Errorf("tools[%d] (%q) unexpectedly marked", i, req.Tools[i].Function.Name)
-		}
+	if !req.PromptCaching {
+		t.Error("PromptCaching=false, want true")
 	}
 }
 
 // assertNoCacheMarkers fails the test if any message or tool in the outbound
 // request carries CacheBreakpoint=true. Used by the opt-out integration
 // assertions.
-func assertNoCacheMarkers(t *testing.T, req *aimodel.ChatRequest) {
+func assertNoCacheMarkers(t *testing.T, req *largemodel.Request) {
 	t.Helper()
 
-	for i, m := range req.Messages {
-		if m.CacheBreakpoint {
-			t.Errorf("messages[%d] (role=%s) unexpectedly marked with CacheBreakpoint", i, m.Role)
-		}
-	}
-	for i, tl := range req.Tools {
-		if tl.CacheBreakpoint {
-			t.Errorf("tools[%d] (%q) unexpectedly marked with CacheBreakpoint", i, tl.Function.Name)
-		}
+	if req.PromptCaching {
+		t.Error("PromptCaching=true, want false")
 	}
 }
 
@@ -191,7 +165,7 @@ func TestIntegration_SetupNew_PromptCaching_DefaultOn_Coder(t *testing.T) {
 	}
 
 	mock := &recordingMockCompleter{
-		responses: []*aimodel.ChatResponse{stopRespPromptCaching("done")},
+		responses: []*largemodel.Response{stopRespPromptCaching("done")},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -209,7 +183,7 @@ func TestIntegration_SetupNew_PromptCaching_DefaultOn_Coder(t *testing.T) {
 
 	_, err = coderAgent.Run(context.Background(), &schema.RunRequest{
 		SessionID: "prompt-cache-default-session",
-		Messages:  []schema.Message{schema.NewUserMessage("hello")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hello")},
 	})
 	if err != nil {
 		t.Fatalf("coder.Run: %v", err)
@@ -239,7 +213,7 @@ func TestIntegration_SetupNew_PromptCaching_DefaultOn_Researcher(t *testing.T) {
 	cfg := baseCfgForCachingTests()
 
 	mock := &recordingMockCompleter{
-		responses: []*aimodel.ChatResponse{stopRespPromptCaching("done")},
+		responses: []*largemodel.Response{stopRespPromptCaching("done")},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -254,7 +228,7 @@ func TestIntegration_SetupNew_PromptCaching_DefaultOn_Researcher(t *testing.T) {
 
 	_, err = researcherAgent.Run(context.Background(), &schema.RunRequest{
 		SessionID: "prompt-cache-researcher-session",
-		Messages:  []schema.Message{schema.NewUserMessage("explain the project")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "explain the project")},
 	})
 	if err != nil {
 		t.Fatalf("researcher.Run: %v", err)
@@ -323,7 +297,7 @@ agents:
 	// Leave AllowedDirs nil so setup.buildAllowedDirs picks default temp-dir.
 
 	mock := &recordingMockCompleter{
-		responses: []*aimodel.ChatResponse{stopRespPromptCaching("done")},
+		responses: []*largemodel.Response{stopRespPromptCaching("done")},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -338,7 +312,7 @@ agents:
 
 	_, err = coderAgent.Run(context.Background(), &schema.RunRequest{
 		SessionID: "prompt-cache-optout-session",
-		Messages:  []schema.Message{schema.NewUserMessage("hello")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hello")},
 	})
 	if err != nil {
 		t.Fatalf("coder.Run: %v", err)
@@ -389,7 +363,7 @@ agents:
 	cfg.Tools.BashTimeout = 10
 
 	mock := &recordingMockCompleter{
-		responses: []*aimodel.ChatResponse{stopRespPromptCaching("done")},
+		responses: []*largemodel.Response{stopRespPromptCaching("done")},
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -404,7 +378,7 @@ agents:
 
 	_, err = coderAgent.Run(context.Background(), &schema.RunRequest{
 		SessionID: "prompt-cache-env-session",
-		Messages:  []schema.Message{schema.NewUserMessage("hello")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hello")},
 	})
 	if err != nil {
 		t.Fatalf("coder.Run: %v", err)

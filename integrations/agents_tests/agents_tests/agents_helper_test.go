@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 )
@@ -19,9 +18,10 @@ type stubAgent struct {
 
 var _ agent.Agent = (*stubAgent)(nil)
 
-func (s *stubAgent) ID() string          { return s.id }
-func (s *stubAgent) Name() string        { return s.id }
-func (s *stubAgent) Description() string { return s.id }
+func (s *stubAgent) ID() string                { return s.id }
+func (s *stubAgent) Name() string              { return s.id }
+func (s *stubAgent) Description() string       { return s.id }
+func (s *stubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	if s.response != nil {
@@ -30,10 +30,11 @@ func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunRes
 
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent("stub response from " + s.id),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "stub response from "+s.id)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }
@@ -46,17 +47,19 @@ type stubStreamAgent struct {
 
 var _ agent.StreamAgent = (*stubStreamAgent)(nil)
 
-func (s *stubStreamAgent) ID() string          { return s.id }
-func (s *stubStreamAgent) Name() string        { return s.id }
-func (s *stubStreamAgent) Description() string { return s.id }
+func (s *stubStreamAgent) ID() string                { return s.id }
+func (s *stubStreamAgent) Name() string              { return s.id }
+func (s *stubStreamAgent) Description() string       { return s.id }
+func (s *stubStreamAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(s.response),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, s.response)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }
@@ -89,9 +92,10 @@ type recordingStubAgent struct {
 
 var _ agent.Agent = (*recordingStubAgent)(nil)
 
-func (s *recordingStubAgent) ID() string          { return s.id }
-func (s *recordingStubAgent) Name() string        { return s.id }
-func (s *recordingStubAgent) Description() string { return s.id }
+func (s *recordingStubAgent) ID() string                { return s.id }
+func (s *recordingStubAgent) Name() string              { return s.id }
+func (s *recordingStubAgent) Description() string       { return s.id }
+func (s *recordingStubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *recordingStubAgent) Run(_ context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	s.mu.Lock()
@@ -104,10 +108,11 @@ func (s *recordingStubAgent) Run(_ context.Context, req *schema.RunRequest) (*sc
 
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent("stub response from " + s.id),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "stub response from "+s.id)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }
@@ -122,9 +127,10 @@ type timingStubAgent struct {
 
 var _ agent.Agent = (*timingStubAgent)(nil)
 
-func (s *timingStubAgent) ID() string          { return s.id }
-func (s *timingStubAgent) Name() string        { return s.id }
-func (s *timingStubAgent) Description() string { return s.id }
+func (s *timingStubAgent) ID() string                { return s.id }
+func (s *timingStubAgent) Name() string              { return s.id }
+func (s *timingStubAgent) Description() string       { return s.id }
+func (s *timingStubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *timingStubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	s.startRef.Store(time.Now().UnixNano())
@@ -143,9 +149,10 @@ type failingStubAgent struct {
 
 var _ agent.Agent = (*failingStubAgent)(nil)
 
-func (s *failingStubAgent) ID() string          { return s.id }
-func (s *failingStubAgent) Name() string        { return s.id }
-func (s *failingStubAgent) Description() string { return s.id }
+func (s *failingStubAgent) ID() string                { return s.id }
+func (s *failingStubAgent) Name() string              { return s.id }
+func (s *failingStubAgent) Description() string       { return s.id }
+func (s *failingStubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *failingStubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return nil, s.err
@@ -160,9 +167,10 @@ type callbackStubAgent struct {
 
 var _ agent.Agent = (*callbackStubAgent)(nil)
 
-func (s *callbackStubAgent) ID() string          { return s.id }
-func (s *callbackStubAgent) Name() string        { return s.id }
-func (s *callbackStubAgent) Description() string { return s.id }
+func (s *callbackStubAgent) ID() string                { return s.id }
+func (s *callbackStubAgent) Name() string              { return s.id }
+func (s *callbackStubAgent) Description() string       { return s.id }
+func (s *callbackStubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *callbackStubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	if s.onRun != nil {

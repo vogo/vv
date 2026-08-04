@@ -34,16 +34,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/hook"
+	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/setup"
 	"github.com/vogo/vv/traces/tracelog"
 )
 
-// stubCompleter is a deterministic aimodel.ChatCompleter that returns a
+// stubCompleter is a deterministic largemodel.Caller that returns a
 // fixed assistant response on every call and counts invocations atomically.
 // Mirrors budget_tests.stubCompleter so the two packages share test style.
 type stubCompleter struct {
@@ -51,24 +52,18 @@ type stubCompleter struct {
 	text  string
 }
 
-func (s *stubCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (s *stubCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (s *stubCompleter) Call(_ context.Context, _ *largemodel.Request) (*largemodel.Response, error) {
 	s.calls.Add(1)
 
-	msg := aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent(s.text)}
-
-	return &aimodel.ChatResponse{
-		ID:    "stub",
-		Model: "stub-model",
-		Choices: []aimodel.Choice{{
-			Index:        0,
-			Message:      msg,
-			FinishReason: aimodel.FinishReasonStop,
-		}},
-		Usage: aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-	}, nil
+	resp := largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, s.text, schema.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15})
+	resp.ID = "stub"
+	resp.Model = "stub-model"
+	return resp, nil
 }
 
-func (s *stubCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (s *stubCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	s.calls.Add(1)
 	return nil, nil
 }
@@ -203,7 +198,7 @@ func initWithStubAgent(t *testing.T, cfg *configs.Config, stubResponse string) (
 	stub := &stubCompleter{text: stubResponse}
 
 	opts := []taskagent.Option{
-		taskagent.WithChatCompleter(stub),
+		taskagent.WithCaller(stub),
 		taskagent.WithModel(cfg.LLM.Model),
 		taskagent.WithMaxIterations(1),
 	}

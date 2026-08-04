@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/vogo/aimodel"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
@@ -24,16 +24,7 @@ import (
 //   - Wrapped agents still function correctly
 func TestIntegration_SetupNew_WrapToolRegistry(t *testing.T) {
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "chat"}`),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, `{"mode": "direct", "agent": "chat"}`, schema.Usage{}),
 	}
 
 	cfg := &configs.Config{
@@ -67,7 +58,7 @@ func TestIntegration_SetupNew_WrapToolRegistry(t *testing.T) {
 
 	// Verify the Dispatcher still works.
 	resp, err := result.Dispatcher.Run(context.Background(), &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("test wrapping")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "test wrapping")},
 	})
 	if err != nil {
 		t.Fatalf("Dispatcher.Run: %v", err)
@@ -207,16 +198,7 @@ func TestIntegration_SetupNew_LifecycleHooksIntegration(t *testing.T) {
 	// We can test this indirectly by verifying setup.New() configures hooks
 	// and the Dispatcher doesn't panic when running with them.
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent(`{"mode": "direct", "agent": "chat"}`),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, `{"mode": "direct", "agent": "chat"}`, schema.Usage{}),
 	}
 
 	cfg := &configs.Config{
@@ -232,7 +214,7 @@ func TestIntegration_SetupNew_LifecycleHooksIntegration(t *testing.T) {
 
 	// Run the Dispatcher -- this exercises the LoggingHook configured in setup.New().
 	resp, err := result.Dispatcher.Run(context.Background(), &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("test hooks")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "test hooks")},
 		SessionID: "test-session",
 	})
 	if err != nil {
@@ -258,7 +240,7 @@ func TestIntegration_LifecycleHooksChain(t *testing.T) {
 	chain := hooks.Chain(hook1, hook2)
 
 	ctx := context.Background()
-	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("test")}}
+	req := &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "test")}}
 
 	if err := chain.OnBeforeRun(ctx, "test-agent", req); err != nil {
 		t.Fatalf("OnBeforeRun: %v", err)

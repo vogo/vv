@@ -34,23 +34,23 @@ const (
 
 // BuildMessages constructs the input messages for a DAG step.
 // This is a pure function with no side effects, making it fully testable.
-func (s *StepInput) BuildMessages() []schema.Message {
+func (s *StepInput) BuildMessages(proto schema.Protocol) []schema.Message {
 	var msgs []schema.Message
 
 	if s.WorkingDir != "" {
-		msgs = append(msgs, schema.NewUserMessage(
+		msgs = append(msgs, schema.NewUserMessage(proto,
 			fmt.Sprintf("Working directory: %s", s.WorkingDir),
 		))
 	}
 
 	if s.ContextSummary != "" {
-		msgs = append(msgs, schema.NewUserMessage(
+		msgs = append(msgs, schema.NewUserMessage(proto,
 			fmt.Sprintf("Project context:\n%s", s.ContextSummary),
 		))
 	}
 
 	if s.OriginalGoal != "" {
-		msgs = append(msgs, schema.NewUserMessage(
+		msgs = append(msgs, schema.NewUserMessage(proto,
 			fmt.Sprintf("Original request: %s", s.OriginalGoal),
 		))
 	}
@@ -66,14 +66,14 @@ func (s *StepInput) BuildMessages() []schema.Message {
 	for _, depID := range upstreamKeys {
 		result := s.Upstream[depID]
 		if result.Status == StepCompleted && result.Output != "" {
-			msgs = append(msgs, schema.NewUserMessage(
+			msgs = append(msgs, schema.NewUserMessage(proto,
 				fmt.Sprintf("Result from step %q:\n%s", depID, result.Output),
 			))
 		}
 	}
 
 	if s.StepDescription != "" {
-		msgs = append(msgs, schema.NewUserMessage(s.StepDescription))
+		msgs = append(msgs, schema.NewUserMessage(proto, s.StepDescription))
 	}
 
 	return msgs
@@ -92,23 +92,23 @@ func (s *StepInput) HasFailedDependency() bool {
 
 // BuildInputMapper creates an orchestrate.InputMapFunc from step parameters.
 // Replaces the inline closure in buildNodes.
-func BuildInputMapper(workDir, contextSummary, goal string, step PlanStep, depIDs []string, sessionID string) orchestrate.InputMapFunc {
+func BuildInputMapper(proto schema.Protocol, workDir, contextSummary, goal string, step PlanStep, depIDs []string, sessionID string) orchestrate.InputMapFunc {
 	return func(upstream map[string]*schema.RunResponse) (*schema.RunRequest, error) {
 		var msgs []schema.Message
 
 		if workDir != "" {
-			msgs = append(msgs, schema.NewUserMessage(
+			msgs = append(msgs, schema.NewUserMessage(proto,
 				fmt.Sprintf("Working directory: %s", workDir),
 			))
 		}
 
 		if contextSummary != "" {
-			msgs = append(msgs, schema.NewUserMessage(
+			msgs = append(msgs, schema.NewUserMessage(proto,
 				fmt.Sprintf("Project context:\n%s", contextSummary),
 			))
 		}
 
-		msgs = append(msgs, schema.NewUserMessage(
+		msgs = append(msgs, schema.NewUserMessage(proto,
 			fmt.Sprintf("Original request: %s", goal),
 		))
 
@@ -118,7 +118,7 @@ func BuildInputMapper(workDir, contextSummary, goal string, step PlanStep, depID
 			}
 		}
 
-		msgs = append(msgs, schema.NewUserMessage(step.Description))
+		msgs = append(msgs, schema.NewUserMessage(proto, step.Description))
 
 		return &schema.RunRequest{
 			Messages:  msgs,

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
@@ -18,18 +17,20 @@ import (
 
 // fakeCompleter is a deterministic ChatCompleter that returns a canned reply.
 type fakeCompleter struct {
-	resp *aimodel.ChatResponse
+	resp *largemodel.Response
 	err  error
 }
 
-func (f *fakeCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (f *fakeCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (f *fakeCompleter) Call(_ context.Context, _ *largemodel.Request) (*largemodel.Response, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.resp, nil
 }
 
-func (f *fakeCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (f *fakeCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, errors.New("stream not implemented in fake")
 }
 
@@ -57,6 +58,6 @@ func (f *fakeToolRegistry) Execute(_ context.Context, name, args string) (schema
 }
 
 // helper: build a debug-wrapped completer the same way setup.Init does.
-func wrapWithDebug(base aimodel.ChatCompleter, sink *debugs.Sink) aimodel.ChatCompleter {
+func wrapWithDebug(base largemodel.Caller, sink *debugs.Sink) largemodel.Caller {
 	return largemodel.Chain(base, largemodel.NewDebugMiddleware(debugs.SinkAdapter{S: sink}))
 }

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vogo/aimodel"
+	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/traces/costtraces"
 )
 
@@ -73,7 +73,7 @@ func injectCostIntoJSON(body []byte, pricingLookup func(string) *costtraces.Pric
 		return body
 	}
 
-	var usage aimodel.Usage
+	var usage schema.Usage
 	if err := json.Unmarshal(usageData, &usage); err != nil {
 		return body
 	}

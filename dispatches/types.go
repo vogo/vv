@@ -199,7 +199,7 @@ func (a *PlanAggregator) Aggregate(ctx context.Context, results map[string]*sche
 		fmt.Fprintf(&sb, "## %s\n", k)
 
 		for _, m := range resp.Messages {
-			sb.WriteString(m.Content.Text())
+			sb.WriteString(m.Text())
 			sb.WriteString("\n")
 		}
 
@@ -207,7 +207,7 @@ func (a *PlanAggregator) Aggregate(ctx context.Context, results map[string]*sche
 	}
 
 	summaryReq := &schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage(sb.String())},
+		Messages: []schema.Message{schema.NewUserMessage(a.Summarizer.Protocol(), sb.String())},
 	}
 
 	return a.Summarizer.Run(ctx, summaryReq)

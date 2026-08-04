@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
@@ -21,7 +20,7 @@ import (
 // for use in table-driven eval cases. Split into a helper because we
 // build RunRequests across several tests and inline literals get noisy.
 func mustRunRequest(text string) *schema.RunRequest {
-	return &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(text)}}
+	return &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, text)}}
 }
 
 // stubAgent is a deterministic dispatcher used by every HTTP integration
@@ -30,21 +29,20 @@ func mustRunRequest(text string) *schema.RunRequest {
 // score.
 type stubAgent struct{}
 
-func (stubAgent) ID() string          { return "dispatcher" }
-func (stubAgent) Name() string        { return "Dispatcher" }
-func (stubAgent) Description() string { return "stub dispatcher for eval integration tests" }
+func (stubAgent) ID() string                { return "dispatcher" }
+func (stubAgent) Name() string              { return "Dispatcher" }
+func (stubAgent) Description() string       { return "stub dispatcher for eval integration tests" }
+func (stubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (stubAgent) Run(_ context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	text := ""
 	if len(req.Messages) > 0 {
-		text = req.Messages[len(req.Messages)-1].Content.Text()
+		text = req.Messages[len(req.Messages)-1].Text()
 	}
 
 	return &schema.RunResponse{
-		Messages: []schema.Message{{
-			Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent(text)},
-		}},
-		Usage:    &aimodel.Usage{PromptTokens: 5, CompletionTokens: 5, TotalTokens: 10},
+		Messages: []schema.Message{schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, text)},
+		Usage:    &schema.Usage{PromptTokens: 5, CompletionTokens: 5, TotalTokens: 10},
 		Duration: 5,
 	}, nil
 }

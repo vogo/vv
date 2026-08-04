@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	vageeval "github.com/vogo/vage/eval"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vv/configs"
 	vveval "github.com/vogo/vv/eval"
 )
@@ -19,7 +19,7 @@ type evalRunRequest struct {
 // handleEvalRun runs the configured evaluator over the posted cases and
 // returns a vage/eval.EvalReport. Only mounted when cfg.Eval.Enabled is
 // true — disabled means the route is absent, not a 403/404 toggle.
-func handleEvalRun(cfg *configs.Config, dispatcher agent.Agent, llm aimodel.ChatCompleter) http.HandlerFunc {
+func handleEvalRun(cfg *configs.Config, dispatcher agent.Agent, llm largemodel.Caller) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req evalRunRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

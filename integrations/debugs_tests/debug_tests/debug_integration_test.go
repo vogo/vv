@@ -2,7 +2,7 @@
 //
 // These tests exercise the debug wiring exactly as setup.Init wires it
 // (largemodel.DebugMiddleware on the LLM client + DebuggingToolRegistry on
-// each per-agent tool registry) but with a fake aimodel.ChatCompleter so
+// each per-agent tool registry) but with a fake largemodel.Caller so
 // that no real LLM key is required. Tests requiring a real LLM are gated
 // on environment variables and skipped otherwise.
 package debug_tests
@@ -18,7 +18,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/vogo/aimodel"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/configs"
@@ -42,17 +42,14 @@ func TestDebug_Off_NoOutput_PromptMode(t *testing.T) {
 		sink = debugs.NewWriterSink(&stderr)
 	}
 
-	base := &fakeCompleter{resp: &aimodel.ChatResponse{
-		Model:   "fake",
-		Choices: []aimodel.Choice{{Message: aimodel.Message{Content: aimodel.NewTextContent("hi")}, FinishReason: "stop"}},
-	}}
+	base := &fakeCompleter{resp: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "hi", schema.Usage{})}
 
-	var llm aimodel.ChatCompleter = base
+	var llm largemodel.Caller = base
 	if cfg.Debug && sink != nil {
 		llm = wrapWithDebug(base, sink)
 	}
 
-	if _, err := llm.ChatCompletion(context.Background(), &aimodel.ChatRequest{Model: "fake"}); err != nil {
+	if _, err := llm.Call(context.Background(), &largemodel.Request{Model: "fake"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,16 +83,13 @@ func TestDebug_Off_NoOutput_HTTPMode(t *testing.T) {
 		sink = debugs.NewSlogSink(logger)
 	}
 
-	base := &fakeCompleter{resp: &aimodel.ChatResponse{
-		Model:   "fake",
-		Choices: []aimodel.Choice{{Message: aimodel.Message{Content: aimodel.NewTextContent("hi")}, FinishReason: "stop"}},
-	}}
+	base := &fakeCompleter{resp: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "hi", schema.Usage{})}
 
-	var llm aimodel.ChatCompleter = base
+	var llm largemodel.Caller = base
 	if cfg.Debug && sink != nil {
 		llm = wrapWithDebug(base, sink)
 	}
-	_, _ = llm.ChatCompletion(context.Background(), &aimodel.ChatRequest{Model: "fake"})
+	_, _ = llm.Call(context.Background(), &largemodel.Request{Model: "fake"})
 
 	if strings.Contains(logBuf.String(), "llm.request") || strings.Contains(logBuf.String(), "llm.response") {
 		t.Fatalf("expected no llm debug records in slog when debug off, got: %s", logBuf.String())
@@ -115,18 +109,11 @@ func TestDebug_On_PromptMode_LLMAndToolRecords(t *testing.T) {
 	var stderr bytes.Buffer
 	sink := debugs.NewWriterSink(&stderr)
 
-	base := &fakeCompleter{resp: &aimodel.ChatResponse{
-		Model: "fake-model",
-		Choices: []aimodel.Choice{{
-			Message:      aimodel.Message{Content: aimodel.NewTextContent("hello-from-fake")},
-			FinishReason: "stop",
-		}},
-		Usage: aimodel.Usage{PromptTokens: 4, CompletionTokens: 3, TotalTokens: 7},
-	}}
+	base := &fakeCompleter{resp: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "hello-from-fake", schema.Usage{PromptTokens: 4, CompletionTokens: 3, TotalTokens: 7})}
 	llm := wrapWithDebug(base, sink)
 
 	ctx := debugs.WithAgentName(context.Background(), "coder")
-	if _, err := llm.ChatCompletion(ctx, &aimodel.ChatRequest{Model: "fake-model"}); err != nil {
+	if _, err := llm.Call(ctx, &largemodel.Request{Model: "fake-model"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,18 +215,11 @@ func TestDebug_YAMLEnabledWhenNoEnvOrFlag(t *testing.T) {
 // the consumer sees, which is the property the HTTP layer relies on for
 // response parity.
 func TestDebug_HTTPMode_ResponseByteIdentical(t *testing.T) {
-	canned := &aimodel.ChatResponse{
-		Model: "fake",
-		Choices: []aimodel.Choice{{
-			Message:      aimodel.Message{Content: aimodel.NewTextContent("identical-payload-12345")},
-			FinishReason: "stop",
-		}},
-		Usage: aimodel.Usage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3},
-	}
+	canned := largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "identical-payload-12345", schema.Usage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3})
 
 	// Debug-off path: raw client, no middleware.
 	off := &fakeCompleter{resp: canned}
-	respOff, err := off.ChatCompletion(context.Background(), &aimodel.ChatRequest{Model: "fake"})
+	respOff, err := off.Call(context.Background(), &largemodel.Request{Model: "fake"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,15 +229,15 @@ func TestDebug_HTTPMode_ResponseByteIdentical(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&logBuf, nil))
 	sink := debugs.NewSlogSink(logger)
 	on := wrapWithDebug(&fakeCompleter{resp: canned}, sink)
-	respOn, err := on.ChatCompletion(context.Background(), &aimodel.ChatRequest{Model: "fake"})
+	respOn, err := on.Call(context.Background(), &largemodel.Request{Model: "fake"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if respOff.Choices[0].Message.Content.Text() != respOn.Choices[0].Message.Content.Text() {
+	if respOff.Message.Text() != respOn.Message.Text() {
 		t.Errorf("response content drifted: off=%q on=%q",
-			respOff.Choices[0].Message.Content.Text(),
-			respOn.Choices[0].Message.Content.Text())
+			respOff.Message.Text(),
+			respOn.Message.Text())
 	}
 	if respOff.Usage != respOn.Usage {
 		t.Errorf("usage drifted: off=%+v on=%+v", respOff.Usage, respOn.Usage)

@@ -102,7 +102,7 @@ func RegisterPlanner(reg *registries.Registry) {
 			sysPrompt := AppendProjectInstructions(PlannerSystemPrompt, opts.ProjectInstructions)
 
 			taskOpts := []taskagent.Option{
-				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithCaller(opts.LLM),
 				taskagent.WithModel(opts.Model),
 				taskagent.WithSystemPrompt(prompt.StringPrompt(sysPrompt)),
 				taskagent.WithMaxIterations(1),

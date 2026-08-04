@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 )
 
@@ -31,11 +31,13 @@ func TestMain(m *testing.M) {
 
 // mockChatCompleter is a simple mock for testing.
 type mockChatCompleter struct {
-	response *aimodel.ChatResponse
+	response *largemodel.Response
 	err      error
 }
 
-func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (m *mockChatCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (m *mockChatCompleter) Call(_ context.Context, _ *largemodel.Request) (*largemodel.Response, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -43,7 +45,7 @@ func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatReq
 	return m.response, nil
 }
 
-func (m *mockChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (m *mockChatCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, m.err
 }
 
@@ -55,9 +57,10 @@ type stubAgent struct {
 
 var _ agent.Agent = (*stubAgent)(nil)
 
-func (s *stubAgent) ID() string          { return s.id }
-func (s *stubAgent) Name() string        { return s.id }
-func (s *stubAgent) Description() string { return s.id }
+func (s *stubAgent) ID() string                { return s.id }
+func (s *stubAgent) Name() string              { return s.id }
+func (s *stubAgent) Description() string       { return s.id }
+func (s *stubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	if s.response != nil {
@@ -66,10 +69,11 @@ func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunRes
 
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent("stub response from " + s.id),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "stub response from "+s.id)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }
@@ -82,17 +86,19 @@ type stubStreamAgent struct {
 
 var _ agent.StreamAgent = (*stubStreamAgent)(nil)
 
-func (s *stubStreamAgent) ID() string          { return s.id }
-func (s *stubStreamAgent) Name() string        { return s.id }
-func (s *stubStreamAgent) Description() string { return s.id }
+func (s *stubStreamAgent) ID() string                { return s.id }
+func (s *stubStreamAgent) Name() string              { return s.id }
+func (s *stubStreamAgent) Description() string       { return s.id }
+func (s *stubStreamAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(s.response),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, s.response)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }

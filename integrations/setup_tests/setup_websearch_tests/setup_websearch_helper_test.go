@@ -20,7 +20,8 @@ package setup_websearch_tests
 import (
 	"context"
 
-	"github.com/vogo/aimodel"
+	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/registries"
 )
@@ -29,18 +30,20 @@ import (
 // without making outbound LLM calls. The websearch tests never trigger the
 // model — they assert on tool-registry composition, not on completion behavior.
 type mockChatCompleter struct {
-	response *aimodel.ChatResponse
+	response *largemodel.Response
 	err      error
 }
 
-func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (m *mockChatCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (m *mockChatCompleter) Call(_ context.Context, _ *largemodel.Request) (*largemodel.Response, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.response, nil
 }
 
-func (m *mockChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (m *mockChatCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, m.err
 }
 

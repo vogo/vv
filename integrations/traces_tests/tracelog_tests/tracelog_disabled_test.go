@@ -64,7 +64,7 @@ func TestIntegration_Disabled_NoHookNoFiles(t *testing.T) {
 	// Agent runs still succeed — they just don't emit events anywhere.
 	req := &schema.RunRequest{
 		SessionID: "disabled-session",
-		Messages:  []schema.Message{schema.NewUserMessage("hi")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")},
 	}
 	if _, err := a.Run(context.Background(), req); err != nil {
 		t.Fatalf("Run: %v", err)

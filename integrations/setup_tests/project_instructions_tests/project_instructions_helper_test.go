@@ -3,18 +3,20 @@ package project_instructions_tests
 import (
 	"context"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 )
 
 // mockChatCompleter is a simple mock for testing.
 type mockChatCompleter struct {
-	response *aimodel.ChatResponse
+	response *largemodel.Response
 	err      error
 }
 
-func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (m *mockChatCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (m *mockChatCompleter) Call(_ context.Context, _ *largemodel.Request) (*largemodel.Response, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -22,23 +24,25 @@ func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatReq
 	return m.response, nil
 }
 
-func (m *mockChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (m *mockChatCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, m.err
 }
 
 // captureChatCompleter captures the ChatRequest sent to it.
 type captureChatCompleter struct {
-	captured *aimodel.ChatRequest
-	response *aimodel.ChatResponse
+	captured *largemodel.Request
+	response *largemodel.Response
 }
 
-func (c *captureChatCompleter) ChatCompletion(_ context.Context, req *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (c *captureChatCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+
+func (c *captureChatCompleter) Call(_ context.Context, req *largemodel.Request) (*largemodel.Response, error) {
 	c.captured = req
 
 	return c.response, nil
 }
 
-func (c *captureChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (c *captureChatCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, nil
 }
 
@@ -50,9 +54,10 @@ type stubAgent struct {
 
 var _ agent.Agent = (*stubAgent)(nil)
 
-func (s *stubAgent) ID() string          { return s.id }
-func (s *stubAgent) Name() string        { return s.id }
-func (s *stubAgent) Description() string { return s.id }
+func (s *stubAgent) ID() string                { return s.id }
+func (s *stubAgent) Name() string              { return s.id }
+func (s *stubAgent) Description() string       { return s.id }
+func (s *stubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	if s.response != nil {
@@ -61,10 +66,11 @@ func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunRes
 
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent("stub response from " + s.id),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "stub response from "+s.id)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }

@@ -5,7 +5,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/schema"
 	vvcli "github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
@@ -52,7 +51,7 @@ func TestIntegration_CLI_AgentStreaming(t *testing.T) {
 
 	ctx := context.Background()
 	req := &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("write code")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "write code")},
 		SessionID: "test-session",
 	}
 
@@ -112,21 +111,17 @@ func TestIntegration_CLI_MultiTurnHistory(t *testing.T) {
 
 	// Simulate 3 turns of conversation by verifying message structure.
 	// Turn 1: user message.
-	msg1 := schema.NewUserMessage("first message")
+	msg1 := schema.NewUserMessage(schema.ProtocolOpenAIChat, "first message")
 	// Turn 1: agent response.
-	msg2 := schema.NewAssistantMessage(
-		aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("first response")},
-		"coder",
-	)
+	msg2 := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "first response")
+	msg2.AgentID = "coder"
 	// Turn 2: user message.
-	msg3 := schema.NewUserMessage("second message")
+	msg3 := schema.NewUserMessage(schema.ProtocolOpenAIChat, "second message")
 	// Turn 2: agent response.
-	msg4 := schema.NewAssistantMessage(
-		aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent("second response")},
-		"coder",
-	)
+	msg4 := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "second response")
+	msg4.AgentID = "coder"
 	// Turn 3: user message.
-	msg5 := schema.NewUserMessage("third message")
+	msg5 := schema.NewUserMessage(schema.ProtocolOpenAIChat, "third message")
 
 	history := []schema.Message{msg1, msg2, msg3, msg4, msg5}
 
@@ -138,7 +133,7 @@ func TestIntegration_CLI_MultiTurnHistory(t *testing.T) {
 	// Verify content of each message.
 	contents := []string{"first message", "first response", "second message", "second response", "third message"}
 	for i, want := range contents {
-		got := history[i].Content.Text()
+		got := history[i].Text()
 		if got != want {
 			t.Errorf("history[%d] = %q, want %q", i, got, want)
 		}
@@ -162,7 +157,7 @@ func TestIntegration_CLI_CancellationPropagation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	req := &schema.RunRequest{
-		Messages:  []schema.Message{schema.NewUserMessage("test")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "test")},
 		SessionID: "test-session",
 	}
 

@@ -69,7 +69,7 @@ func RegisterCoder(reg *registries.Registry) {
 
 			taskOpts = append(
 				taskOpts,
-				taskagent.WithChatCompleter(opts.LLM),
+				taskagent.WithCaller(opts.LLM),
 				taskagent.WithModel(opts.Model),
 				taskagent.WithSystemPrompt(sysPrompt),
 				taskagent.WithMaxIterations(opts.MaxIterations),

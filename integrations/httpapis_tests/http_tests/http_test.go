@@ -159,7 +159,7 @@ func TestIntegration_HTTP_SyncRun(t *testing.T) {
 	client := ts.Client()
 
 	reqBody, _ := json.Marshal(schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("Hello, world!")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "Hello, world!")},
 	})
 
 	resp, err := client.Post(ts.URL+"/v1/agents/chat/run", "application/json", bytes.NewReader(reqBody))
@@ -182,7 +182,7 @@ func TestIntegration_HTTP_SyncRun(t *testing.T) {
 		t.Fatal("expected at least one message in response")
 	}
 
-	text := runResp.Messages[0].Content.Text()
+	text := runResp.Messages[0].Text()
 	if !strings.Contains(text, "Hello, world!") {
 		t.Errorf("response text = %q, expected it to contain 'Hello, world!'", text)
 	}
@@ -193,7 +193,7 @@ func TestIntegration_HTTP_SyncRunNotFound(t *testing.T) {
 	client := ts.Client()
 
 	reqBody, _ := json.Marshal(schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("test")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "test")},
 	})
 
 	resp, err := client.Post(ts.URL+"/v1/agents/nonexistent/run", "application/json", bytes.NewReader(reqBody))
@@ -212,7 +212,7 @@ func TestIntegration_HTTP_Streaming(t *testing.T) {
 	client := ts.Client()
 
 	reqBody, _ := json.Marshal(schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("stream test")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "stream test")},
 	})
 
 	resp, err := client.Post(ts.URL+"/v1/agents/chat/stream", "application/json", bytes.NewReader(reqBody))
@@ -268,7 +268,7 @@ func TestIntegration_HTTP_AsyncTaskLifecycle(t *testing.T) {
 	client := ts.Client()
 
 	reqBody, _ := json.Marshal(schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("async test")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "async test")},
 	})
 
 	resp, err := client.Post(ts.URL+"/v1/agents/chat/async", "application/json", bytes.NewReader(reqBody))
@@ -360,7 +360,7 @@ func TestIntegration_HTTP_AsyncTaskCancel(t *testing.T) {
 	client := ts.Client()
 
 	reqBody, _ := json.Marshal(schema.RunRequest{
-		Messages: []schema.Message{schema.NewUserMessage("slow task")},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "slow task")},
 	})
 
 	resp, err := client.Post(ts.URL+"/v1/agents/slow/async", "application/json", bytes.NewReader(reqBody))

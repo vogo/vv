@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/orchestrate"
 	"github.com/vogo/vage/schema"
@@ -22,9 +21,10 @@ type stubAgent struct {
 
 var _ agent.Agent = (*stubAgent)(nil)
 
-func (s *stubAgent) ID() string          { return s.id }
-func (s *stubAgent) Name() string        { return s.id }
-func (s *stubAgent) Description() string { return s.id }
+func (s *stubAgent) ID() string                { return s.id }
+func (s *stubAgent) Name() string              { return s.id }
+func (s *stubAgent) Description() string       { return s.id }
+func (s *stubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 // ranCount returns how many times Run has been invoked on this stub.
 // Tests use it to prove sub-agents ran (delegate_to path) or did not
@@ -43,10 +43,11 @@ func (s *stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunRes
 
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent("stub response from " + s.id),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "stub response from "+s.id)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }
@@ -197,10 +198,11 @@ func TestPlanAggregator_SingleResult(t *testing.T) {
 	results := map[string]*schema.RunResponse{
 		"step_1": {
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("single result"),
-				}, "coder"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "single result")
+					m.AgentID = "coder"
+					return m
+				}(),
 			},
 		},
 	}
@@ -214,8 +216,8 @@ func TestPlanAggregator_SingleResult(t *testing.T) {
 		t.Fatal("expected messages")
 	}
 
-	if resp.Messages[0].Content.Text() != "single result" {
-		t.Errorf("text = %q, want %q", resp.Messages[0].Content.Text(), "single result")
+	if resp.Messages[0].Text() != "single result" {
+		t.Errorf("text = %q, want %q", resp.Messages[0].Text(), "single result")
 	}
 }
 
@@ -235,8 +237,8 @@ func TestPlanAggregator_EmptyResults(t *testing.T) {
 func TestAggregateUsage(t *testing.T) {
 	tests := []struct {
 		name    string
-		a       *aimodel.Usage
-		b       *aimodel.Usage
+		a       *schema.Usage
+		b       *schema.Usage
 		wantNil bool
 		wantPT  int
 	}{
@@ -246,18 +248,18 @@ func TestAggregateUsage(t *testing.T) {
 		},
 		{
 			name:   "a only",
-			a:      &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+			a:      &schema.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
 			wantPT: 10,
 		},
 		{
 			name:   "b only",
-			b:      &aimodel.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
+			b:      &schema.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
 			wantPT: 20,
 		},
 		{
 			name:   "both present",
-			a:      &aimodel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
-			b:      &aimodel.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
+			a:      &schema.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+			b:      &schema.Usage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
 			wantPT: 30,
 		},
 	}
@@ -384,17 +386,19 @@ type stubStreamAgent struct {
 
 var _ agent.StreamAgent = (*stubStreamAgent)(nil)
 
-func (s *stubStreamAgent) ID() string          { return s.id }
-func (s *stubStreamAgent) Name() string        { return s.id }
-func (s *stubStreamAgent) Description() string { return s.id }
+func (s *stubStreamAgent) ID() string                { return s.id }
+func (s *stubStreamAgent) Name() string              { return s.id }
+func (s *stubStreamAgent) Description() string       { return s.id }
+func (s *stubStreamAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 
 func (s *stubStreamAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{
 		Messages: []schema.Message{
-			schema.NewAssistantMessage(aimodel.Message{
-				Role:    aimodel.RoleAssistant,
-				Content: aimodel.NewTextContent(s.response),
-			}, s.id),
+			func() schema.Message {
+				m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, s.response)
+				m.AgentID = s.id
+				return m
+			}(),
 		},
 	}, nil
 }

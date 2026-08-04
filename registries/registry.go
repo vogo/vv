@@ -6,13 +6,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
 	vctx "github.com/vogo/vage/context"
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/tool"
 )
@@ -33,7 +33,7 @@ type AgentFactory func(opts FactoryOptions) (agent.Agent, error)
 
 // FactoryOptions holds the dependencies needed to create an agent.
 type FactoryOptions struct {
-	LLM            aimodel.ChatCompleter
+	LLM            largemodel.Caller
 	Model          string
 	ToolRegistry   tool.ToolRegistry // filtered by ToolProfile
 	MaxIterations  int

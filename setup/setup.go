@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
@@ -157,14 +156,14 @@ type Options struct {
 	// main LLM. Init populates them when cfg.Orchestrate.Router.Model is
 	// set; external callers of setup.New may leave both zero to keep the
 	// legacy behaviour.
-	RouterLLM   aimodel.ChatCompleter
+	RouterLLM   largemodel.Caller
 	RouterModel string
 }
 
 // New reads config, registers all agents, and constructs the Dispatcher.
 func New(
 	cfg *configs.Config,
-	llm aimodel.ChatCompleter,
+	llm largemodel.Caller,
 	memMgr *memory.Manager,
 	persistentMem memory.Memory,
 	opts *Options,
@@ -270,7 +269,7 @@ func New(
 
 	// 3. Build plan summarizer.
 	planGenOpts := []taskagent.Option{
-		taskagent.WithChatCompleter(llm),
+		taskagent.WithCaller(llm),
 		taskagent.WithModel(cfg.LLM.Model),
 		taskagent.WithSystemPrompt(prompt.StringPrompt(dispatches.PlanSummaryPrompt)),
 		taskagent.WithMaxIterations(1),
@@ -402,7 +401,7 @@ func getVectorEmbedder(opts *Options) vector.Embedder {
 // the Primary unchanged.
 func buildPrimaryAssistant(
 	cfg *configs.Config,
-	llm aimodel.ChatCompleter,
+	llm largemodel.Caller,
 	memMgr *memory.Manager,
 	regOpts []registries.RegistryOption,
 	subAgents map[string]agent.Agent,
@@ -606,7 +605,7 @@ func primaryToolProfile(cfg *configs.Config) registries.ToolProfile {
 // agents.RegisterPrimary with ToolRegistry left nil.
 func buildFallbackPrimary(
 	cfg *configs.Config,
-	llm aimodel.ChatCompleter,
+	llm largemodel.Caller,
 	memMgr *memory.Manager,
 	opts *Options,
 ) (agent.Agent, error) {
@@ -638,16 +637,16 @@ func buildFallbackPrimary(
 }
 
 // wrapLLMClient applies the same middleware chain (debug → budget) that Init
-// layers on top of every aimodel.Client it constructs. Extracted so the
+// layers on top of every model caller it constructs. Extracted so the
 // router client picks up identical observability and enforcement without
 // duplicating setup code.
 func wrapLLMClient(
-	client aimodel.ChatCompleter,
+	client largemodel.Caller,
 	cfg *configs.Config,
 	pricingModel string,
 	opts *Options,
 	sessionBudget, dailyBudget *budgets.Tracker,
-) aimodel.ChatCompleter {
+) largemodel.Caller {
 	wrapped := client
 
 	if cfg.Debug && opts != nil && opts.DebugSink != nil {
@@ -775,7 +774,7 @@ func expandUserPath(p, workingDir string) (string, error) {
 // InitResult holds all components initialized by Init.
 type InitResult struct {
 	Config        *configs.Config
-	LLMClient     *aimodel.Client
+	LLMClient     largemodel.Caller
 	MemoryManager *memory.Manager
 	PersistentMem memory.Memory
 	SetupResult   *Result
@@ -858,7 +857,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 	// per-session spend limits cover both models; pricing is looked up
 	// against the router's model so the cheaper routing calls are billed
 	// correctly.
-	var routerWrappedLLM aimodel.ChatCompleter
+	var routerWrappedLLM largemodel.Caller
 	var routerModel string
 	if routerCfg, ok := configs.EffectiveRouterConfig(cfg); ok {
 		routerClient, err := configs.NewLLMClient(routerCfg)
@@ -910,23 +909,17 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		sb.WriteString("file changes, task progress, and important context:\n\n")
 		sb.WriteString(buildConversationText(messages))
 
-		req := &aimodel.ChatRequest{
-			Model: cfg.LLM.Model,
-			Messages: []aimodel.Message{
-				{Role: aimodel.RoleUser, Content: aimodel.NewTextContent(sb.String())},
-			},
+		req := &largemodel.Request{
+			Model:    cfg.LLM.Model,
+			Messages: []schema.Message{schema.NewUserMessage(wrappedLLM.Protocol(), sb.String())},
 		}
 
-		resp, err := wrappedLLM.ChatCompletion(ctx, req)
+		resp, err := wrappedLLM.Call(ctx, req)
 		if err != nil {
 			return "", err
 		}
 
-		if len(resp.Choices) == 0 {
-			return "", fmt.Errorf("empty summarization response")
-		}
-
-		return resp.Choices[0].Message.Content.Text(), nil
+		return resp.Message.Text(), nil
 	}
 
 	// Limit summarizer input to 80% of context window to prevent the summarization
@@ -989,7 +982,7 @@ func openMemoryStore(cfg configs.MemoryConfig) (memory.Store, func(), error) {
 //
 // Returns an error when the promoter kind is unknown or required fields
 // (e.g., LLM client for promoter=llm) are absent.
-func buildTreeStore(cfg *configs.Config, llm aimodel.ChatCompleter, hookMgr *hook.Manager) (tree.SessionTreeStore, error) {
+func buildTreeStore(cfg *configs.Config, llm largemodel.Caller, hookMgr *hook.Manager) (tree.SessionTreeStore, error) {
 	root := sessionRootDir(cfg)
 
 	fileOpts := []tree.FileOption{}
@@ -1016,7 +1009,7 @@ func buildTreeStore(cfg *configs.Config, llm aimodel.ChatCompleter, hookMgr *hoo
 // buildTreePromoter selects the configured Promoter implementation. The
 // default ("compressor") avoids LLM cost while still producing useful
 // summaries; users opt into "llm" for higher-quality folds.
-func buildTreePromoter(cfg *configs.Config, llm aimodel.ChatCompleter) (tree.Promoter, error) {
+func buildTreePromoter(cfg *configs.Config, llm largemodel.Caller) (tree.Promoter, error) {
 	switch cfg.SessionTree.Promotion.PromoterKind() {
 	case "noop":
 		return tree.NoopPromoter{}, nil
@@ -1186,7 +1179,7 @@ func budgetEventDispatcher() budgets.Dispatcher {
 func buildConversationText(messages []schema.Message) string {
 	var sb strings.Builder
 	for _, msg := range messages {
-		fmt.Fprintf(&sb, "[%s]: %s\n", msg.Role, msg.Content.Text())
+		fmt.Fprintf(&sb, "[%s]: %s\n", msg.Role(), msg.Text())
 	}
 
 	return sb.String()

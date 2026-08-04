@@ -4,7 +4,7 @@
 
 ## 代码组织
 
-- 模块 `vv` 基于 `vage` 框架与 `aimodel` SDK;依赖经本地 `replace` 指向 `../aimodel` 与 `../vage`,兄弟模块改动立即生效。
+- 模块 `vv` 基于 `vage` 框架与 `aimodel` SDK；正式依赖固定在 `go.mod` 的发布版本。联调兄弟仓库时可临时添加本地 `replace`，但不得提交。
 - 单元测试与源码同目录,无外部依赖。
 - 集成测试在 `integrations/<group>_tests/<scenario>_tests/`,依赖 `VV_LLM_API_KEY`(或 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`)。
 - 测试结束清理构建产物。

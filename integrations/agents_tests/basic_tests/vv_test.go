@@ -89,7 +89,7 @@ func TestIntegration_VV_RunPrompt(t *testing.T) {
 
 	req := &schema.RunRequest{
 		Messages: []schema.Message{
-			schema.NewUserMessage("Reply with exactly: hello vv"),
+			schema.NewUserMessage(schema.ProtocolOpenAIChat, "Reply with exactly: hello vv"),
 		},
 	}
 
@@ -105,7 +105,7 @@ func TestIntegration_VV_RunPrompt(t *testing.T) {
 	// Log the response for manual verification.
 	for i, msg := range resp.Messages {
 		t.Logf("response[%d] agent=%s role=%s text=%s",
-			i, msg.AgentID, msg.Role, msg.Content.Text())
+			i, msg.AgentID, msg.Role(), msg.Text())
 	}
 }
 
@@ -140,7 +140,7 @@ func TestIntegration_VV_RunSubAgent(t *testing.T) {
 
 	req := &schema.RunRequest{
 		Messages: []schema.Message{
-			schema.NewUserMessage("What is 2+3? Reply with just the number."),
+			schema.NewUserMessage(schema.ProtocolOpenAIChat, "What is 2+3? Reply with just the number."),
 		},
 	}
 
@@ -154,6 +154,6 @@ func TestIntegration_VV_RunSubAgent(t *testing.T) {
 	}
 
 	for i, msg := range resp.Messages {
-		t.Logf("researcher response[%d] role=%s text=%s", i, msg.Role, msg.Content.Text())
+		t.Logf("researcher response[%d] role=%s text=%s", i, msg.Role(), msg.Text())
 	}
 }

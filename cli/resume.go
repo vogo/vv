@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
 	"github.com/vogo/vage/schema"
@@ -161,10 +160,10 @@ func renderResumeResponse(stdout, stderr io.Writer, resp *schema.RunResponse) {
 func lastAssistantText(msgs []schema.Message) string {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
-		if m.Role != aimodel.RoleAssistant {
+		if m.Role() != schema.RoleAssistant {
 			continue
 		}
-		text := m.Content.Text()
+		text := m.Text()
 		if text != "" {
 			return text
 		}

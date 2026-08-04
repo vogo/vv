@@ -49,7 +49,7 @@ type resumeResponse struct {
 
 // resumeMessage is the trimmed projection of schema.Message used in the
 // HTTP envelope. Only the fields a client needs for rendering / audit
-// are exposed; raw aimodel.Content is flattened to text.
+// are exposed; protocol-native message content is flattened to text.
 type resumeMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content,omitempty"`
@@ -182,7 +182,7 @@ func handleResumeSession(initResult *setup.InitResult) http.HandlerFunc {
 
 // toResumeResponse flattens a schema.RunResponse into the JSON envelope
 // returned by POST .../resume. Token usage is collapsed to the three
-// canonical counters so callers do not need to know the aimodel.Usage
+// canonical counters so callers do not need to know the schema.Usage
 // shape; the regular /run endpoints surface the full Usage struct, so
 // this projection is intentionally narrow and resume-specific.
 func toResumeResponse(sessionID, agentID string, resp *schema.RunResponse) resumeResponse {
@@ -199,8 +199,8 @@ func toResumeResponse(sessionID, agentID string, resp *schema.RunResponse) resum
 	}
 	for _, m := range resp.Messages {
 		out.Messages = append(out.Messages, resumeMessage{
-			Role:    string(m.Role),
-			Content: m.Content.Text(),
+			Role:    string(m.Role()),
+			Content: m.Text(),
 			AgentID: m.AgentID,
 		})
 	}

@@ -3,7 +3,6 @@ package dispatches
 import (
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/schema"
 )
 
@@ -18,15 +17,15 @@ func TestStepInput_BuildMessages(t *testing.T) {
 		},
 	}
 
-	msgs := input.BuildMessages()
+	msgs := input.BuildMessages(schema.ProtocolOpenAIChat)
 
 	if len(msgs) < 4 {
 		t.Fatalf("BuildMessages() = %d messages, want at least 4", len(msgs))
 	}
 
 	// Verify working dir is first.
-	if msgs[0].Content.Text() != "Working directory: /tmp/project" {
-		t.Errorf("first message = %q, want working dir", msgs[0].Content.Text())
+	if msgs[0].Text() != "Working directory: /tmp/project" {
+		t.Errorf("first message = %q, want working dir", msgs[0].Text())
 	}
 }
 
@@ -35,14 +34,14 @@ func TestStepInput_BuildMessages_Minimal(t *testing.T) {
 		StepDescription: "Do something",
 	}
 
-	msgs := input.BuildMessages()
+	msgs := input.BuildMessages(schema.ProtocolOpenAIChat)
 
 	if len(msgs) != 1 {
 		t.Fatalf("BuildMessages() = %d messages, want 1", len(msgs))
 	}
 
-	if msgs[0].Content.Text() != "Do something" {
-		t.Errorf("message = %q, want %q", msgs[0].Content.Text(), "Do something")
+	if msgs[0].Text() != "Do something" {
+		t.Errorf("message = %q, want %q", msgs[0].Text(), "Do something")
 	}
 }
 
@@ -88,15 +87,16 @@ func TestBuildInputMapper(t *testing.T) {
 		DependsOn:   []string{"step_1"},
 	}
 
-	mapper := BuildInputMapper("/tmp", "context", "Build a project", step, step.DependsOn, "session-1")
+	mapper := BuildInputMapper(schema.ProtocolOpenAIChat, "/tmp", "context", "Build a project", step, step.DependsOn, "session-1")
 
 	upstream := map[string]*schema.RunResponse{
 		"step_1": {
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("research done"),
-				}, "researcher"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "research done")
+					m.AgentID = "researcher"
+					return m
+				}(),
 			},
 		},
 	}
@@ -127,7 +127,7 @@ func TestBuildInputMapper_NoUpstream(t *testing.T) {
 		Agent:       "coder",
 	}
 
-	mapper := BuildInputMapper("", "", "Build it", step, nil, "session-1")
+	mapper := BuildInputMapper(schema.ProtocolOpenAIChat, "", "", "Build it", step, nil, "session-1")
 
 	req, err := mapper(nil)
 	if err != nil {

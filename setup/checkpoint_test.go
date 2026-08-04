@@ -24,9 +24,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vv/configs"
 )
 
@@ -210,7 +210,7 @@ func TestSessionRootDir_DeterministicLayout(t *testing.T) {
 }
 
 // Compile-time sanity: ensure mockChatCompleter still satisfies the
-// aimodel.ChatCompleter interface used by setup.New. setup_test.go
+// largemodel.Caller interface used by setup.New. setup_test.go
 // declares the type itself; this assertion just stops a refactor there
 // from silently breaking the test that piggybacks on it.
-var _ aimodel.ChatCompleter = (*mockChatCompleter)(nil)
+var _ largemodel.Caller = (*mockChatCompleter)(nil)

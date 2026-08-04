@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
@@ -62,16 +62,7 @@ func TestIntegration_NoVVMd_UnchangedBehavior(t *testing.T) {
 	}
 
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("test response"),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "test response", schema.Usage{}),
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -180,16 +171,7 @@ func TestIntegration_EndToEnd_WithVVMd(t *testing.T) {
 	}
 
 	capture := &captureChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("Hello!"),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "Hello!", schema.Usage{}),
 	}
 
 	result, err := setup.New(cfg, capture, nil, nil, nil)
@@ -212,7 +194,7 @@ func TestIntegration_EndToEnd_WithVVMd(t *testing.T) {
 	ctx := context.Background()
 	runReq := &schema.RunRequest{
 		Messages: []schema.Message{
-			schema.NewUserMessage("test prompt"),
+			schema.NewUserMessage(schema.ProtocolOpenAIChat, "test prompt"),
 		},
 	}
 
@@ -231,11 +213,11 @@ func TestIntegration_EndToEnd_WithVVMd(t *testing.T) {
 	}
 
 	systemMsg := capture.captured.Messages[0]
-	if systemMsg.Role != aimodel.RoleSystem {
-		t.Fatalf("first message role = %q, want %q", systemMsg.Role, aimodel.RoleSystem)
+	if systemMsg.Role() != schema.RoleSystem {
+		t.Fatalf("first message role = %q, want %q", systemMsg.Role(), schema.RoleSystem)
 	}
 
-	text := systemMsg.Content.Text()
+	text := systemMsg.Text()
 
 	if !strings.Contains(text, vvmdContent) {
 		t.Errorf("system prompt should contain VV.md content, got:\n%s", text)
@@ -301,16 +283,7 @@ func TestIntegration_PresetProjectInstructions_NotOverwritten(t *testing.T) {
 	}
 
 	capture := &captureChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("Hello!"),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "Hello!", schema.Usage{}),
 	}
 
 	result, err := setup.New(cfg, capture, nil, nil, nil)
@@ -332,7 +305,7 @@ func TestIntegration_PresetProjectInstructions_NotOverwritten(t *testing.T) {
 	ctx := context.Background()
 	runReq := &schema.RunRequest{
 		Messages: []schema.Message{
-			schema.NewUserMessage("test prompt"),
+			schema.NewUserMessage(schema.ProtocolOpenAIChat, "test prompt"),
 		},
 	}
 
@@ -345,7 +318,7 @@ func TestIntegration_PresetProjectInstructions_NotOverwritten(t *testing.T) {
 		t.Fatal("expected LLM call to be captured")
 	}
 
-	text := capture.captured.Messages[0].Content.Text()
+	text := capture.captured.Messages[0].Text()
 
 	if !strings.Contains(text, presetInstructions) {
 		t.Error("system prompt should contain preset instructions")
@@ -372,16 +345,7 @@ func TestIntegration_Dispatcher_ReceivesProjectInstructions(t *testing.T) {
 	agents.RegisterPlanner(reg)
 
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("test"),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "test", schema.Usage{}),
 	}
 
 	coderAgent := &stubAgent{id: "coder"}
@@ -460,16 +424,7 @@ func TestIntegration_AllAgentFactories_WithProjectInstructions(t *testing.T) {
 	}
 
 	mock := &mockChatCompleter{
-		response: &aimodel.ChatResponse{
-			Choices: []aimodel.Choice{
-				{
-					Message: aimodel.Message{
-						Role:    aimodel.RoleAssistant,
-						Content: aimodel.NewTextContent("test response"),
-					},
-				},
-			},
-		},
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "test response", schema.Usage{}),
 	}
 
 	result, err := setup.New(cfg, mock, nil, nil, nil)
@@ -490,7 +445,7 @@ func TestIntegration_AllAgentFactories_WithProjectInstructions(t *testing.T) {
 		ctx := context.Background()
 		runReq := &schema.RunRequest{
 			Messages: []schema.Message{
-				schema.NewUserMessage("hello"),
+				schema.NewUserMessage(schema.ProtocolOpenAIChat, "hello"),
 			},
 		}
 

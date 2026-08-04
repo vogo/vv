@@ -28,7 +28,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
@@ -258,9 +257,10 @@ func TestHTTP_Sessions_NotMounted_WhenStoreNil(t *testing.T) {
 // session endpoints do not consult.
 type stubAgent struct{ id string }
 
-func (s stubAgent) ID() string          { return s.id }
-func (s stubAgent) Name() string        { return s.id }
-func (s stubAgent) Description() string { return "" }
+func (s stubAgent) ID() string                { return s.id }
+func (s stubAgent) Name() string              { return s.id }
+func (s stubAgent) Description() string       { return "" }
+func (s stubAgent) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
 func (s stubAgent) Run(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 	return &schema.RunResponse{}, nil
 }
@@ -300,4 +300,4 @@ func getJSON(t *testing.T, url string) map[string]any {
 }
 
 // silence unused imports (aimodel) when compiled in isolation.
-var _ = aimodel.RoleAssistant
+var _ = schema.RoleAssistant

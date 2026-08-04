@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
@@ -29,6 +28,7 @@ const (
 // (*Dispatcher).RunPlan.
 type PlanExecutor interface {
 	RunPlan(ctx context.Context, plan *Plan, req *schema.RunRequest) (*schema.RunResponse, error)
+	Protocol() schema.Protocol
 }
 
 // DelegateToolName returns the tool name used for delegating to the given
@@ -127,7 +127,7 @@ func newDelegateHandler(ag agent.Agent) tool.ToolHandler {
 		}
 
 		req := schema.RunRequest{
-			Messages: []schema.Message{schema.NewUserMessage(input)},
+			Messages: []schema.Message{schema.NewUserMessage(ag.Protocol(), input)},
 		}
 
 		resp, err := ag.Run(ctx, &req)
@@ -137,8 +137,8 @@ func newDelegateHandler(ag agent.Agent) tool.ToolHandler {
 
 		var parts []string
 		for _, msg := range resp.Messages {
-			if msg.Role == aimodel.RoleAssistant {
-				if text := msg.Content.Text(); text != "" {
+			if msg.Role() == schema.RoleAssistant {
+				if text := msg.Text(); text != "" {
 					parts = append(parts, text)
 				}
 			}
@@ -240,7 +240,7 @@ func newPlanTaskHandler(exec PlanExecutor) tool.ToolHandler {
 		ctx = IncrementDepth(ctx)
 
 		req := &schema.RunRequest{
-			Messages: []schema.Message{schema.NewUserMessage(parsed.Goal)},
+			Messages: []schema.Message{schema.NewUserMessage(exec.Protocol(), parsed.Goal)},
 		}
 
 		resp, err := exec.RunPlan(ctx, plan, req)
@@ -251,7 +251,7 @@ func newPlanTaskHandler(exec PlanExecutor) tool.ToolHandler {
 		var parts []string
 		if resp != nil {
 			for _, msg := range resp.Messages {
-				if text := msg.Content.Text(); text != "" {
+				if text := msg.Text(); text != "" {
 					parts = append(parts, text)
 				}
 			}

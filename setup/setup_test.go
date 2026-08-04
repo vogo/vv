@@ -7,18 +7,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
+	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/configs"
 )
 
 // mockChatCompleter is a simple mock for testing.
 type mockChatCompleter struct {
-	response *aimodel.ChatResponse
+	response *largemodel.Response
 	err      error
 }
 
-func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.ChatResponse, error) {
+func (m *mockChatCompleter) Protocol() schema.Protocol { return schema.ProtocolOpenAIChat }
+func (m *mockChatCompleter) Call(_ context.Context, _ *largemodel.Request) (*largemodel.Response, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -26,7 +28,7 @@ func (m *mockChatCompleter) ChatCompletion(_ context.Context, _ *aimodel.ChatReq
 	return m.response, nil
 }
 
-func (m *mockChatCompleter) ChatCompletionStream(_ context.Context, _ *aimodel.ChatRequest) (*aimodel.Stream, error) {
+func (m *mockChatCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*largemodel.Stream, error) {
 	return nil, m.err
 }
 

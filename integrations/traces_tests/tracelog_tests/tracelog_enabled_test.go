@@ -60,7 +60,7 @@ func TestIntegration_Enabled_EndToEnd_FullPipeline(t *testing.T) {
 	sid := "sess-enabled-e2e"
 	req := &schema.RunRequest{
 		SessionID: sid,
-		Messages:  []schema.Message{schema.NewUserMessage("please echo hello")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "please echo hello")},
 	}
 
 	resp, err := a.Run(context.Background(), req)
@@ -134,7 +134,7 @@ func TestIntegration_Enabled_MultiSessionRouting(t *testing.T) {
 	for _, sid := range sessions {
 		req := &schema.RunRequest{
 			SessionID: sid,
-			Messages:  []schema.Message{schema.NewUserMessage("ping " + sid)},
+			Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "ping "+sid)},
 		}
 
 		if _, err := a.Run(context.Background(), req); err != nil {
@@ -179,7 +179,7 @@ func TestIntegration_Enabled_ShutdownIsIdempotent(t *testing.T) {
 	// One run so there is something to flush.
 	req := &schema.RunRequest{
 		SessionID: "idempotent",
-		Messages:  []schema.Message{schema.NewUserMessage("hi")},
+		Messages:  []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")},
 	}
 	if _, err := a.Run(context.Background(), req); err != nil {
 		t.Fatalf("Run: %v", err)

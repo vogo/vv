@@ -51,7 +51,7 @@ func newEchoAgent(id, description, response string) *echoAgent {
 func (e *echoAgent) Run(_ context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	input := ""
 	if len(req.Messages) > 0 {
-		input = req.Messages[0].Content.Text()
+		input = req.Messages[0].Text()
 	}
 
 	reply := e.response
@@ -60,7 +60,7 @@ func (e *echoAgent) Run(_ context.Context, req *schema.RunRequest) (*schema.RunR
 	}
 
 	return &schema.RunResponse{
-		Messages: []schema.Message{schema.NewUserMessage(reply)},
+		Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, reply)},
 	}, nil
 }
 

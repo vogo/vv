@@ -39,7 +39,7 @@ go test ./tools/ -run TestRegister_AllRegistered -v   # 单测示例
 
 集成测试位于 `integrations/`，依赖环境变量 `VV_LLM_API_KEY`（或 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）。单元测试无外部依赖。
 
-依赖通过本地 `replace` 指令指向 `../aimodel` 与 `../vage`，兄弟模块的修改会立刻生效。
+正式依赖固定在 `go.mod` 的发布版本；需要联调兄弟仓库时，由开发者临时添加本地 `replace`，不得提交该覆盖。
 
 ## 工程惯例
 

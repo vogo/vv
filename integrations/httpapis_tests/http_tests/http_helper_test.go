@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
@@ -37,14 +36,15 @@ func setupTestServer(t *testing.T) *httptest.Server {
 	}, func(_ context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 		userMsg := ""
 		if len(req.Messages) > 0 {
-			userMsg = req.Messages[0].Content.Text()
+			userMsg = req.Messages[0].Text()
 		}
 		return &schema.RunResponse{
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("Echo: " + userMsg),
-				}, "chat"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "Echo: "+userMsg)
+					m.AgentID = "chat"
+					return m
+				}(),
 			},
 		}, nil
 	})
@@ -56,10 +56,11 @@ func setupTestServer(t *testing.T) *httptest.Server {
 	}, func(_ context.Context, _ *schema.RunRequest) (*schema.RunResponse, error) {
 		return &schema.RunResponse{
 			Messages: []schema.Message{
-				schema.NewAssistantMessage(aimodel.Message{
-					Role:    aimodel.RoleAssistant,
-					Content: aimodel.NewTextContent("code response"),
-				}, "coder"),
+				func() schema.Message {
+					m := schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, "code response")
+					m.AgentID = "coder"
+					return m
+				}(),
 			},
 		}, nil
 	})

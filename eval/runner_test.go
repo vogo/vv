@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/aimodel"
 	vageeval "github.com/vogo/vage/eval"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
@@ -18,14 +17,12 @@ import (
 func echoRun(_ context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
 	text := ""
 	if len(req.Messages) > 0 {
-		text = req.Messages[len(req.Messages)-1].Content.Text()
+		text = req.Messages[len(req.Messages)-1].Text()
 	}
 
 	return &schema.RunResponse{
-		Messages: []schema.Message{{
-			Message: aimodel.Message{Role: aimodel.RoleAssistant, Content: aimodel.NewTextContent(text)},
-		}},
-		Usage:    &aimodel.Usage{PromptTokens: 5, CompletionTokens: 5, TotalTokens: 10},
+		Messages: []schema.Message{schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleAssistant, text)},
+		Usage:    &schema.Usage{PromptTokens: 5, CompletionTokens: 5, TotalTokens: 10},
 		Duration: 10,
 	}, nil
 }
@@ -45,8 +42,8 @@ func TestRunBatch_HappyPath(t *testing.T) {
 	}
 
 	cases := []*vageeval.EvalCase{
-		{ID: "c1", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("hi")}}},
-		{ID: "c2", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("there")}}},
+		{ID: "c1", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")}}},
+		{ID: "c2", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "there")}}},
 	}
 
 	report, err := RunBatch(context.Background(), echoRun, ev, cases, cfg)
@@ -90,7 +87,7 @@ func TestRunBatch_Timeout(t *testing.T) {
 	}
 
 	cases := []*vageeval.EvalCase{
-		{ID: "slow", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("hi")}}},
+		{ID: "slow", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")}}},
 	}
 
 	report, err := RunBatch(context.Background(), slow, ev, cases, cfg)
@@ -125,7 +122,7 @@ func TestRunBatch_AgentError(t *testing.T) {
 	}
 
 	cases := []*vageeval.EvalCase{
-		{ID: "kaput", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("hi")}}},
+		{ID: "kaput", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")}}},
 	}
 
 	report, err := RunBatch(context.Background(), boom, ev, cases, cfg)
@@ -165,8 +162,8 @@ func TestRunBatch_ParentCancelled(t *testing.T) {
 	}
 
 	cases := []*vageeval.EvalCase{
-		{ID: "a", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("hi")}}},
-		{ID: "b", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage("bye")}}},
+		{ID: "a", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "hi")}}},
+		{ID: "b", Input: &schema.RunRequest{Messages: []schema.Message{schema.NewUserMessage(schema.ProtocolOpenAIChat, "bye")}}},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

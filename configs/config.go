@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/vogo/aimodel"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vv/traces/costtraces"
 	"gopkg.in/yaml.v3"
 )
@@ -982,39 +982,18 @@ func ConvertPricing(entries map[string]ModelPricingEntry) map[string]costtraces.
 	return result
 }
 
-// NewLLMClient creates an aimodel.Client from the LLM configuration.
-func NewLLMClient(cfg LLMConfig) (*aimodel.Client, error) {
-	opts := []aimodel.Option{
-		aimodel.WithDefaultModel(cfg.Model),
-	}
-
-	// Only set API key if explicitly configured (via YAML or VV_LLM_API_KEY).
-	// Otherwise, let aimodel.NewClient fall back to its own env var reading
-	// (AI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY).
-	if cfg.APIKey != "" {
-		opts = append(opts, aimodel.WithAPIKey(cfg.APIKey))
-	}
-
-	if cfg.BaseURL != "" {
-		opts = append(opts, aimodel.WithBaseURL(cfg.BaseURL))
-	}
-
+// NewLLMClient creates the protocol-specific vage caller selected by the LLM
+// configuration. Retries, endpoint routing and health are owned by aimodel's
+// compose pool inside these constructors.
+func NewLLMClient(cfg LLMConfig) (largemodel.Caller, error) {
 	switch cfg.Provider {
 	case "anthropic":
-		opts = append(opts, aimodel.WithProtocol(aimodel.ProtocolAnthropic))
+		return largemodel.NewAnthropicMessagesCaller(cfg.APIKey, cfg.BaseURL)
 	case "openai", "":
-		// ProtocolOpenAI is the default.
-		// OpenAI protocol requires a base URL. When called from main(),
-		// Load already sets this default. This fallback ensures
-		// NewLLMClient works correctly when called standalone (e.g., tests).
-		if cfg.BaseURL == "" {
-			opts = append(opts, aimodel.WithBaseURL("https://api.openai.com/v1"))
-		}
+		return largemodel.NewOpenAIChatCaller(cfg.APIKey, cfg.BaseURL)
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %q (supported: openai, anthropic)", cfg.Provider)
 	}
-
-	return aimodel.NewClient(opts...)
 }
 
 // EffectiveRouterConfig resolves the router LLM configuration.

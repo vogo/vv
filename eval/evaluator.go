@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/eval"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vv/configs"
 )
 
@@ -14,7 +14,7 @@ import (
 // returned directly; multiple are composed via vage/eval.CompositeEvaluator
 // with equal weights. Returns an error for misconfiguration so the caller
 // can fail fast instead of surfacing it per-case.
-func Build(cfg configs.EvalConfig, llm aimodel.ChatCompleter, defaultModel string) (eval.Evaluator, error) {
+func Build(cfg configs.EvalConfig, llm largemodel.Caller, defaultModel string) (eval.Evaluator, error) {
 	names := cfg.Evaluators
 	if len(names) == 0 {
 		return nil, errors.New("eval.evaluators is empty")

@@ -64,7 +64,7 @@
 
 | 属性 | 语义类型 | 说明 |
 |------|---------|------|
-| LLM / Model | reference / text | ChatCompleter 与模型名 |
+| LLM / Model | reference / text | `largemodel.Caller`、协议与模型名 |
 | ToolRegistry | reference | 已按 ToolProfile 过滤、并注入 ask_user/todo_write、经装饰链包装的工具集 |
 | MaxIterations | number | ReAct 最大迭代;planner 等单步代理固定为 1 |
 | RunTokenBudget | number | 单次 Run token 预算(0 = 不限) |

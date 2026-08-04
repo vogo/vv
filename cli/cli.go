@@ -19,7 +19,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vogo/aimodel"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
@@ -590,7 +589,7 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 		Content:   input,
 		Timestamp: time.Now(),
 	})
-	userMsg := schema.NewUserMessage(input)
+	userMsg := schema.NewUserMessage(m.app.orchestrator.Protocol(), input)
 	m.app.history = append(m.app.history, userMsg)
 
 	// Update running token estimate.
@@ -925,10 +924,7 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 
 	// Add agent response to conversation history for multi-turn context.
 	if m.output.Len() > 0 {
-		agentMsg := schema.NewAssistantMessage(
-			agentMessage(m.output.String()),
-			"",
-		)
+		agentMsg := schema.NewTextMessage(m.app.orchestrator.Protocol(), schema.RoleAssistant, m.output.String())
 		m.app.history = append(m.app.history, agentMsg)
 		m.app.estimatedTokens += memory.DefaultTokenEstimator(agentMsg)
 		cmds = append(cmds, m.flushAgentOutput())
@@ -1143,12 +1139,4 @@ func (m *model) statusBarView() string {
 	parts := []string{"vv", status, model, cost, tokens}
 
 	return dimStyle.Render(strings.Join(parts, " | "))
-}
-
-// agentMessage creates an aimodel.Message from agent text.
-func agentMessage(text string) aimodel.Message {
-	return aimodel.Message{
-		Role:    aimodel.RoleAssistant,
-		Content: aimodel.NewTextContent(text),
-	}
 }
