@@ -246,6 +246,23 @@ func TestSpawnWorker_CodeReviewCombination(t *testing.T) {
 		t.Error("worker prompt is missing the review skill instructions")
 	}
 
+	// The coder runtime's own prompt advertises write/edit. Under Review
+	// access the worker has neither, so the assembly must correct the prompt
+	// in-band — otherwise the model burns iterations calling missing tools.
+	if !strings.Contains(body, "Effective tool access: review") {
+		t.Error("worker prompt does not announce the narrowed effective tool set")
+	}
+
+	for _, want := range []string{"read", "bash"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("effective-tools notice missing %q", want)
+		}
+	}
+
+	if !strings.Contains(body, "write / edit") {
+		t.Error("effective-tools notice does not call out that write/edit are unavailable")
+	}
+
 	// The diff arrived as an explicit read-only block, not as prose the
 	// Primary happened to paraphrase.
 	for _, want := range []string{"## Context: diff (read-only)", "price * qty"} {

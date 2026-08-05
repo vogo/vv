@@ -51,6 +51,8 @@ code-review = coder runtime + Review profile + review skill + 禁写 + diff 上�
 
 于是 "Reviewer 不能修复它发现的问题" 这句话的准确形式是:**Review 档不含写工具**——无论它建立在哪个 runtime 上、加载了什么 skill、system prompt 怎么写。runtime 决定行为风格,profile 决定权限,二者正交。Primary 在 `hybrid` / `direct` 下可以直接 mutation,但仍经过同一 permission / path guard / sandbox,并保留明确的 agent attribution。
 
+> **提示词必须与工具面一致**:当 profile 被从 base runtime 的默认档收窄时(如 coder runtime + Review 档),装配层会在系统提示里追加「Effective tool access」清单,写明实际可用工具并点明 write/edit 不可用。若 base 提示继续向模型广告它没有的工具,模型会反复尝试调用而失败——这是提示词正确性,不是权限改变(权限仍由 profile ∩ guard 决定)。
+
 ### Skill 与 ContextSource
 
 两者都是"只影响模型看到什么",都不触碰权限:
