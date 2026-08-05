@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/orchestrate"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/registries"
@@ -69,6 +70,17 @@ func newTestRegistry() *registries.Registry {
 func TestDispatcher_ImplementsInterfaces(t *testing.T) {
 	var _ agent.Agent = (*Dispatcher)(nil)
 	var _ agent.StreamAgent = (*Dispatcher)(nil)
+}
+
+func TestDispatcher_ProtocolFromLLM(t *testing.T) {
+	t.Parallel()
+
+	llm := &largemodel.FakeCaller{Proto: schema.ProtocolAnthropicMessages}
+	d := New(nil, nil, nil, WithLLM(llm, "claude-test"))
+
+	if got := d.Protocol(); got != schema.ProtocolAnthropicMessages {
+		t.Errorf("Protocol() = %q, want %q", got, schema.ProtocolAnthropicMessages)
+	}
 }
 
 func TestClassifyResult_Validate_Direct(t *testing.T) {

@@ -150,10 +150,15 @@ func New(
 }
 
 // WithLLM sets the LLM client used for dynamic agent creation in plan steps.
+// It also adopts the caller's wire protocol on the Dispatcher so messages
+// built via orchestrator.Protocol() match the configured LLM.
 func WithLLM(llm largemodel.Caller, model string) Option {
 	return func(d *Dispatcher) {
 		d.llm = llm
 		d.model = model
+		if llm != nil {
+			d.AgentProtocol = llm.Protocol()
+		}
 	}
 }
 
