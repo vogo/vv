@@ -261,6 +261,82 @@ func TestRegisterPlanTaskTool_RequiresExecutor(t *testing.T) {
 	}
 }
 
+// TestRegisterPlanTaskTool_DescribesDAGGate asserts the registered tool
+// contract states the same four-condition gate as the Primary system prompt,
+// plus the scenarios that must NOT reach this tool. The tool description is
+// what the LLM reads alongside the prompt; if it keeps advertising "spans
+// multiple capabilities" the prompt's gate is effectively cancelled.
+func TestRegisterPlanTaskTool_DescribesDAGGate(t *testing.T) {
+	reg := tool.NewRegistry()
+	if err := RegisterPlanTaskTool(reg, &capturingPlanExec{}); err != nil {
+		t.Fatalf("RegisterPlanTaskTool: %v", err)
+	}
+
+	def, ok := reg.Get(PrimaryToolPlanTask)
+	if !ok {
+		t.Fatalf("tool %q not registered", PrimaryToolPlanTask)
+	}
+
+	required := []struct {
+		what   string
+		marker string
+	}{
+		{"advanced, non-default framing", "NOT the default path"},
+		{"condition (a): at least two independent workflows", "at least two genuinely independent workflows"},
+		{"condition (a): not artificial slicing", "not consecutive slices of one change"},
+		{"condition (b): real concurrency benefit", "saves real wall-clock time"},
+		{"condition (c): dependencies expressible", "depends_on"},
+		{"condition (d): user asked for parallel or background", "run in the background"},
+		{"counter-example: ordinary bug fix", "ordinary bug fix"},
+		{"counter-example: single-file / single-symbol change", "single-file or single-symbol change"},
+		{"counter-example: sequential checklist only", "sequential checklist"},
+		{"sequential fallback names todo_write", "todo_write"},
+	}
+
+	for _, r := range required {
+		if !strings.Contains(def.Description, r.marker) {
+			t.Errorf("plan_task description lost %s (missing %q)", r.what, r.marker)
+		}
+	}
+
+	// Regression guard: the pre-demotion description made "spans multiple
+	// distinct sub-agent capabilities" sufficient on its own.
+	if strings.Contains(def.Description, "spans multiple distinct sub-agent capabilities") {
+		t.Error("plan_task description re-introduced the loosened planning trigger")
+	}
+
+	// The steps parameter carries the same anti-slicing rule, since a model
+	// filling the schema may only re-read the parameter docs.
+	params, ok := def.Parameters.(map[string]any)
+	if !ok {
+		t.Fatalf("parameters is not map, got %T", def.Parameters)
+	}
+
+	props, ok := params["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties is not map, got %T", params["properties"])
+	}
+
+	steps, ok := props["steps"].(map[string]any)
+	if !ok {
+		t.Fatalf("steps is not map, got %T", props["steps"])
+	}
+
+	stepsDesc, _ := steps["description"].(string)
+	for _, marker := range []string{
+		"genuinely independent workflow",
+		"depends_on",
+		"consecutive parts of the same edit",
+		"todo_write",
+		// Only bound on plan width — nothing validates step count at runtime.
+		"2-5 steps",
+	} {
+		if !strings.Contains(stepsDesc, marker) {
+			t.Errorf("steps parameter description missing %q; got %q", marker, stepsDesc)
+		}
+	}
+}
+
 func TestRegisterPlanTaskTool_HandlerRunsPlan(t *testing.T) {
 	reg := tool.NewRegistry()
 

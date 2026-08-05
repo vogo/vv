@@ -82,6 +82,106 @@ func TestPrimarySystemPrompt_MentionsTools(t *testing.T) {
 	}
 }
 
+// TestPrimarySystemPrompt_DAGGate pins the decision contract that demotes DAG
+// planning to an explicit advanced capability: the prompt must state all four
+// enabling conditions, declare sequential execution the default, and name the
+// counter-examples (ordinary bug fix / single-file change) that must stay off
+// the plan_task path.
+func TestPrimarySystemPrompt_DAGGate(t *testing.T) {
+	// One entry per required condition so a failure names the missing clause
+	// rather than just "prompt changed".
+	required := []struct {
+		what   string
+		marker string
+	}{
+		{"condition (a): at least two independent workflows", "at least two genuinely independent workflows"},
+		{"condition (a): not artificial slicing", "not consecutive slices of one change"},
+		{"condition (b): real concurrency benefit", "saves real wall-clock time"},
+		{"condition (c): dependencies expressible", "depends_on"},
+		{"condition (d): user asked for parallel or background", "run in the background"},
+		{"sequential execution is the default", "Sequential execution is the default"},
+		{"progress is tracked with todo_write, not a DAG", "todo_write"},
+		{"counter-example: ordinary bug fix", "ordinary bug fix"},
+		{"counter-example: single-file / single-symbol change", "single-file or single-symbol change"},
+		{"counter-example: sequential checklist only", "sequential checklist"},
+		// The step-count bound lives only in the prompt contract:
+		// ClassifyResult.validate checks agent identity, not plan size, so
+		// dropping this phrasing removes the only cap on DAG width.
+		{"step-count bound", "2-5 steps"},
+	}
+
+	for _, r := range required {
+		if !contains(PrimarySystemPrompt, r.marker) {
+			t.Errorf("system prompt lost %s (missing %q)", r.what, r.marker)
+		}
+	}
+
+	// Regression guard: the pre-demotion phrasing let "spans multiple
+	// specialist capabilities" alone justify a DAG. Reintroducing it (or an
+	// equivalent loosening) would undo the gate above.
+	forbidden := []string{
+		"genuinely spans multiple specialist capabilities",
+		"when the task genuinely spans multiple",
+	}
+
+	for _, f := range forbidden {
+		if contains(PrimarySystemPrompt, f) {
+			t.Errorf("system prompt re-introduced the loosened planning trigger %q", f)
+		}
+	}
+}
+
+// TestPrimarySystemPrompt_RouteSnapshot is a decision snapshot: for each
+// scenario the prompt must carry the clause that governs it. It asserts the
+// contract the model reads, not the model's output — the mock LLM used in the
+// integration suite returns pre-canned tool calls and so cannot exercise the
+// routing decision itself.
+func TestPrimarySystemPrompt_RouteSnapshot(t *testing.T) {
+	scenarios := []struct {
+		scenario      string
+		expectedRoute string
+		governing     string
+	}{
+		{
+			scenario:      "ordinary bug fix",
+			expectedRoute: "sequential execution by Primary",
+			governing:     "An ordinary bug fix, a single-file or single-symbol change",
+		},
+		{
+			scenario:      "single-file edit with several sub-steps",
+			expectedRoute: "sequential execution by Primary + todo_write",
+			governing:     "Sequential execution is the default",
+		},
+		{
+			scenario:      "multi-step work that merely touches several capabilities",
+			expectedRoute: "sequential execution, or one delegation",
+			governing:     `"It has several steps" or "it spans several capabilities" is by itself not a reason to plan.`,
+		},
+		{
+			scenario:      "one isolated sub-task needing a specialist",
+			expectedRoute: "single delegation",
+			governing:     "Prefer a single delegation over a multi-step plan",
+		},
+		{
+			scenario:      "user asks for parallel work across two independent branches",
+			expectedRoute: "plan_task DAG",
+			governing:     "the user asked for parallel execution",
+		},
+		{
+			scenario:      "long task the user wants running in the background",
+			expectedRoute: "plan_task DAG",
+			governing:     "asked for a long task to run in the background",
+		},
+	}
+
+	for _, s := range scenarios {
+		if !contains(PrimarySystemPrompt, s.governing) {
+			t.Errorf("scenario %q (expected route: %s): prompt lost its governing clause %q",
+				s.scenario, s.expectedRoute, s.governing)
+		}
+	}
+}
+
 func contains(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0
 }
