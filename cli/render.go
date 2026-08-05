@@ -46,6 +46,17 @@ type execStats struct {
 	CacheReadTokens  int
 }
 
+// toolRenderDepth returns the indent depth for tool/todo output.
+// Top-level Primary (nestingDepth 0) is flush left; tools inside a
+// delegated sub-agent sit one level deeper than the sub-agent header.
+func toolRenderDepth(nestingDepth int) int {
+	if nestingDepth == 0 {
+		return 0
+	}
+
+	return nestingDepth + 1
+}
+
 // indentBlock prepends `depth * indentUnit` spaces to each line of text.
 func indentBlock(text string, depth int) string {
 	if depth <= 0 {

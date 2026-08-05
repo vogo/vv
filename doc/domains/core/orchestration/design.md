@@ -28,8 +28,8 @@ flowchart TD
     A[请求进入<br/>DepthFrom ctx] --> B{depth &gt;= maxRecursionDepth?<br/>默认 2}
     B -->|否| C[Primary Assistant<br/>完整工具集]
     B -->|是| D[Fallback Primary<br/>无工具 · 最大迭代 1]
-    C --> E[runPrimary / runPrimaryStream<br/>包 unified_primary phase]
-    D --> F[forwardSubAgentStream<br/>+ 追加 summarize 静态 phase]
+    C --> E[runPrimary / runPrimaryStream<br/>relayAgentStream 直透]
+    D --> F[relayAgentStream<br/>Fallback 直透]
     E --> G[返回连贯的 Primary 回复]
     F --> G
 ```
@@ -166,16 +166,11 @@ flowchart LR
 
 `delegate_to_coder/researcher/reviewer` 保留原有参数与可观察结果。它们与等价 Worker Spec 的工具面相同(有测试断言),共享上述执行路径;差别仅在由**启动期实例**执行,从而保留 memory / PersistentMemory / IterationStore / ExtraContextSources 等装配——若改为每次现构 worker,这些会静默丢失,属于可观察行为回退(ORCH-R13)。
 
-## 流式 phase 事件
+## 流式事件
 
-每次请求会发出一对 phase 事件包住 Primary 的整个执行:
+Primary 与 Fallback Primary 是用户可见的入口 agent,Dispatcher 通过 `relayAgentStream` **原样转发** 其事件流 —— 不包 `unified_primary` phase,也不发 SubAgentStart/End。CLI / SSE 因此顶层直接呈现 Primary 的工具调用与文本输出;`task complete` 行汇总整轮 token 与耗时。
 
-- `EventPhaseStart{Phase:"unified_primary", PhaseIndex:1, TotalPhase:1}`
-- `EventPhaseEnd{Phase:"unified_primary", Duration, ToolCalls, PromptTokens, CompletionTokens}`
-
-`phaseTracker` 拦截内层事件流累加统计:`EventToolCallStart` 累加工具调用数,`EventLLMCallEnd` 累加 prompt / completion tokens,使 cost 仪表盘在统一前门下继续工作。
-
-Fallback 路径上额外发一对 `summarize` 静态 phase 事件(零 LLM 调用,Summary 为固定 sentinel `"fallback path: no summarization performed"`),让 SSE 消费者不需要分支判断走的哪条物理路径(对应 ORCH-R10)。
+真正委派出去的专家仍由 `runDelegateStream` 发出 SubAgentStart/End,形成 UI 嵌套边界(对应 ORCH-R10)。
 
 ## 递归预算的传递
 

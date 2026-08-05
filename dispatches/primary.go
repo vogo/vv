@@ -3,18 +3,11 @@ package dispatches
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/debugs"
 )
-
-// PrimaryPhase is the phase label streamed for the single relay to the
-// Primary Assistant. It stays distinct from the classical "intent" and
-// "execute" phases so dashboards can distinguish unified-mode traffic from
-// legacy pipeline shapes.
-const PrimaryPhase = "unified_primary"
 
 // runPrimary is the non-streaming unified-mode entry point. It forwards the
 // request verbatim to the Primary Assistant and returns its response — the
@@ -37,17 +30,14 @@ func (d *Dispatcher) runPrimary(ctx context.Context, req *schema.RunRequest) (*s
 	return resp, nil
 }
 
-// runPrimaryStream wraps a streaming relay to the Primary Assistant in a
-// single EventPhaseStart/EventPhaseEnd envelope so HTTP SSE / CLI stream
-// consumers see a single top-level phase boundary per request.
-//
-// Token usage and tool-call counts are aggregated via phaseTracker so cost
-// dashboards keep working.
+// runPrimaryStream relays the Primary Assistant stream directly to consumers.
+// Primary is the user-facing entry point, so no phase envelope or
+// SubAgentStart/End wrapper is added — delegation boundaries are emitted
+// later by delegate/spawn_worker/plan_task handlers when a real sub-agent runs.
 func (d *Dispatcher) runPrimaryStream(
 	ctx context.Context,
 	send func(schema.Event) error,
 	req *schema.RunRequest,
-	agentID, sessionID string,
 ) error {
 	if d.primaryAssistant == nil {
 		return fmt.Errorf("dispatcher: primary assistant not configured")
@@ -55,35 +45,7 @@ func (d *Dispatcher) runPrimaryStream(
 
 	ctx = debugs.WithAgentName(ctx, PrimaryAgentName)
 
-	if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-		Phase:      PrimaryPhase,
-		PhaseIndex: 1,
-		TotalPhase: 1,
-	})); err != nil {
-		return err
-	}
-
-	start := time.Now()
-
-	var tracker phaseTracker
-	streamErr := d.forwardSubAgentStream(ctx, tracker.wrap(send), d.primaryAssistant, req, PrimaryAgentName, "", sessionID)
-
-	if err := send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-		Phase:            PrimaryPhase,
-		Duration:         time.Since(start).Milliseconds(),
-		ToolCalls:        tracker.toolCalls,
-		PromptTokens:     tracker.promptTokens,
-		CompletionTokens: tracker.completionTokens,
-	})); err != nil {
-		// If the EventPhaseEnd itself fails, surface that error unless the
-		// inner stream already failed — the inner error is the primary
-		// failure signal.
-		if streamErr == nil {
-			return err
-		}
-	}
-
-	return streamErr
+	return relayAgentStream(ctx, send, d.primaryAssistant, req)
 }
 
 // RunPlan implements PlanExecutor, exposing the dispatcher's existing plan

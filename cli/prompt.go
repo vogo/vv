@@ -90,7 +90,7 @@ func RunPrompt(ctx context.Context, orchestrator agent.StreamAgent, prompt strin
 				totalToolCalls++
 				toolCallCount++
 				summary := extractToolSummary(data.ToolName, data.Arguments)
-				indent := strings.Repeat("  ", nestingDepth+1)
+				indent := strings.Repeat("  ", toolRenderDepth(nestingDepth))
 				if summary != "" {
 					_, _ = fmt.Fprintf(stderr, "%s[tool] %s(%s)\n", indent, data.ToolName, summary)
 				} else {
@@ -110,7 +110,7 @@ func RunPrompt(ctx context.Context, orchestrator agent.StreamAgent, prompt strin
 
 				line := promptToolResultSummary(data.ToolName, resultText)
 				if line != "" {
-					indent := strings.Repeat("  ", nestingDepth+1)
+					indent := strings.Repeat("  ", toolRenderDepth(nestingDepth))
 					_, _ = fmt.Fprintf(stderr, "%s  %s\n", indent, line)
 				}
 			}

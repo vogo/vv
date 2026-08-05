@@ -38,7 +38,7 @@ orchestration 是 vv 的核心领域,贯彻 **统一前门、内部分工**:每�
 | **ORCH-R7** | DAG 共享递归预算 | `plan_task` 触发的整个 DAG 共享一个递归预算(在 Primary 预算上 +1)。所有 step(含并行 step、派生 worker step)落在同一上限之内。 |
 | **ORCH-R8** | 派生 worker 能力组合 | **任意 Primary 派生(`spawn_worker`)或 DAG 动态节点** 都可由 Worker Spec 临时构造执行者:base type 决定 runtime,`tool_access`(ToolProfile)决定工具子集,skills 决定产出纪律,context 决定注入的只读上下文,isolation 决定是否共享任务背景。两个入口 **共用同一构造路径**,因而权限面必然一致。派生 worker **即用即弃**,不注册到代理注册表、不出现在 HTTP 子端点或 MCP 暴露列表中。 |
 | **ORCH-R9** | 写树镜像失败不阻塞 | 启用 Session Tree 且打开"分发器写树"开关时,每次 `plan_task` 把 plan 镜像为树节点(首次建 goal 根,后续追加子树)。镜像 **失败仅记告警,不阻塞 DAG 执行** —— 树是辅助视图,不是关键路径。 |
-| **ORCH-R10** | 单一 phase 信封 | 每次请求发出一对 phase 事件包住 Primary 整个执行(`unified_primary`);Fallback 路径额外发一对 `summarize` 静态 phase(零 LLM 调用),使 SSE 消费者无需分支判断走了哪条物理路径。 |
+| **ORCH-R10** | Primary 直透 | 主路径与 Fallback 路径均 **直接透传** Primary / Fallback Primary 的事件流,不额外包 phase 或 SubAgentStart/End 信封。委派子代理(`delegate_to_*` / `spawn_worker` / DAG step)仍由各自 handler 发出 SubAgentStart/End。token / 耗时统计由消费者从 `EventLLMCallEnd` 与 task 级汇总获取。 |
 | **ORCH-R11** | 规划门槛(显式高级能力) | 顺序执行是默认路径;`plan_task` 是显式高级能力,仅在 **四项条件同时成立** 时启用:① 至少两个真正独立的工作流(非同一修改的连续切段);② 并行有实际墙钟收益;③ 次序可用 `depends_on` 表达或分支无依赖;④ 用户明确要求并行或要求长任务后台执行。普通 bug fix、单文件/单符号修改、只需顺序检查清单的任务 **不得** 走 `plan_task`。门槛是 **提示层决策契约**(系统提示与工具描述必须一致),**不是运行时拒绝规则**:执行器对已提交的有效 DAG 照常执行,不引入前置分类器或"是否值得并行"的硬校验。 |
 | **ORCH-R12** | 规格校验前置且全量 | Worker Spec 的 base type(必填且已注册)、`tool_access`(合法 ProfileByName)、skills、context source、isolation 全部在构造前校验;任一不合法 → **不产生 worker**,以可诊断的工具错误回到 Primary。context source provider 失败同样中止派生,绝不让 worker 在缺少既定上下文的情况下运行。 |
 | **ORCH-R13** | 预制组合是快捷方式而非特权 | `delegate_to_coder/researcher/reviewer` 是预制组合的适配器:它们与等价 Worker Spec 的工具面相同,并共享同一执行路径(递归 +1、会话标记、流式 SubAgentStart/End、错误折叠)。差别只在"由启动期实例执行"(因而保留 memory / checkpoint / 上下文源装配),不在能力表达力。 |
@@ -81,14 +81,13 @@ stateDiagram-v2
 
 ## Domain events
 
-本领域不定义 vv 私有事件,复用 vage schema 事件类型(回链 [../../../glossary.md](../../../glossary.md))。orchestration 直接产出的 phase 事件:
+本领域不定义 vv 私有事件,复用 vage schema 事件类型(回链 [../../../glossary.md](../../../glossary.md))。orchestration 在 Dispatcher 层额外产出的边界事件:
 
-| 事件 | Phase | 触发时机 | 载荷要点 | 消费者 |
-|------|-------|---------|---------|--------|
-| `EventPhaseStart` / `EventPhaseEnd` | `unified_primary` | 包住 Primary 整个执行(主路径) | duration、toolCalls、promptTokens、completionTokens(经 phaseTracker 累加) | SSE / TUI 流式输出、cost 仪表盘 |
-| `EventPhaseStart` / `EventPhaseEnd` | `summarize` | Fallback 路径,Fallback 流之后追加 | 固定 sentinel 文本,零 LLM 调用 | 同上(无需分支判断路径) |
+| 事件 | 触发时机 | 载荷要点 | 消费者 |
+|------|---------|---------|--------|
+| `EventSubAgentStart` / `EventSubAgentEnd` | 委派子代理(`delegate_to_*` / `spawn_worker` / DAG step) | agentName、duration、toolCalls、tokens | SSE / TUI 嵌套输出 |
 
-其余事件(`EventToolCallStart`、`EventLLMCallEnd`、子代理流事件)由 Primary / 子代理在其 ReAct 循环内产生并透传,经统一事件总线分发给 trace / session / budget / debug 等可选子系统。
+Primary / Fallback Primary 主路径 **不** 额外包 phase 或 SubAgent 信封;其 ReAct 循环原生事件(`EventToolCallStart`、`EventLLMCallEnd`、`EventTextDelta` 等)经 `relayAgentStream` 直透 consumers(ORCH-R10)。
 
 ## Interactions
 
@@ -133,4 +132,4 @@ stateDiagram-v2
 | **worker 规格(worker spec)** | 派生执行者的能力契约(旧称动态规格);由 `spawn_worker` 与 DAG 动态节点共同消费。 |
 | **预制组合(preset combination)** | 启动期注册的具名能力组合:coder / researcher / reviewer。 |
 | **PlanGen** | 把 DAG 多终端结果汇总为单一文本返回 Primary 的汇总器(可指向小模型)。 |
-| **phase 信封** | 包住一段执行的一对 `EventPhaseStart` / `EventPhaseEnd` 事件。 |
+| **SubAgent 边界** | 委派子代理时的一对 `EventSubAgentStart` / `EventSubAgentEnd` 事件,用于 TUI/SSE 嵌套展示。Primary 主路径不使用此边界。 |

@@ -301,10 +301,8 @@ func newModel(app *App, ctx context.Context) *model {
 }
 
 // toolDepth returns the indent depth for tool call output.
-// Tools are always indented at least 1 level, and 1 level deeper than
-// any active sub-agent.
 func (m *model) toolDepth() int {
-	return m.nestingDepth + 1
+	return toolRenderDepth(m.nestingDepth)
 }
 
 // escapeSeqRe matches ANSI escape sequences and OSC responses that terminals

@@ -163,10 +163,10 @@ func TestSetPrimaryAssistant_PostConstruction_AttachesAgent(t *testing.T) {
 	}
 }
 
-// TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase checks that the
-// streaming path wraps Primary execution in a single EventPhaseStart/End
-// pair labelled unified_primary.
-func TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase(t *testing.T) {
+// TestRunStream_UnifiedMode_RelaysPrimaryEventsDirectly checks that the
+// streaming path forwards Primary events without a unified_primary phase
+// envelope or SubAgentStart/End wrapper.
+func TestRunStream_UnifiedMode_RelaysPrimaryEventsDirectly(t *testing.T) {
 	reg := newTestRegistry()
 	chat := &stubAgent{id: "chat"}
 	primary := &streamableStubAgent{stubAgent: stubAgent{id: "primary"}}
@@ -188,7 +188,11 @@ func TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase(t *testing.T) {
 
 	defer func() { _ = stream.Close() }()
 
-	phases := make([]string, 0, 4)
+	var (
+		phaseCount    int
+		subAgentCount int
+		hasTextDelta  bool
+	)
 
 	for {
 		ev, recvErr := stream.Recv()
@@ -200,19 +204,25 @@ func TestRunStream_UnifiedMode_EmitsUnifiedPrimaryPhase(t *testing.T) {
 		}
 
 		switch ev.Type {
-		case schema.EventPhaseStart:
-			if data, ok := ev.Data.(schema.PhaseStartData); ok {
-				phases = append(phases, "start:"+data.Phase)
-			}
-		case schema.EventPhaseEnd:
-			if data, ok := ev.Data.(schema.PhaseEndData); ok {
-				phases = append(phases, "end:"+data.Phase)
-			}
+		case schema.EventPhaseStart, schema.EventPhaseEnd:
+			phaseCount++
+		case schema.EventSubAgentStart, schema.EventSubAgentEnd:
+			subAgentCount++
+		case schema.EventTextDelta:
+			hasTextDelta = true
 		}
 	}
 
-	if len(phases) != 2 || phases[0] != "start:"+PrimaryPhase || phases[1] != "end:"+PrimaryPhase {
-		t.Errorf("phase events = %v, want [start:%s end:%s]", phases, PrimaryPhase, PrimaryPhase)
+	if phaseCount != 0 {
+		t.Errorf("phase events = %d, want 0 (primary stream is relayed directly)", phaseCount)
+	}
+
+	if subAgentCount != 0 {
+		t.Errorf("sub-agent events = %d, want 0 (primary is not wrapped as sub-agent)", subAgentCount)
+	}
+
+	if !hasTextDelta {
+		t.Error("expected TextDelta from primary stream relay")
 	}
 
 	if primary.ranCount() != 1 {
@@ -307,12 +317,10 @@ func TestRun_UnifiedMode_DepthExceeded_UsesPrimaryFallback(t *testing.T) {
 	}
 }
 
-// TestRunStream_DepthExceeded_EmitsStaticSummarizePhase verifies that when
-// the recursion-depth fallback fires, the dispatcher emits a static
-// `summarize` phase pair after the fallback stream so HTTP / SSE consumers
-// see the same event-flow shape as the main path. The Summary text is a
-// fixed sentinel; no LLM call happens.
-func TestRunStream_DepthExceeded_EmitsStaticSummarizePhase(t *testing.T) {
+// TestRunStream_DepthExceeded_RelaysFallbackDirectly verifies that when
+// the recursion-depth fallback fires, the dispatcher relays the fallback
+// agent stream without phase or sub-agent envelopes.
+func TestRunStream_DepthExceeded_RelaysFallbackDirectly(t *testing.T) {
 	reg := newTestRegistry()
 	chat := &stubAgent{id: "chat"}
 	primary := &stubAgent{id: "primary"}
@@ -339,8 +347,11 @@ func TestRunStream_DepthExceeded_EmitsStaticSummarizePhase(t *testing.T) {
 
 	defer func() { _ = stream.Close() }()
 
-	var phases []string
-	var summaryText string
+	var (
+		phaseCount    int
+		subAgentCount int
+		hasTextDelta  bool
+	)
 
 	for {
 		ev, recvErr := stream.Recv()
@@ -352,33 +363,29 @@ func TestRunStream_DepthExceeded_EmitsStaticSummarizePhase(t *testing.T) {
 		}
 
 		switch ev.Type {
-		case schema.EventPhaseStart:
-			if data, ok := ev.Data.(schema.PhaseStartData); ok {
-				phases = append(phases, "start:"+data.Phase)
-			}
-		case schema.EventPhaseEnd:
-			if data, ok := ev.Data.(schema.PhaseEndData); ok {
-				phases = append(phases, "end:"+data.Phase)
-				if data.Phase == "summarize" {
-					summaryText = data.Summary
-				}
-			}
+		case schema.EventPhaseStart, schema.EventPhaseEnd:
+			phaseCount++
+		case schema.EventSubAgentStart, schema.EventSubAgentEnd:
+			subAgentCount++
+		case schema.EventTextDelta:
+			hasTextDelta = true
 		}
 	}
 
-	hasSummarize := false
-	for _, p := range phases {
-		if p == "start:summarize" || p == "end:summarize" {
-			hasSummarize = true
-		}
+	if phaseCount != 0 {
+		t.Errorf("phase events = %d, want 0 on fallback path", phaseCount)
 	}
 
-	if !hasSummarize {
-		t.Errorf("phase events = %v, want a summarize start/end pair on fallback path", phases)
+	if subAgentCount != 0 {
+		t.Errorf("sub-agent events = %d, want 0 on fallback path", subAgentCount)
 	}
 
-	if summaryText != "fallback path: no summarization performed" {
-		t.Errorf("summary text = %q, want %q", summaryText, "fallback path: no summarization performed")
+	if !hasTextDelta {
+		t.Error("expected TextDelta from fallback stream relay")
+	}
+
+	if fallbackPrimary.ranCount() != 1 {
+		t.Errorf("fallback primary.ranCount = %d, want 1", fallbackPrimary.ranCount())
 	}
 }
 

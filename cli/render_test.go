@@ -132,6 +132,16 @@ func TestIndentBlock_EmptyString(t *testing.T) {
 	}
 }
 
+func TestRenderToolCallStart_NoIndentAtTopLevel(t *testing.T) {
+	result := renderToolCallStart("read", `{"path":"/"}`, 0)
+	if strings.HasPrefix(result, " ") {
+		t.Errorf("renderToolCallStart at depth 0 should not be indented, got %q", result)
+	}
+	if !strings.Contains(result, "read") {
+		t.Errorf("renderToolCallStart should contain tool name, got %q", result)
+	}
+}
+
 func TestRenderToolCallStart_Indented(t *testing.T) {
 	result := renderToolCallStart("bash", `{"command":"ls"}`, 1)
 	if !strings.HasPrefix(result, "    ") {

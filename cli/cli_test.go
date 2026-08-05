@@ -126,8 +126,8 @@ func TestNewApp(t *testing.T) {
 
 func TestToolDepth_NoSubAgent(t *testing.T) {
 	m := &model{nestingDepth: 0}
-	if got := m.toolDepth(); got != 1 {
-		t.Errorf("toolDepth() with nestingDepth 0 = %d, want 1", got)
+	if got := m.toolDepth(); got != 0 {
+		t.Errorf("toolDepth() with nestingDepth 0 = %d, want 0", got)
 	}
 }
 

@@ -179,7 +179,7 @@ func TestIntegration_SetupNew_DispatcherDirectDispatch(t *testing.T) {
 // Test cases:
 //   - Dispatcher satisfies agent.StreamAgent interface
 //   - RunStream returns a non-nil stream (using stub sub-agents for reliable streaming)
-//   - Stream contains PhaseStart and PhaseEnd events
+//   - Stream relays Primary events directly (no phase envelope)
 func TestIntegration_SetupNew_DispatcherStreaming(t *testing.T) {
 	directJSON := `{"mode": "direct", "agent": "coder"}`
 
@@ -246,23 +246,23 @@ func TestIntegration_SetupNew_DispatcherStreaming(t *testing.T) {
 		t.Fatal("expected at least one event from RunStream")
 	}
 
-	// Verify we get PhaseStart and PhaseEnd events.
-	hasPhaseStart := false
-	hasPhaseEnd := false
+	// Verify Primary stream is relayed directly (TextDelta, no phase wrapper).
+	hasTextDelta := false
+	hasPhase := false
 	for _, e := range events {
-		if e.Type == schema.EventPhaseStart {
-			hasPhaseStart = true
+		if e.Type == schema.EventTextDelta {
+			hasTextDelta = true
 		}
-		if e.Type == schema.EventPhaseEnd {
-			hasPhaseEnd = true
+		if e.Type == schema.EventPhaseStart || e.Type == schema.EventPhaseEnd {
+			hasPhase = true
 		}
 	}
 
-	if !hasPhaseStart {
-		t.Error("missing PhaseStart event")
+	if !hasTextDelta {
+		t.Error("missing TextDelta from primary stream relay")
 	}
-	if !hasPhaseEnd {
-		t.Error("missing PhaseEnd event")
+	if hasPhase {
+		t.Error("unexpected phase envelope on primary stream relay")
 	}
 }
 

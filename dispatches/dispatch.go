@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/hook"
@@ -17,30 +16,6 @@ import (
 	"github.com/vogo/vv/hooks"
 	"github.com/vogo/vv/registries"
 )
-
-// phaseTracker intercepts events to accumulate per-phase execution stats.
-type phaseTracker struct {
-	toolCalls        int
-	promptTokens     int
-	completionTokens int
-}
-
-// wrap returns a send function that intercepts stats events before forwarding.
-func (pt *phaseTracker) wrap(send func(schema.Event) error) func(schema.Event) error {
-	return func(ev schema.Event) error {
-		switch ev.Type {
-		case schema.EventToolCallStart:
-			pt.toolCalls++
-		case schema.EventLLMCallEnd:
-			if data, ok := ev.Data.(schema.LLMCallEndData); ok {
-				pt.promptTokens += data.PromptTokens
-				pt.completionTokens += data.CompletionTokens
-			}
-		}
-
-		return send(ev)
-	}
-}
 
 // Dispatcher is the unified Primary Assistant entry point. Its sole job is
 // to forward requests to the Primary, with a fallback to the degraded
@@ -358,21 +333,6 @@ func (d *Dispatcher) SetFallbackAgent(a agent.Agent) {
 	d.fallbackAgent = a
 }
 
-// fallbackAgentName returns the agent ID label used in stream events / logs
-// when the dispatcher routes through the fallback agent (depth-exceeded
-// path).
-func (d *Dispatcher) fallbackAgentName() string {
-	if d.fallbackAgent != nil {
-		return d.fallbackAgent.ID()
-	}
-
-	for id := range d.subAgents {
-		return id
-	}
-
-	return "fallback"
-}
-
 // Run implements agent.Agent. Forwards to the Primary Assistant; falls back
 // to the fallback agent only when recursion depth is exceeded.
 func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.RunResponse, error) {
@@ -390,42 +350,21 @@ func (d *Dispatcher) Run(ctx context.Context, req *schema.RunRequest) (*schema.R
 }
 
 // RunStream implements agent.StreamAgent. Same semantics as Run; on the
-// depth-exceed fallback path a static `summarize` phase event is emitted
-// after the fallback stream so HTTP / SSE consumers see the same event-flow
-// shape as the main path (zero LLM calls; the Summary text is a
-// fixed sentinel rather than a real summarisation).
+// depth-exceed fallback path the degraded Primary stream is relayed directly,
+// matching the main path shape (no phase or sub-agent envelope).
 func (d *Dispatcher) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
 	return schema.NewRunStream(ctx, agent.DefaultStreamBufferSize, func(ctx context.Context, send func(schema.Event) error) error {
-		agentID := d.ID()
-		sessionID := req.SessionID
 		depth := DepthFrom(ctx)
 
 		if depth >= d.maxRecursionDepth {
-			if err := d.forwardSubAgentStream(ctx, send, d.fallbackAgent, req, d.fallbackAgentName(), "", sessionID); err != nil {
-				return err
-			}
-			// Emit a static summarize phase pair so consumers that key
-			// off the main-path summarize event still see one on the
-			// fallback path. Zero LLM calls — keeping the "cheap fallback"
-			// invariant intact.
-			start := time.Now()
-			if err := send(schema.NewEvent(schema.EventPhaseStart, agentID, sessionID, schema.PhaseStartData{
-				Phase: "summarize", PhaseIndex: 0, TotalPhase: 0,
-			})); err != nil {
-				return err
-			}
-			return send(schema.NewEvent(schema.EventPhaseEnd, agentID, sessionID, schema.PhaseEndData{
-				Phase:    "summarize",
-				Duration: time.Since(start).Milliseconds(),
-				Summary:  "fallback path: no summarization performed",
-			}))
+			return relayAgentStream(ctx, send, d.fallbackAgent, req)
 		}
 
 		if d.primaryAssistant == nil {
 			return fmt.Errorf("dispatcher: primary assistant required (classical pipeline removed)")
 		}
 
-		return d.runPrimaryStream(ctx, send, req, agentID, sessionID)
+		return d.runPrimaryStream(ctx, send, req)
 	}), nil
 }
 
