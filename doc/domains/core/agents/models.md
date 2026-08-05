@@ -56,9 +56,35 @@
 | ReadOnly | Read + Search | Researcher / Primary |
 | None | ∅ | Planner / Fallback Primary |
 
-**关系**:被 AgentDescriptor 引用;`BuildRegistry` 把它翻译成一个 `tool.Registry`(具体工具映射见 [tools](../tools/) 与 [design.md](design.md))。
+**关系**:被 AgentDescriptor 引用,或被 worker spec 的 `tool_access` 直接引用;`BuildRegistry` 把它翻译成一个 `tool.Registry`(具体工具映射见 [tools](../tools/) 与 [design.md](design.md))。四档为封闭集合:`ProfileByName` 是唯一解析入口,`ProfileNames()` 是唯一广告入口。
 
-## 专家代理配置(FactoryOptions 视角)
+## Skill
+
+**用途**:命名的专项指令片段,为执行者追加"按什么纪律产出"(AGENTS-R11)。**不授予工具、不放宽权限**。
+
+| 属性 | 语义类型 | 说明 |
+|------|---------|------|
+| ID | text | 唯一标识(`review` / `research`) |
+| Description | text | 一句话描述,渲染进 `spawn_worker` 工具 schema |
+| Instructions | text | 追加到 base runtime 系统提示之后的提示片段 |
+
+**关系**:由 `SkillRegistry` 持有(启动期构造一次、ID 冲突 panic、启动后只读);被 worker spec 的 `skills` 数组按 ID 引用;未注册 ID 在构造期报错。
+
+## ContextSource
+
+**用途**:命名的只读上下文来源,决定执行者"读到什么任务上下文"(AGENTS-R12)。
+
+| 属性 | 语义类型 | 说明 |
+|------|---------|------|
+| ID | text | 唯一标识(内置 `diff`) |
+| Description | text | 一句话描述,渲染进 `spawn_worker` 工具 schema |
+| Provider | reference | 纯读取器 `func(ctx) (string, error)`;`diff` = 工作区对 HEAD 的 git diff(超限截断) |
+
+**渲染形式**:`## Context: <id> (read-only)` + 正文,多个来源按声明顺序拼接,整体置于任务指令**之前**。
+
+**关系**:由 `ContextSourceRegistry` 持有(同上三条不变量);被 worker spec 的 `context` 数组按 ID 引用;未注册 ID 或 provider 失败均中止派生。
+
+## 预制组合配置(FactoryOptions 视角)
 
 **用途**:Factory 装配一个 task 代理所需的全部依赖与接缝(由 configuration 装配中心填充)。代理本身**无状态、无生命周期**;单次 Run 的迭代由 vage TaskAgent 管理。
 
@@ -84,10 +110,19 @@
 ```mermaid
 classDiagram
     Registry "1" o-- "many" AgentDescriptor : 持有
+    SkillRegistry "1" o-- "many" Skill : 持有
+    ContextSourceRegistry "1" o-- "many" ContextSource : 持有
     AgentDescriptor "1" --> "1" ToolProfile : 声明
     ToolProfile "1" --> "*" ToolCapability : 包含
     AgentDescriptor "1" ..> "1" FactoryOptions : Factory 消费
     FactoryOptions ..> Agent : 产出
+    WorkerSpec ..> AgentDescriptor : base_type 引用
+    WorkerSpec ..> ToolProfile : tool_access 引用
+    WorkerSpec ..> Skill : skills 引用
+    WorkerSpec ..> ContextSource : context 引用
     AgentDescriptor : Dispatchable bool
     Agent : 无状态 / task 型 ReAct
+    WorkerSpec : 归 orchestration 领域
 ```
+
+> WorkerSpec 本身是 orchestration 的值对象(见 [../orchestration/models.md](../orchestration/models.md));此处只表达它对本领域四类能力维度的引用关系。

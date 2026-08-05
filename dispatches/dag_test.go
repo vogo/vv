@@ -1,12 +1,16 @@
 package dispatches
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/orchestrate"
 	"github.com/vogo/vage/schema"
+	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/registries"
 )
 
 // newBuildNodesDispatcher assembles a Dispatcher for buildNodes tests with the
@@ -38,7 +42,7 @@ func TestBuildNodes_UnknownAgent_NoDefault(t *testing.T) {
 		"coder": &stubAgent{id: "coder"},
 	})
 
-	nodes, err := d.buildNodes(staticStepPlan("ghost"), &schema.RunRequest{SessionID: "test-session"}, "")
+	nodes, err := d.buildNodes(context.Background(), staticStepPlan("ghost"), &schema.RunRequest{SessionID: "test-session"}, "")
 	if err == nil {
 		t.Fatalf("expected error for unknown agent with no default, got nodes=%v", nodes)
 	}
@@ -64,7 +68,7 @@ func TestBuildNodes_DefaultAgentConfigured(t *testing.T) {
 	d := newBuildNodesDispatcher(t, subAgents, WithDAGDefaultAgentID("coder"))
 
 	// Unknown agent resolves to the configured default ("coder").
-	nodes, err := d.buildNodes(staticStepPlan("ghost"), &schema.RunRequest{SessionID: "test-session"}, "")
+	nodes, err := d.buildNodes(context.Background(), staticStepPlan("ghost"), &schema.RunRequest{SessionID: "test-session"}, "")
 	if err != nil {
 		t.Fatalf("unexpected error resolving via default: %v", err)
 	}
@@ -76,7 +80,7 @@ func TestBuildNodes_DefaultAgentConfigured(t *testing.T) {
 	}
 
 	// A valid step.Agent still uses its own agent — default must not override.
-	nodes, err = d.buildNodes(staticStepPlan("reviewer"), &schema.RunRequest{SessionID: "test-session"}, "")
+	nodes, err = d.buildNodes(context.Background(), staticStepPlan("reviewer"), &schema.RunRequest{SessionID: "test-session"}, "")
 	if err != nil {
 		t.Fatalf("unexpected error for valid agent: %v", err)
 	}
@@ -95,7 +99,7 @@ func TestBuildNodes_DefaultAgentNotRegistered(t *testing.T) {
 		"reviewer": &stubAgent{id: "reviewer"},
 	}, WithDAGDefaultAgentID("coder"))
 
-	nodes, err := d.buildNodes(staticStepPlan("ghost"), &schema.RunRequest{SessionID: "test-session"}, "")
+	nodes, err := d.buildNodes(context.Background(), staticStepPlan("ghost"), &schema.RunRequest{SessionID: "test-session"}, "")
 	if err == nil {
 		t.Fatalf("expected error when default agent unregistered, got nodes=%v", nodes)
 	}
@@ -119,4 +123,123 @@ func runnerID(runner orchestrate.Runner) string {
 	}
 
 	return ""
+}
+
+// A DAG dynamic node goes through the same worker construction path as
+// spawn_worker: its declared context sources are injected as a read-only block
+// ahead of the step description.
+func TestBuildNodes_DynamicStepInjectsContextSources(t *testing.T) {
+	sources := registries.NewContextSources()
+	sources.MustRegister(registries.ContextSource{
+		ID:          registries.ContextSourceDiff,
+		Description: "stub diff",
+		Provider:    func(context.Context) (string, error) { return "DIFF-BODY", nil },
+	})
+
+	d := newBuildNodesDispatcher(
+		t, nil,
+		WithToolsConfig(configs.ToolsConfig{}),
+		WithContextSources(sources),
+	)
+
+	plan := &Plan{
+		Goal: "review",
+		Steps: []PlanStep{{
+			ID:          "s1",
+			Description: "review the change",
+			Agent:       "coder",
+			DynamicSpec: &WorkerSpec{
+				BaseType:       "coder",
+				ToolAccess:     "review",
+				Skills:         []string{registries.SkillReview},
+				ContextSources: []string{registries.ContextSourceDiff},
+			},
+		}},
+	}
+
+	nodes, err := d.buildNodes(context.Background(), plan, &schema.RunRequest{SessionID: "s"}, "")
+	if err != nil {
+		t.Fatalf("buildNodes: %v", err)
+	}
+
+	if len(nodes) != 1 {
+		t.Fatalf("node count = %d, want 1", len(nodes))
+	}
+
+	req, err := nodes[0].InputMapper(nil)
+	if err != nil {
+		t.Fatalf("InputMapper: %v", err)
+	}
+
+	var joined strings.Builder
+	for _, m := range req.Messages {
+		joined.WriteString(m.Text())
+		joined.WriteString("\n")
+	}
+
+	for _, want := range []string{"## Context: diff (read-only)", "DIFF-BODY", "review the change"} {
+		if !strings.Contains(joined.String(), want) {
+			t.Errorf("step input missing %q; got:\n%s", want, joined.String())
+		}
+	}
+}
+
+// An unresolvable context source fails the DAG build with a diagnosable error
+// instead of quietly running the node without the context it declared.
+func TestBuildNodes_DynamicStepContextFailureIsAnError(t *testing.T) {
+	sources := registries.NewContextSources()
+	sources.MustRegister(registries.ContextSource{
+		ID:          registries.ContextSourceDiff,
+		Description: "always fails",
+		Provider:    func(context.Context) (string, error) { return "", errors.New("not a git repository") },
+	})
+
+	d := newBuildNodesDispatcher(
+		t, nil,
+		WithToolsConfig(configs.ToolsConfig{}),
+		WithContextSources(sources),
+	)
+
+	plan := &Plan{
+		Goal: "review",
+		Steps: []PlanStep{{
+			ID:          "s1",
+			Description: "review the change",
+			Agent:       "coder",
+			DynamicSpec: &WorkerSpec{BaseType: "coder", ContextSources: []string{registries.ContextSourceDiff}},
+		}},
+	}
+
+	nodes, err := d.buildNodes(context.Background(), plan, &schema.RunRequest{SessionID: "s"}, "")
+	if err == nil {
+		t.Fatal("expected buildNodes to fail when a declared context source cannot be resolved")
+	}
+
+	if !strings.Contains(err.Error(), "not a git repository") || !strings.Contains(err.Error(), "s1") {
+		t.Errorf("error = %v, want it to name the step and the underlying failure", err)
+	}
+
+	if nodes != nil {
+		t.Errorf("expected no nodes on failure, got %d", len(nodes))
+	}
+}
+
+// A dynamic node rejects an invalid spec at build time — the DAG never runs a
+// half-assembled worker.
+func TestBuildNodes_DynamicStepInvalidSpec(t *testing.T) {
+	d := newBuildNodesDispatcher(t, nil, WithToolsConfig(configs.ToolsConfig{}))
+
+	plan := &Plan{
+		Goal: "x",
+		Steps: []PlanStep{{
+			ID:          "s1",
+			Description: "do x",
+			Agent:       "coder",
+			DynamicSpec: &WorkerSpec{BaseType: "coder", ToolAccess: "write-only"},
+		}},
+	}
+
+	if _, err := d.buildNodes(context.Background(), plan, &schema.RunRequest{SessionID: "s"}, ""); err == nil {
+		t.Fatal("expected buildNodes to reject an invalid tool_access")
+	}
 }

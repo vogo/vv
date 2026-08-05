@@ -31,7 +31,7 @@ vv 不自实现工具实体——全部来自 vage 的 `tool/<name>` 子包(`bas
 | ReadOnly | read + search | Researcher / Primary(默认) |
 | None | ∅ | Planner / Fallback Primary |
 
-预设之外允许自定义(动态规格场景),但日常应优先映射四档以保持一致性。`ProfileByName` 把 `full/read-only/review/none` 字符串解析为预设,供 [orchestration](../orchestration/) 的动态代理使用。
+四档是封闭集合,不开放自定义 profile。`ProfileByName` 把 `full/read-only/review/none` 字符串解析为预设,供 [orchestration](../orchestration/) 的派生 worker 使用;`ProfileNames()` 渲染 `spawn_worker` 的 schema enum,与解析入口同源。
 
 **能力 → 工具映射**(`registerCapabilityTools`,装配期翻译):
 

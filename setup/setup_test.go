@@ -8,10 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/dispatches"
 )
 
 // mockChatCompleter is a simple mock for testing.
@@ -478,6 +480,90 @@ func TestNew_UnifiedMode_AttachesPrimary(t *testing.T) {
 	// Run with a trivial request and confirm no panic plus the response
 	// comes from the primary agent (ID == "primary").
 	// Minimal smoke-test only; full behaviour lives in integration tests.
+}
+
+// The Primary carries the general derivation entry point *and* the pre-made
+// combination shortcuts: spawn_worker is additive, the delegate_to_* contract
+// stays intact for existing callers.
+func TestNew_PrimaryCarriesSpawnWorkerAndDelegateTools(t *testing.T) {
+	cfg := &configs.Config{
+		LLM:         configs.LLMConfig{Model: "test-model"},
+		Agents:      configs.AgentsConfig{MaxIterations: 10},
+		Tools:       configs.ToolsConfig{BashTimeout: 10},
+		Orchestrate: configs.OrchestrateConfig{Mode: configs.OrchestrateModeUnified},
+	}
+
+	result, err := New(cfg, &mockChatCompleter{}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	primary, ok := result.Dispatcher.Primary().(*taskagent.Agent)
+	if !ok {
+		t.Fatalf("Primary is %T, want *taskagent.Agent", result.Dispatcher.Primary())
+	}
+
+	names := make(map[string]bool)
+	for _, def := range primary.Tools() {
+		names[def.Name] = true
+	}
+
+	for _, want := range []string{
+		dispatches.PrimaryToolSpawnWorker,
+		dispatches.PrimaryToolPlanTask,
+		dispatches.DelegateToolName("coder"),
+		dispatches.DelegateToolName("researcher"),
+		dispatches.DelegateToolName("reviewer"),
+	} {
+		if !names[want] {
+			t.Errorf("Primary tool %q missing", want)
+		}
+	}
+}
+
+// A worker derived through the dispatcher gets the assembly layer's guarded,
+// permission-wrapped tools — a spec can never route around them.
+func TestNew_DerivedWorkerToolsAreWrapped(t *testing.T) {
+	var wrapped int
+
+	opts := &Options{
+		WrapToolRegistry: func(reg *tool.Registry) tool.ToolRegistry {
+			wrapped++
+
+			return reg
+		},
+	}
+
+	cfg := &configs.Config{
+		LLM:         configs.LLMConfig{Model: "test-model"},
+		Agents:      configs.AgentsConfig{MaxIterations: 10},
+		Tools:       configs.ToolsConfig{BashTimeout: 10},
+		Orchestrate: configs.OrchestrateConfig{Mode: configs.OrchestrateModeUnified},
+	}
+
+	llm := &mockChatCompleter{
+		response: largemodel.FakeStopResponse(schema.ProtocolOpenAIChat, "reviewed", schema.Usage{}),
+	}
+
+	result, err := New(cfg, llm, nil, nil, opts)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	atSetup := wrapped
+
+	if _, err := result.Dispatcher.SpawnWorker(
+		context.Background(),
+		&dispatches.WorkerSpec{BaseType: "reviewer", ToolAccess: "review"},
+		"inspect the tree",
+		"",
+	); err != nil {
+		t.Fatalf("SpawnWorker: %v", err)
+	}
+
+	if wrapped <= atSetup {
+		t.Errorf("derived worker tools bypassed the permission wrapper (wrapped %d, was %d at setup)", wrapped, atSetup)
+	}
 }
 
 // --- Session subsystem wiring ---

@@ -8,12 +8,13 @@
 erDiagram
     TASK_PLAN ||--|{ PLAN_STEP : "包含(DAG 节点)"
     PLAN_STEP }o--o{ PLAN_STEP : "depends_on(自引用,无环)"
-    PLAN_STEP ||--o| DYNAMIC_AGENT_SPEC : "可内嵌(可选)"
-    PLAN_STEP }o--|| AGENT : "由静态专家执行(无动态规格时)"
+    PLAN_STEP ||--o| WORKER_SPEC : "可内嵌(可选)"
+    PRIMARY ||--o{ WORKER_SPEC : "spawn_worker 直接派生"
+    PLAN_STEP }o--|| AGENT : "由预制组合执行(无 worker 规格时)"
     SESSION ||--o| PLAN_WORKSPACE : "1:1 共寿(详见 session 领域)"
 ```
 
-> Task Plan / Plan Step / Dynamic Agent Spec 均为 **瞬态**:仅存活于一次 `plan_task` 触发的 DAG 执行期,不持久化。Plan Workspace 则是 **持久化** 的、属 `session` 领域,本领域仅引用。
+> Task Plan / Plan Step / Worker Spec 均为 **瞬态**:仅存活于一次 `plan_task` 触发的 DAG 执行期,不持久化。Plan Workspace 则是 **持久化** 的、属 `session` 领域,本领域仅引用。
 
 ---
 
@@ -36,38 +37,44 @@ erDiagram
 
 ## Plan Step(计划步骤)
 
-- **用途**:Task Plan DAG 中的一个工作单元 / 节点。含要完成什么的描述、执行者(静态专家或内嵌动态规格)、对其他 step 的可选依赖、状态与结果。
+- **用途**:Task Plan DAG 中的一个工作单元 / 节点。含要完成什么的描述、执行者(预制组合或内嵌 worker 规格)、对其他 step 的可选依赖、状态与结果。
 - **性质**:实体,瞬态。
 
 | 属性 | 业务类型 | 必填 | 说明 |
 |------|---------|------|------|
 | step_id / description | text | 是 | 步骤标识;描述作为任务下发给执行者 |
-| agent | reference(Agent) | 条件 | 无动态规格时必填;通常 coder / researcher / reviewer |
-| dynamic_agent_spec | Dynamic Agent Spec | 否 | 提供时临时构造执行者;**优先于** agent 字段(二者 base type 须一致) |
+| agent | reference(Agent) | 条件 | 无 worker 规格时必填;通常 coder / researcher / reviewer |
+| dynamic_spec | Worker Spec | 否 | 提供时临时构造执行者;**优先于** agent 字段(二者 base type 须一致) |
 | dependencies(depends_on) | list&lt;Plan Step&gt; | 否 | 空 = 无依赖可立即执行;不得成环 |
 | status | enum(Plan Step Status) | 是 | pending / running / completed / failed / skipped |
 | result | text | 否 | 执行完成后填充 |
 | started_at / completed_at | datetime | 否 | 状态转移时置 |
 
-- **关系**:Belongs to 一个 Task Plan;自引用 depends_on(同一 plan 内);由静态 Agent 执行或内嵌一个 Dynamic Agent Spec。
+- **关系**:Belongs to 一个 Task Plan;自引用 depends_on(同一 plan 内);由预制组合执行或内嵌一个 Worker Spec。
 - **状态**:见 [spec.md](spec.md)「Plan Step 状态机」。DAG 当前以 `Skip` 策略 + `Optional` 节点执行,单步失败致下游 `skipped`。
 
 ---
 
-## Dynamic Agent Spec(动态代理规格)
+## Worker Spec(worker 规格,旧称 Dynamic Agent Spec)
 
-- **用途**:为某个 Plan Step 临时构造执行者(ephemeral sub-agent)的配置。让 Primary 把代理行为裁剪到该 step 的精确需要,而非用预注册的静态专家。
-- **性质**:值对象,内嵌于 Plan Step,无独立生命周期。
+- **用途**:派生执行者(ephemeral worker)的能力契约。让 Primary 把执行者裁剪到任务的精确需要——**声明能力组合,而不是挑一个人格**。
+- **性质**:值对象,无独立生命周期。两个入口共用同一契约:内嵌于 Plan Step(`dynamic_spec`),或作为 `spawn_worker` 的入参。
+- **JSON 兼容**:字段名未变,新增项全部可选;既有 DAG 计划与既有 `base_type` / `system_prompt` / `tool_access` / `model` 取值继续解析、行为不变。
 
 | 属性 | 业务类型 | 必填 | 说明 |
 |------|---------|------|------|
-| base_type | enum(Agent Type) | 是 | 决定基础行为;须为已注册类型(经 registry 校验) |
-| system_prompt | text | 是* | 特化该 step 的自定义系统提示;为空则继承 base type 默认(*PRD 标必填,实现允许空回退) |
-| tool_access_level | enum(Tool Access Level / ToolProfile) | 是 | 决定工具子集(full / read_only / review / none);为空继承 base type 默认 profile |
-| model / max_iterations / temperature | text / number | 否 | 覆盖项;未指定则用系统默认 |
+| base_type | enum(Agent Type) | 是 | **Agent runtime** 维度:决定 Factory 与基础行为;须为已注册类型(经 registry 校验) |
+| tool_access | enum(ToolProfile) | 否 | **ToolProfile** 维度:full / review / read-only / none;为空继承 base type 默认 profile。唯一的权限授予轴 |
+| skills | list&lt;Skill ID&gt; | 否 | **Skills** 维度:已注册 skill(如 `review`);只追加提示,**不授予工具** |
+| context(context_sources) | list&lt;ContextSource ID&gt; | 否 | **ContextSources** 维度:已注册只读来源(如 `diff`),渲染为只读块置于任务指令之前 |
+| system_prompt | text | 否 | 特化行为的自定义系统提示;为空则继承 base type 默认。不能扩大工具面 |
+| model | text | 否 | **ModelPolicy** 维度:覆盖项;未指定则继承系统配置的模型 |
+| isolation | enum | 否 | **IsolationMode** 维度:`isolated`(默认,全新子上下文)/ `shared`(共享会话任务背景) |
 
-- **关系**:Belongs to(embedded)Plan Step。
-- **生命周期**:执行前由 `buildDynamicAgent` 构造为 `dynamic_<base_type>_<step_id>` 命名的 `taskagent`,执行后即弃,**不注册** 到代理注册表(见 [spec.md](spec.md) ORCH-R8、[design.md](design.md)「动态规格」)。
+> PermissionPolicy 刻意**不是** spec 字段:permission / path guard / sandbox 由装配层统一施加于每个 worker,只能缩减 `tool_access` 装配出的集合,规格无从声明、也无从放宽。
+
+- **关系**:Belongs to(embedded)Plan Step,或独立作为 `spawn_worker` 入参;按 ID 引用 agents 领域的 AgentDescriptor / ToolProfile / Skill / ContextSource。
+- **生命周期**:执行前由 `Dispatcher.buildWorker` 构造为 `worker_<base_type>_<n>`(spawn_worker)或 `dynamic_<base_type>_<step_id>`(DAG 节点)命名的 `taskagent`,单次执行后即弃,**不注册** 到代理注册表(见 [spec.md](spec.md) ORCH-R8/R11、[design.md](design.md)「worker 派生」)。实例 ID 在一次进程运行内可关联,不承诺跨运行稳定。
 
 ---
 

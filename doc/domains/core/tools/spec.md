@@ -77,7 +77,7 @@ bash 命令的风险档(Safe/Caution/Dangerous/Blocked)是 **分类结果而非�
 |---------|------|
 | [configuration](../configuration/) | 装配中心按 ToolProfile 调 `BuildRegistry`,注入 bash 超时/工作目录、allow-list、PathGuard/PathGuardian、注入 Guard、凭据 Scanner、web_search provider。工具领域不读 YAML,只接收已解析的构造选项。 |
 | [agents](../agents/) | 代理 **按 profile 消费** 工具集:每个 AgentDescriptor 持有一个 ToolProfile,装配阶段翻译为具体注册表后交工厂构造代理。 |
-| [orchestration](../orchestration/) | 动态代理按 `tool_access`(full/read_only/review/none)字符串解析到 ToolProfile 临时构造工具集。 |
+| [orchestration](../orchestration/) | 派生 worker 按 `tool_access`(full/review/read-only/none)字符串解析到 ToolProfile 临时构造工具集;工具仍经同一 path guard 与 permission 包装链。 |
 | [mcp](../mcp/) | MCP 模式在 4 个 I/O 边界挂凭据 Scanner;原始工具 **不** 作为顶层 MCP 工具暴露。 |
 | [cli](../cli/) | 仅 CLI 模式挂权限拦截装饰;确认动作 allow/allow_always/deny。HTTP/MCP 无终端,权限链不挂,安全改由 R3/R4 底层护栏承担。 |
 

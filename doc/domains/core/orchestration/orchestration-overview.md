@@ -22,9 +22,9 @@
 | 文档 | 内容 |
 |------|------|
 | [spec.md](spec.md) | 业务行为、核心实体、不变量(ORCH-R*)、Plan/Step 状态机、phase 事件、Non-goals、Anti-scenario |
-| [design.md](design.md) | 薄分发设计与三段管道废弃史、两条物理路径、Primary 四种选择、委派/规划语义、动态规格、流式 phase、递归预算传递、Session Tree 镜像、与 vage 边界 |
-| [models.md](models.md) | Task Plan、Plan Step、Dynamic Agent Spec、Plan Workspace(引用 session 领域) |
+| [design.md](design.md) | 薄分发设计与三段管道废弃史、两条物理路径、Primary 四种选择、派生/规划语义、Worker Spec 与 `spawn_worker`、流式 phase、递归预算传递、Session Tree 镜像、与 vage 边界 |
+| [models.md](models.md) | Task Plan、Plan Step、Worker Spec、Plan Workspace(引用 session 领域) |
 
 ## 源码对照
 
-- 源码:`vv/dispatches/`(Dispatcher、Primary 中继、DAG 构建、动态代理、递归深度、phase tracker、Session Tree 镜像)
+- 源码:`vv/dispatches/`(Dispatcher、Primary 中继、DAG 构建、worker 派生与 `spawn_worker`、递归深度、phase tracker、Session Tree 镜像)

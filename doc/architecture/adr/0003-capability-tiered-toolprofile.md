@@ -26,13 +26,13 @@
 | ReadOnly | Read + Search | Researcher / Primary |
 | None | ∅ | Planner / Fallback Primary |
 
-装配阶段把 Capability 翻译为具体工具(`registerCapabilityTools`)。预设之外允许自定义(动态规格场景),但日常优先映射四档。
+装配阶段把 Capability 翻译为具体工具(`registerCapabilityTools`)。四档为封闭集合,派生 worker 的 `tool_access` 也只接受这四个名字。
 
 ## Consequences
 
 - ✅ 新增工具只需归类到能力维度,不必逐个代理改。
 - ✅ "某代理有什么权限"可由 profile 一句话陈述,便于安全审计。
-- ✅ orchestration 的动态代理复用同一模型(`ProfileByName` 解析 `full/read-only/review/none`)。
+- ✅ orchestration 的派生 worker 复用同一模型(`ProfileByName` 解析 `full/read-only/review/none`),ToolProfile 成为更大的正交能力模型中的工具维度底座。
 - 能力鸿沟是有意设计:researcher/reviewer 无写工具,迫使一次 mutation 永远经过 Coder。
 
 ## Compliance

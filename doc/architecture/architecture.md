@@ -37,9 +37,11 @@ vv 是一款"**前门统一、内部分工**"的 AI 代理应用:每次用户请
 
 ### 1. 统一前门
 
-对外只暴露一个分发器;策略/路由由 Primary 自己以工具调用方式承担。收益:上层无需为每种代理写入口;新增专家只是给 Primary 多挂一个 `delegate_to_*` 工具;失败回退路径单一。
+对外只暴露一个分发器;策略/路由由 Primary 自己以工具调用方式承担。Primary 不是只读路由员,而是**与用户直接协作的主执行 agent**:skill / context / tool 按需激活,必要时经 `spawn_worker` 派生一次性 worker。收益:上层无需为每种代理写入口;新增任务形态只是一种能力组合,不必新增代理类型;失败回退路径单一。
 
-### 2. 能力分级(ToolProfile)
+### 2. 正交能力模型(ToolProfile 为底座)
+
+代理不是"人格",而是若干**正交维度**的组合。ToolProfile 只是其中的工具维度,四档不变:
 
 | Profile | 能力 |
 |---------|------|
@@ -48,7 +50,11 @@ vv 是一款"**前门统一、内部分工**"的 AI 代理应用:每次用户请
 | ReadOnly | 读 + 搜索 |
 | None | 无工具 |
 
-同一个 Factory + 不同 profile 产出多种代理;新增工具只需归类到能力维度,不必逐个代理改。
+完整维度表:**Agent runtime**(base type,决定 Factory 与基础行为)、**ToolProfile**(工具子集)、**PermissionPolicy**(permission / path guard / sandbox,只减不增)、**ContextSources**(allow-list 的只读上下文,如 diff)、**Skills**(已注册的专项指令,不授予工具)、**ModelPolicy**、**IsolationMode**(与 Primary 共享任务背景或隔离子上下文)。
+
+收益是组合而非枚举:新任务形态只需声明组合。**code-review 不是新角色**,而是"同一 coding runtime + review skill + Review profile + 禁止写入 + diff 上下文"。coder / researcher / reviewer 退化为**具名预制组合**,不再是扩展能力所必需的类型模板。
+
+最终可执行工具集 = ToolProfile 授权 ∩ 系统配置 ∩ PermissionPolicy/guard/sandbox 允许范围。任何 skill、system prompt 或 context source **都不能扩大**该集合。
 
 ### 3. 递归预算(硬阀门)
 
@@ -66,8 +72,8 @@ trace / session / session_tree / budget / debug 都遵循同一规则:**未启�
 
 1. 请求进入应用入口,初始递归深度 0。
 2. 分发器检查深度:超上限 → Fallback Primary(无工具);否则 → Primary。
-3. Primary 跑 ReAct 循环,每轮挑一个动作(直答 / 只读探查 / 委派 / 规划 / 记笔记 / 更新树)。
-4. 选"委派"或"规划"时,对应工具先把递归深度 +1,再调子代理或启动 DAG;子代理结果以工具结果回到 Primary,被折叠为最终回复。
+3. Primary 跑 ReAct 循环,每轮挑一个动作(直答 / 内联执行 / 派生 worker / 规划 / 记笔记 / 更新树)。
+4. 选"派生 worker"(`spawn_worker` 或 `delegate_to_*` 预制组合)或"规划"时,对应工具先把递归深度 +1,再执行 worker 或启动 DAG;结果以工具结果回到 Primary,被折叠为最终回复。派生 worker 即用即弃、不进注册表。
 5. 全过程事件经统一事件总线分发给:流式输出(SSE/TUI)、可选子系统(trace / session / budget / debug)。
 
 详见领域 `orchestration` 的 spec 与 design。

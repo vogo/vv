@@ -9,16 +9,13 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/orchestrate"
-	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/schema"
-	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/hooks"
-	"github.com/vogo/vv/registries"
 )
 
 // runPlan builds and executes a DAG from the plan.
 func (d *Dispatcher) runPlan(ctx context.Context, req *schema.RunRequest, plan *Plan, classifyUsage *schema.Usage, contextSummary string) (*schema.RunResponse, error) {
-	nodes, err := d.buildNodes(plan, req, contextSummary)
+	nodes, err := d.buildNodes(ctx, plan, req, contextSummary)
 	if err != nil {
 		slog.Warn("orchestrator: DAG build failed, falling back to chat", "error", err)
 
@@ -47,7 +44,9 @@ func (d *Dispatcher) runPlan(ctx context.Context, req *schema.RunRequest, plan *
 }
 
 // buildNodes converts a Plan into orchestrate.Node slices for DAG execution.
-func (d *Dispatcher) buildNodes(plan *Plan, req *schema.RunRequest, contextSummary string) ([]orchestrate.Node, error) {
+// ctx is the caller's request context: dynamic steps resolve their declared
+// context sources under it, so cancellation stops that work too.
+func (d *Dispatcher) buildNodes(ctx context.Context, plan *Plan, req *schema.RunRequest, contextSummary string) ([]orchestrate.Node, error) {
 	nodes := make([]orchestrate.Node, 0, len(plan.Steps)+1)
 
 	for _, step := range plan.Steps {
@@ -63,6 +62,15 @@ func (d *Dispatcher) buildNodes(plan *Plan, req *schema.RunRequest, contextSumma
 			}
 
 			runner = dynAgent
+
+			// Declared context sources enter the node as a read-only block
+			// ahead of the step description.
+			desc, err := d.dynamicStepDescription(ctx, stepCopy)
+			if err != nil {
+				return nil, fmt.Errorf("orchestrator: resolve context sources for step %q: %w", stepCopy.ID, err)
+			}
+
+			stepCopy.Description = desc
 		} else {
 			// Existing static dispatch: exact match on step.Agent always wins;
 			// only when it misses do we consult the optional configured default.
@@ -152,86 +160,36 @@ func (d *Dispatcher) resolveStaticAgent(stepAgent string) (agent.Agent, error) {
 	return subAgent, nil
 }
 
-// buildDynamicAgent creates an ephemeral taskagent from a DynamicAgentSpec.
-// Uses the registry to resolve tool profile and system prompt instead of hardcoded maps.
+// buildDynamicAgent creates an ephemeral worker for a DAG node from its
+// WorkerSpec. It is a thin adapter over the shared buildWorker path so a DAG
+// dynamic node and a `spawn_worker` derivation resolve identical tool subsets,
+// skills, guards and permission wrapping — one contract, one construction path.
+//
+// The `dynamic_<base_type>_<step_id>` instance ID is retained so existing
+// traces and plan-step correlation keep reading the same way.
 func (d *Dispatcher) buildDynamicAgent(stepID string, spec *DynamicAgentSpec) (*taskagent.Agent, error) {
-	// Look up the base type descriptor from the registry.
-	desc, ok := d.registry.Get(spec.BaseType)
-	if !ok {
-		return nil, fmt.Errorf("unknown base type %q", spec.BaseType)
+	return d.buildWorker(fmt.Sprintf("dynamic_%s_%s", spec.BaseType, stepID), spec)
+}
+
+// dynamicStepDescription prepends a dynamic step's resolved context sources to
+// its description, so a DAG node declaring `context: ["diff"]` reads the same
+// read-only block a spawn_worker derivation would receive.
+//
+// A resolution failure is an error, not a degradation: running the node with
+// its description alone would hand the worker a task that references context
+// it never received (ORCH-R11). The error surfaces through buildNodes exactly
+// like an invalid tool_access does.
+func (d *Dispatcher) dynamicStepDescription(ctx context.Context, step PlanStep) (string, error) {
+	if step.DynamicSpec == nil || len(step.DynamicSpec.ContextSources) == 0 {
+		return step.Description, nil
 	}
 
-	// Determine tool profile.
-	var profile registries.ToolProfile
-	if spec.ToolAccess != "" {
-		p, ok := registries.ProfileByName(spec.ToolAccess)
-		if !ok {
-			return nil, fmt.Errorf("unknown tool access profile %q", spec.ToolAccess)
-		}
-
-		profile = p
-	} else {
-		profile = desc.ToolProfile
+	block, err := d.resolveWorkerContext(ctx, step.DynamicSpec)
+	if err != nil {
+		return "", err
 	}
 
-	// Build tool registry from profile.
-	var toolReg *tool.Registry
-	if len(profile.Capabilities) > 0 {
-		reg, err := profile.BuildRegistry(d.toolsCfg)
-		if err != nil {
-			return nil, fmt.Errorf("build tool registry for dynamic agent: %w", err)
-		}
-
-		toolReg = reg
-	}
-
-	// Determine system prompt.
-	systemPrompt := spec.SystemPrompt
-	if systemPrompt == "" {
-		systemPrompt = desc.SystemPrompt
-	}
-
-	// Append project instructions to dynamic agent prompts.
-	systemPrompt = appendProjectInstructions(systemPrompt, d.projectInstructions)
-
-	// Determine model.
-	model := spec.Model
-	if model == "" {
-		model = d.model
-	}
-
-	// Determine max iterations.
-	maxIter := d.maxIterations
-	if maxIter == 0 {
-		maxIter = 10 // sensible default
-	}
-
-	var opts []taskagent.Option
-
-	opts = append(
-		opts,
-		taskagent.WithCaller(d.llm),
-		taskagent.WithModel(model),
-		taskagent.WithSystemPrompt(prompt.StringPrompt(systemPrompt)),
-		taskagent.WithMaxIterations(maxIter),
-	)
-
-	if toolReg != nil {
-		opts = append(opts, taskagent.WithToolRegistry(toolReg))
-	}
-
-	if d.runTokenBudget > 0 {
-		opts = append(opts, taskagent.WithRunTokenBudget(d.runTokenBudget))
-	}
-
-	return taskagent.New(
-		agent.Config{
-			ID:          fmt.Sprintf("dynamic_%s_%s", spec.BaseType, stepID),
-			Name:        fmt.Sprintf("Dynamic %s Agent (%s)", spec.BaseType, stepID),
-			Description: fmt.Sprintf("Dynamically created %s agent for step %s", spec.BaseType, stepID),
-		},
-		opts...,
-	), nil
+	return joinBackground(block, step.Description), nil
 }
 
 // findTerminalNodes returns IDs of nodes that have no downstream dependents.

@@ -121,66 +121,78 @@ func newDelegateHandler(ag agent.Agent) tool.ToolHandler {
 			return schema.ErrorResult("", "delegate tool: 'task' must be a non-empty string"), nil
 		}
 
-		// Increment recursion depth so the specialist (and any nested
-		// dispatcher invocation it triggers) shares the Primary's budget.
-		ctx = IncrementDepth(ctx)
-
-		input := task
-		if extra := strings.TrimSpace(parsed.Context); extra != "" {
-			input = "Task: " + task + "\n\nContext:\n" + extra
-		}
-
-		// The specialist runs under the caller's session so its work is
-		// persisted at all: without a session id every checkpoint Save
-		// fails with ErrInvalidArgument and every event it emits is
-		// dropped by SessionHook, which is why delegated work used to
-		// leave nothing on disk. vage puts the id on the tool handler's
-		// ctx (taskagent tool_batch), so it is simply read back here.
-		sessionID := schema.SessionIDFromContext(ctx)
-
-		req := schema.RunRequest{
-			Messages:  []schema.Message{schema.NewUserMessage(ag.Protocol(), input)},
-			SessionID: sessionID,
-		}
-
-		// Tag the dispatch so the transcript store files it under
-		// subagents/<agent>-<n>.jsonl instead of appending to the
-		// session's own resume timeline.
-		ctx = sessionlogs.WithRun(ctx, sessionlogs.Run{
-			Key:  sessionlogs.NewRunKey(),
-			Task: task,
-		})
-
-		// In a streaming Primary run taskagent exposes the active stream through
-		// the context emitter.  Consume the specialist's stream here instead of
-		// hiding it behind Agent.Run, so its tool calls and progress remain
-		// visible to CLI/SSE consumers.  Sync callers have no emitter and retain
-		// the original non-streaming path.
-		if emitter := schema.EmitterFromContext(ctx); emitter != nil {
-			text, err := runDelegateStream(ctx, emitter, ag, &req, task)
-			if err != nil {
-				return schema.ErrorResult("", "delegate tool: execution failed: "+err.Error()), nil
-			}
-
-			return schema.TextResult("", text), nil
-		}
-
-		resp, err := ag.Run(ctx, &req)
+		// The three delegate_to_* tools are adapters over the pre-made
+		// capability combinations registered at startup. They run through
+		// the same execution path as spawn_worker (recursion accounting,
+		// session tagging, streamed sub-agent envelope), so the only
+		// difference is *which* agent instance executes.
+		text, err := runSubAgentTask(ctx, ag, task, parsed.Context)
 		if err != nil {
 			return schema.ErrorResult("", "delegate tool: execution failed: "+err.Error()), nil
 		}
 
-		var parts []string
-		for _, msg := range resp.Messages {
-			if msg.Role() == schema.RoleAssistant {
-				if text := msg.Text(); text != "" {
-					parts = append(parts, text)
-				}
-			}
-		}
-
-		return schema.TextResult("", strings.Join(parts, "\n")), nil
+		return schema.TextResult("", text), nil
 	}
+}
+
+// runSubAgentTask is the shared execution path for every derived execution —
+// the delegate_to_* adapters and spawn_worker alike. It owns the four
+// invariants a derived run must satisfy:
+//
+//  1. recursion depth +1, so a derived run shares the Primary's hard budget;
+//  2. the caller's session ID is carried through, so checkpoints and events
+//     are persisted rather than dropped;
+//  3. the dispatch is run-tagged, so its transcript lands in
+//     subagents/<agent>-<n>.jsonl instead of the resume timeline;
+//  4. in a streaming run the child's native events are relayed into the parent
+//     stream between SubAgentStart/End, so the execution stays expandable and
+//     the caller's cancellation propagates into it.
+func runSubAgentTask(ctx context.Context, ag agent.Agent, task, background string) (string, error) {
+	// Increment recursion depth so the derived run (and any nested
+	// dispatcher invocation it triggers) shares the Primary's budget.
+	ctx = IncrementDepth(ctx)
+
+	input := task
+	if extra := strings.TrimSpace(background); extra != "" {
+		input = "Task: " + task + "\n\nContext:\n" + extra
+	}
+
+	// The derived agent runs under the caller's session so its work is
+	// persisted at all: without a session id every checkpoint Save
+	// fails with ErrInvalidArgument and every event it emits is
+	// dropped by SessionHook, which is why delegated work used to
+	// leave nothing on disk. vage puts the id on the tool handler's
+	// ctx (taskagent tool_batch), so it is simply read back here.
+	sessionID := schema.SessionIDFromContext(ctx)
+
+	req := schema.RunRequest{
+		Messages:  []schema.Message{schema.NewUserMessage(ag.Protocol(), input)},
+		SessionID: sessionID,
+	}
+
+	// Tag the dispatch so the transcript store files it under
+	// subagents/<agent>-<n>.jsonl instead of appending to the
+	// session's own resume timeline.
+	ctx = sessionlogs.WithRun(ctx, sessionlogs.Run{
+		Key:  sessionlogs.NewRunKey(),
+		Task: task,
+	})
+
+	// In a streaming Primary run taskagent exposes the active stream through
+	// the context emitter.  Consume the child's stream here instead of
+	// hiding it behind Agent.Run, so its tool calls and progress remain
+	// visible to CLI/SSE consumers.  Sync callers have no emitter and retain
+	// the original non-streaming path.
+	if emitter := schema.EmitterFromContext(ctx); emitter != nil {
+		return runDelegateStream(ctx, emitter, ag, &req, task)
+	}
+
+	resp, err := ag.Run(ctx, &req)
+	if err != nil {
+		return "", err
+	}
+
+	return assistantResponseText(resp), nil
 }
 
 // runDelegateStream relays a delegated agent into the active parent stream

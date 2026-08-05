@@ -223,22 +223,8 @@ func New(
 			}
 		}
 
-		// Apply optional tool registry wrapping (e.g., CLI confirmation).
-		var finalToolReg tool.ToolRegistry = toolReg
-
-		if opts != nil && opts.WrapToolRegistry != nil {
-			finalToolReg = opts.WrapToolRegistry(toolReg)
-		}
-
-		// Wrap with truncating registry for tool output limits.
-		if cfg.Context.ToolOutputMaxTokens > 0 {
-			finalToolReg = tool.NewTruncatingToolRegistry(finalToolReg, cfg.Context.ToolOutputMaxTokens)
-		}
-
-		// Debug decorator is OUTERMOST so it sees the post-truncation result the agent receives.
-		if cfg.Debug && opts != nil && opts.DebugSink != nil {
-			finalToolReg = debugs.NewDebuggingToolRegistry(finalToolReg, opts.DebugSink)
-		}
+		// Apply the shared wrapping chain (permission → truncation → debug).
+		finalToolReg := toolRegistryWrapper(cfg, opts)(toolReg)
 
 		factoryOpts := registries.FactoryOptions{
 			LLM:                  llm,
@@ -321,6 +307,20 @@ func New(
 		dispatches.WithRunTokenBudget(cfg.Agents.RunTokenBudget),
 		dispatches.WithMaxRecursionDepth(maxRecursionDepth),
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
+
+		// Capability dimensions available to derived workers (spawn_worker
+		// and DAG dynamic nodes share this configuration).
+		dispatches.WithSkills(registries.DefaultSkills()),
+		dispatches.WithContextSources(registries.DefaultContextSources(cfg.Tools.BashWorkingDir)),
+
+		// A derived worker's tools go through the same enforcement as a
+		// registered sub-agent's: path guard / guardian inside the profile
+		// build, then the permission → truncation → debug chain around it.
+		dispatches.WithRegistryOptions(regOpts...),
+		dispatches.WithToolRegistryWrapper(toolRegistryWrapper(cfg, opts)),
+		dispatches.WithHookManager(getHookManager(opts)),
+		dispatches.WithMemory(memMgr),
+		dispatches.WithAgentRuntimeDefaults(cfg.Agents.MaxParallelToolCalls, cfg.Agents.EffectivePromptCaching()),
 	}
 
 	// SessionTree mirroring (B6 / write_tree): wire the store onto the
@@ -439,6 +439,17 @@ func buildPrimaryAssistant(
 		return nil, fmt.Errorf("primary: register delegate tools: %w", err)
 	}
 
+	// spawn_worker — the general derivation entry point. It supersedes
+	// "pick one of three personas": the Primary declares the capability
+	// combination it needs (runtime + tool profile + skills + context +
+	// isolation) and gets a single-use worker. delegate_to_* stay
+	// registered above as the named pre-made combinations.
+	if spawner, ok := planExec.(dispatches.WorkerSpawner); ok {
+		if err := dispatches.RegisterSpawnWorkerTool(toolReg, spawner); err != nil {
+			return nil, fmt.Errorf("primary: register spawn_worker: %w", err)
+		}
+	}
+
 	// plan_task — drives the dispatcher's existing DAG machinery.
 	if err := dispatches.RegisterPlanTaskTool(toolReg, planExec); err != nil {
 		return nil, fmt.Errorf("primary: register plan_task: %w", err)
@@ -481,19 +492,7 @@ func buildPrimaryAssistant(
 
 	// Apply the same wrapping chain sub-agents get: permission wrap →
 	// truncation → debug (outermost).
-	var finalToolReg tool.ToolRegistry = toolReg
-
-	if opts != nil && opts.WrapToolRegistry != nil {
-		finalToolReg = opts.WrapToolRegistry(toolReg)
-	}
-
-	if cfg.Context.ToolOutputMaxTokens > 0 {
-		finalToolReg = tool.NewTruncatingToolRegistry(finalToolReg, cfg.Context.ToolOutputMaxTokens)
-	}
-
-	if cfg.Debug && opts != nil && opts.DebugSink != nil {
-		finalToolReg = debugs.NewDebuggingToolRegistry(finalToolReg, opts.DebugSink)
-	}
+	finalToolReg := toolRegistryWrapper(cfg, opts)(toolReg)
 
 	// Register the Primary descriptor lazily so callers that pre-populated
 	// reg earlier in setup.New do not see a duplicate ID error on re-init.
@@ -571,6 +570,35 @@ func getIterationStore(opts *Options) checkpoint.IterationStore {
 		return nil
 	}
 	return opts.IterationStore
+}
+
+// toolRegistryWrapper returns the single wrapping chain every agent's tool
+// registry passes through: optional permission wrap (CLI confirmation) →
+// output truncation → debug decorator (outermost, so it observes the
+// post-truncation result the agent actually receives).
+//
+// One helper rather than three copies: registered sub-agents, the Primary and
+// dispatcher-derived workers must not drift apart on enforcement. Every layer
+// can only deny or transform a call — none of them adds a tool, which keeps
+// ToolProfile the sole widening axis.
+func toolRegistryWrapper(cfg *configs.Config, opts *Options) func(*tool.Registry) tool.ToolRegistry {
+	return func(reg *tool.Registry) tool.ToolRegistry {
+		var wrapped tool.ToolRegistry = reg
+
+		if opts != nil && opts.WrapToolRegistry != nil {
+			wrapped = opts.WrapToolRegistry(reg)
+		}
+
+		if cfg.Context.ToolOutputMaxTokens > 0 {
+			wrapped = tool.NewTruncatingToolRegistry(wrapped, cfg.Context.ToolOutputMaxTokens)
+		}
+
+		if cfg.Debug && opts != nil && opts.DebugSink != nil {
+			wrapped = debugs.NewDebuggingToolRegistry(wrapped, opts.DebugSink)
+		}
+
+		return wrapped
+	}
 }
 
 // primaryToolProfile picks the capability profile that the Primary
