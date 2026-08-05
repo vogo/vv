@@ -42,7 +42,7 @@ agents 领域定义 vv 的**专家代理(specialist / dispatchable agent)**:它�
 | AGENTS-R1 | ToolProfile 决定工具集 | 代理可用工具**不在调用点硬编码**,完全由描述符声明的 ToolProfile 在装配阶段翻译而来(Capability → 具体工具)。同一 Factory + 不同 profile 产出不同能力面的代理。对应候选 ADR-0003。 |
 | AGENTS-R2 | Researcher 无写无 bash | researcher = ProfileReadOnly(read + search),**绝无** write / edit / bash。它读到的代码不能改,发现的问题只能反馈。 |
 | AGENTS-R3 | Reviewer = Review 能力档 | reviewer = ProfileReview(read + search + execute),可跑测试/lint,但**无写工具**;它的输出是"建议下一步",由 Primary 决定是否派给 Coder。 |
-| AGENTS-R4 | Coder 是唯一写者 | 仅 ProfileFull(= coder)持有 write/edit。任何文件 mutation 都必须经过 coder——保留单一写入责任人(与 orchestration 的"Primary 不写"约束互补)。 |
+| AGENTS-R4 | 专家写权限唯一 | 在 dispatchable 专家中仅 coder 持有 ProfileFull/write/edit。Primary 是否持有 Full 工具由 orchestration execution model 决定,不改变专家之间的权限边界。 |
 | AGENTS-R5 | ProfileNone 代理无工具 | ProfileNone 代理(`planner`、Fallback Primary)LLM-only,不挂任何工具(含 `ask_user` / `todo_write`)。闲聊由 Primary 同样以无工具方式内联直答。 |
 | AGENTS-R6 | 每个 dispatchable 对应一个委派工具 | 注册表中每个 `Dispatchable=true` 的描述符,在 Primary 工具集里自动获得一个 `delegate_to_<id>` 工具,并被 PlannerAgentList 汇入"可委派目标列表"。非 dispatchable 代理(如 planner)永不出现在委派工具家族、HTTP 子端点或 MCP 工具中。 |
 | AGENTS-R7 | 描述符声明一次、多处消费 | 一个新代理只需写一个 AgentDescriptor + 一个 Factory,即被工厂装配、Primary 提示拼接、委派工具家族、HTTP 子路由、MCP 暴露五条路径自动看见(具体下游见 design.md)。 |

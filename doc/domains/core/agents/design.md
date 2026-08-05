@@ -6,7 +6,7 @@
 
 ## 角色分工:一前门 + 专家
 
-vv 的代理体系由"一前门 Primary + 若干专家"构成。前门(Primary,归 orchestration)只读、不写、提示词紧凑、每轮最多一次澄清;真正改代码、跑测试、深度研究的事下放给专家。专家的职责边界完全由 ToolProfile 划分:
+vv 的代理体系由"一前门 Primary + 若干专家"构成。前门(Primary,归 orchestration)的能力由 execution model 决定:可作为只读路由者,也可直接完成 coding loop;专家用于隔离、并行、研究与独立评审。专家的职责边界完全由 ToolProfile 划分:
 
 | 代理 | 角色 | ToolProfile | Dispatchable | 归属领域 |
 |------|------|-------------|--------------|---------|
@@ -25,7 +25,7 @@ vv 的代理体系由"一前门 Primary + 若干专家"构成。前门(Primary,�
 - **Researcher(ReadOnly)**——能跑搜索引擎、抓公网资料,但绝不动文件系统;用于 Primary 不便自读全项目时的二级研究。
 - **Reviewer(Review)**——能跑 bash(测试/lint),但不能写;输出通常是"建议下一步"。
 
-这种"能力鸿沟"是设计核心而非缺陷:Reviewer 不能修复它发现的问题、Researcher 不能改它读到的代码,**迫使一次 mutation 永远经过 Coder**,从而保留单一写入责任人。该约束与 orchestration 中"Primary 无写权限"互补,共同保证所有改动都来自一个明确的专家责任人(可解释、可审计、避免角色蔓延)。
+这种"能力鸿沟"保证专家角色不会蔓延:Reviewer 不能修复它发现的问题、Researcher 不能改它读到的代码;在专家集合中 mutation 只能由 Coder 完成。Primary 在 `hybrid` / `direct` 下可以直接 mutation,但仍经过同一 permission / path guard / sandbox,并保留明确的 agent attribution。
 
 ## ToolProfile 模型(四档)
 

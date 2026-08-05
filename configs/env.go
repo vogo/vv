@@ -132,6 +132,7 @@ var orchestrateEnvBindings = []envBinding{
 		applyBoolPtrWarn("VV_DISPATCHER_WRITE_TREE", v, &c.Orchestrate.WriteTree)
 	}},
 	{"VV_ORCHESTRATE_MODE", func(c *Config, v string) { c.Orchestrate.Mode = v }},
+	{"VV_EXECUTION_MODEL", func(c *Config, v string) { c.Orchestrate.ExecutionModel = v }},
 	{"VV_ORCHESTRATE_LEGACY_PHASE_EVENTS", func(_ *Config, v string) {
 		// Removed knob: never set anything, just surface the deprecation.
 		slog.Warn("vv: VV_ORCHESTRATE_LEGACY_PHASE_EVENTS is no longer supported; the env var is ignored", "value", v)

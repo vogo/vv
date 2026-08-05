@@ -53,6 +53,11 @@ type OrchestrateConfig struct {
 	MaxConcurrency    int `yaml:"max_concurrency"`     // DAG concurrency, default 2
 	MaxRecursionDepth int `yaml:"max_recursion_depth"` // max nesting depth, default 2
 
+	// ExecutionModel controls whether the Primary executes code mutations
+	// itself or delegates them to coder. Empty defaults to delegated for
+	// backward compatibility. Env override: VV_EXECUTION_MODEL.
+	ExecutionModel string `yaml:"execution_model,omitempty"`
+
 	// Router optionally points the dispatcher's routing/classification LLM
 	// calls at a cheaper/smaller model. Any empty field inherits from
 	// Config.LLM; an empty Router.Model leaves the feature disabled.
@@ -92,6 +97,38 @@ func (o OrchestrateConfig) IsWriteTreeEnabled() bool {
 // OrchestrateModeUnified is the only supported orchestrate pipeline.
 // Empty `orchestrate.mode` normalises to this value.
 const OrchestrateModeUnified = "unified"
+
+const (
+	ExecutionModelDelegated = "delegated"
+	ExecutionModelHybrid    = "hybrid"
+	ExecutionModelDirect    = "direct"
+)
+
+// EffectiveExecutionModel returns the configured execution model, preserving
+// the historical delegated behaviour for an empty value.
+func (o OrchestrateConfig) EffectiveExecutionModel() string {
+	model := strings.ToLower(strings.TrimSpace(o.ExecutionModel))
+	if model == "" {
+		return ExecutionModelDelegated
+	}
+	return model
+}
+
+// ValidateExecutionModel normalises and validates orchestrate.execution_model.
+func ValidateExecutionModel(model string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	if normalized == "" {
+		return ExecutionModelDelegated, nil
+	}
+
+	switch normalized {
+	case ExecutionModelDelegated, ExecutionModelHybrid, ExecutionModelDirect:
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("unknown execution model %q (expected %q, %q, or %q)",
+			model, ExecutionModelDelegated, ExecutionModelHybrid, ExecutionModelDirect)
+	}
+}
 
 // staleOrchestrateKeys lists YAML keys under `orchestrate:` that were
 // removed with the classical pipeline. They are silently dropped on

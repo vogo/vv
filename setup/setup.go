@@ -434,7 +434,7 @@ func buildPrimaryAssistant(
 	// delegate_to_<agent> tools — one per dispatchable specialist present in
 	// subAgents. chat is omitted deliberately: the Primary replaces the
 	// chat agent's responsibilities.
-	delegateIDs := []string{"coder", "researcher", "reviewer"}
+	delegateIDs := primaryDelegateIDs(cfg)
 	if err := dispatches.RegisterDelegateTools(toolReg, subAgents, delegateIDs); err != nil {
 		return nil, fmt.Errorf("primary: register delegate tools: %w", err)
 	}
@@ -574,21 +574,38 @@ func getIterationStore(opts *Options) checkpoint.IterationStore {
 }
 
 // primaryToolProfile picks the capability profile that the Primary
-// Assistant's toolset is built from. Default = ProfileReadOnly
+// Assistant's toolset is built from. Delegated defaults to ProfileReadOnly
 // (read/glob/grep), matching the researcher agent's wiring so the
 // path-guard plumbing stays consistent. When
 // orchestrate.primary_allow_bash is set we promote to
 // ProfileReview, the same capability set reviewer uses
 // (read/glob/grep + bash), so single-line shell tasks like
 // `calc`/`echo`/`ls` finish inline without a delegate_to_coder round-trip.
+// Hybrid and direct use ProfileFull so Primary can keep inspect, edit, and
+// verification in one context.
 // The fallback Primary deliberately keeps no tools at all regardless of
 // this flag — see buildFallbackPrimary.
 func primaryToolProfile(cfg *configs.Config) registries.ToolProfile {
+	if cfg.Orchestrate.EffectiveExecutionModel() != configs.ExecutionModelDelegated {
+		return registries.ProfileFull
+	}
+
 	if cfg.Orchestrate.PrimaryAllowBash {
 		return registries.ProfileReview
 	}
 
 	return registries.ProfileReadOnly
+}
+
+// primaryDelegateIDs keeps specialist delegation available in hybrid mode,
+// while direct mode removes the coder round-trip. Research and independent
+// review remain useful even when Primary owns ordinary implementation.
+func primaryDelegateIDs(cfg *configs.Config) []string {
+	if cfg.Orchestrate.EffectiveExecutionModel() == configs.ExecutionModelDirect {
+		return []string{"researcher", "reviewer"}
+	}
+
+	return []string{"coder", "researcher", "reviewer"}
 }
 
 // buildFallbackPrimary assembles a Primary Assistant with NO tools — the

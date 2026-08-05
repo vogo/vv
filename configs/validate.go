@@ -43,6 +43,12 @@ func Validate(cfg *Config) error {
 	}
 	cfg.Orchestrate.Mode = normalizedMode
 
+	executionModel, err := ValidateExecutionModel(cfg.Orchestrate.ExecutionModel)
+	if err != nil {
+		return err
+	}
+	cfg.Orchestrate.ExecutionModel = executionModel
+
 	if err := cfg.Vector.Validate(); err != nil {
 		return fmt.Errorf("vector config: %w", err)
 	}

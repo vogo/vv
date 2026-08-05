@@ -17,7 +17,7 @@
 | `mode` | enum (run mode) | cli / http / mcp,单进程单选(CONFIG-R8);默认 cli。 |
 | `cli` | enum | CLI 专属:`permission_mode`(默认 default;取代废弃 `confirm_tools`,CONFIG-R9)。 |
 | `memory` | group | 三层记忆:持久化 backend(file/sqlite,枚举校验)、memory_dir(默认 `~/.vv/memory/`)、session_memory token 预算。默认开。 |
-| `orchestrate` | group | Orchestrator/Primary:max_steps(默认 20)、max_parallel(默认 3)、fast_path 启停与阈值/正则。 |
+| `orchestrate` | group | Dispatcher/Primary:DAG concurrency、递归深度、execution_model(`delegated` / `hybrid` / `direct`,默认 `delegated`)、router LLM 与可选 tree 镜像。 |
 | `context` | number | 上下文窗口管理:model_max_context_tokens(默认 128000)、compression_threshold(默认 0.8)、tool_output_max_tokens(默认 8000)、protected_turns(默认 4)。 |
 | `security` | group | 安全边界:MCP 凭据过滤(`mcp_credential_filter`)、工具结果注入扫描等。 |
 | `mcp` | group | MCP server 设置;`mode: mcp` 时生效。客户端凭据过滤在 `security` 下。 |

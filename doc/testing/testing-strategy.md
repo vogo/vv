@@ -33,4 +33,4 @@
 
 ## anti-scenario 测试(负空间)
 
-每个核心领域的 feature spec 必须含至少一条 anti-scenario(绝不能发生),并有对应自动化测试。例:Primary 不得直接写文件;预算超限不得放行 LLM 调用;会话不得读到其他会话私有记忆;凭据明文不得进入事件/trace/日志。
+每个核心领域的 feature spec 必须含至少一条 anti-scenario(绝不能发生),并有对应自动化测试。例:`delegated` 模式的 Primary 不得直接写文件;预算超限不得放行 LLM 调用;会话不得读到其他会话私有记忆;凭据明文不得进入事件/trace/日志。

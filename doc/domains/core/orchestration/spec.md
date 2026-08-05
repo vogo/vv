@@ -17,7 +17,7 @@ orchestration 是 vv 的核心领域,贯彻 **统一前门、内部分工**:每�
 | 实体 | 性质 | 说明 | 详见 |
 |------|------|------|------|
 | **Dispatcher** | 单例代理 | 对外单一 `agent.StreamAgent`;对内只"转发到 Primary 或 Fallback"。无意图分类、无总结、无策略选择。 | [models.md](models.md) |
-| **Primary Assistant** | 单例代理 | 统一前门。ReAct 循环,每轮从动作集选一(直答/只读探查/委派/规划)。无写工具。 | [design.md](design.md) |
+| **Primary Assistant** | 单例代理 | 统一前门。ReAct 循环,每轮从动作集选一(直答/执行/委派/规划)。工具能力由 execution model 决定。 | [design.md](design.md) |
 | **Fallback Primary** | 单例代理 | 与 Primary 共享人格与系统提示,但 **无任何工具**、最大迭代 1。仅在递归超限时使用。 | [design.md](design.md) |
 | **Task Plan** | 聚合根(瞬态) | 一次复杂请求被拆解成的 DAG;`plan_task` 触发时构造。 | [models.md](models.md) |
 | **Plan Step** | 实体 | DAG 节点;含描述、执行者(静态专家或动态规格)、依赖、状态、结果。 | [models.md](models.md) |
@@ -30,7 +30,7 @@ orchestration 是 vv 的核心领域,贯彻 **统一前门、内部分工**:每�
 | Rule ID | 名称 | 描述 |
 |---------|------|------|
 | **ORCH-R1** | 统一前门 | 对外只暴露一个 Dispatcher。它不做意图分类、不做总结、不做策略选择;所有路由决策由 Primary 以工具调用承担。新增专家 = 给 Primary 多挂一个 `delegate_to_<专家>` 工具,不改 Dispatcher。 |
-| **ORCH-R2** | Primary 不写 | Primary 与 Fallback Primary **没有任何写工具**;系统提示明确禁止其自行改写文件。一切 mutation(写文件、执行命令)必须经 `delegate_to_coder` 委派给具备 Full ToolProfile 的 coder。 |
+| **ORCH-R2** | 执行模型 | `delegated`(默认)下 Primary 不持有写工具,mutation 经 coder;`hybrid` 下 Primary 持有 Full 工具且保留 coder 供隔离/并行;`direct` 下 Primary 持有 Full 工具且不挂 `delegate_to_coder`。Fallback Primary 始终无工具。所有模式共享 permission / path guard / sandbox。 |
 | **ORCH-R3** | 递归硬阀门 | 递归深度经 `context` 携带。Dispatcher 入口统一检查:`depth >= maxRecursionDepth`(默认 2)时强制切换到无工具的 Fallback Primary,**物理上**消除再次委派/再次规划的可能。这是硬阀门,不是计数式 try/limit。 |
 | **ORCH-R4** | 委派 +1 | `delegate_to_<专家>` 触发时,递归深度 +1 后传给被委派子代理。子代理在自己的 ReAct 循环中独立完成;若它再次进入 Dispatcher(例如经 ask_user 链),同一上限再次生效,不可能突破。 |
 | **ORCH-R5** | 子代理结果折叠 | 子代理的回答以 **工具结果** 形式回到 Primary,被 Primary 折叠进自己的最终回复 —— 而非原样转发。用户始终看到一个连贯的 Primary 视角。 |
@@ -106,7 +106,7 @@ stateDiagram-v2
 
 ## Anti-scenarios(必须永不发生)
 
-- **Primary 直接改文件**:Primary / Fallback Primary 在任何情况下都 **不得** 持有写工具或直接执行 mutation。若出现"Primary 自行写文件",即违反 ORCH-R2,属严重缺陷 —— 所有写操作必须经 `delegate_to_coder`。
+- **执行模型越权**:`delegated` 下 Primary 不得持有写工具;`direct` 下不得挂 `delegate_to_coder`;Fallback Primary 在任何模式下都不得持有工具。`hybrid` / `direct` 的 mutation 不得绕过 permission / path guard / sandbox。
 - **递归突破上限**:无论委派链多深、子代理是否再次触发 Dispatcher,递归深度 **不得** 超过 `maxRecursionDepth`。达到上限必落到无工具 Fallback Primary 并在有限步骤(最大迭代 1)内回应用户;任何"绕过深度检查继续递归"的路径都违反 ORCH-R3。
 - **子代理失败 abort 整轮请求**:子代理执行失败 **不得** 表现为 Run 级错误使整轮请求崩溃 —— 必须以 `IsError=true` 工具结果回到 Primary(ORCH-R6)。
 - **写树失败阻塞业务**:Session Tree 镜像失败 **不得** 中断 DAG 执行或使请求失败(ORCH-R9)。

@@ -46,7 +46,7 @@
 - **统一前门**:对外只暴露一个 `agent.StreamAgent`;路由由 Primary 以工具调用承担;新增专家 = 给 Primary 多挂一个 `delegate_to_*` 工具,不改入口。
 - **能力分级,不硬编码**:代理可用工具由 ToolProfile 声明(Full/Review/ReadOnly/None),不写死在代理代码里。
 - **递归有硬上限**:所有委派路径经 context 携带递归深度;超限强制切无工具 Fallback Primary —— 物理阀门,不依赖计数自觉。
-- **Primary 不得直接 mutation**:Primary 无写工具,一切文件修改必须经 `delegate_to_coder`。
+- **Primary mutation 受执行模型约束**:`delegated` 下 Primary 无写工具,修改必须经 `delegate_to_coder`;`hybrid` / `direct` 下 Primary 可持有 Full 工具,但所有 mutation 仍必须经过统一 permission / path guard / sandbox。
 - **写者唯一**:Plan Workspace 只有 Primary 能写,避免多专家并发覆盖。
 - **失败不冒泡为 abort**:子代理失败以 `IsError=true` 工具结果返回,让上层基于错误继续决策。
 

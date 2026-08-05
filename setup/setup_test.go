@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -381,18 +382,22 @@ func TestNew_AgentNotFound(t *testing.T) {
 func TestPrimaryToolProfile_AllowBashSwitch(t *testing.T) {
 	cases := []struct {
 		name        string
+		model       string
 		allowBash   bool
 		wantProfile string
 		wantBash    bool
+		wantWrite   bool
 	}{
-		{name: "default off → read-only", allowBash: false, wantProfile: "read-only", wantBash: false},
-		{name: "explicitly on → review", allowBash: true, wantProfile: "review", wantBash: true},
+		{name: "delegated off → read-only", model: configs.ExecutionModelDelegated, wantProfile: "read-only"},
+		{name: "delegated bash → review", model: configs.ExecutionModelDelegated, allowBash: true, wantProfile: "review", wantBash: true},
+		{name: "hybrid → full", model: configs.ExecutionModelHybrid, wantProfile: "full", wantBash: true, wantWrite: true},
+		{name: "direct → full", model: configs.ExecutionModelDirect, wantProfile: "full", wantBash: true, wantWrite: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &configs.Config{
-				Orchestrate: configs.OrchestrateConfig{PrimaryAllowBash: tc.allowBash},
+				Orchestrate: configs.OrchestrateConfig{ExecutionModel: tc.model, PrimaryAllowBash: tc.allowBash},
 			}
 
 			profile := primaryToolProfile(cfg)
@@ -409,6 +414,10 @@ func TestPrimaryToolProfile_AllowBashSwitch(t *testing.T) {
 			if hasBash != tc.wantBash {
 				t.Errorf("registry has bash = %v, want %v", hasBash, tc.wantBash)
 			}
+			_, hasWrite := reg.Get("write")
+			if hasWrite != tc.wantWrite {
+				t.Errorf("registry has write = %v, want %v", hasWrite, tc.wantWrite)
+			}
 
 			// Read tools must always be present — the Primary depends on
 			// them irrespective of the bash flag.
@@ -416,6 +425,26 @@ func TestPrimaryToolProfile_AllowBashSwitch(t *testing.T) {
 				if _, ok := reg.Get(name); !ok {
 					t.Errorf("expected tool %q in registry, missing", name)
 				}
+			}
+		})
+	}
+}
+
+func TestPrimaryDelegateIDs_ExecutionModel(t *testing.T) {
+	tests := []struct {
+		model string
+		want  []string
+	}{
+		{model: configs.ExecutionModelDelegated, want: []string{"coder", "researcher", "reviewer"}},
+		{model: configs.ExecutionModelHybrid, want: []string{"coder", "researcher", "reviewer"}},
+		{model: configs.ExecutionModelDirect, want: []string{"researcher", "reviewer"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.model, func(t *testing.T) {
+			cfg := &configs.Config{Orchestrate: configs.OrchestrateConfig{ExecutionModel: tc.model}}
+			if got := primaryDelegateIDs(cfg); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("primaryDelegateIDs() = %v, want %v", got, tc.want)
 			}
 		})
 	}

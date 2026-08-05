@@ -33,7 +33,7 @@ configuration 领域负责把"外部输入(CLI 标志、环境变量、YAML 文�
 | CONFIG-R4 | 必填 LLM key | 缺 LLM API key 必须以清晰错误失败(对应 STARTUP-01)。交互式 CLI 进入首次启动向导收集;非交互模式直接退出。 |
 | CONFIG-R5 | 非交互缺 key 即退出 | 非交互场景(`-p` / HTTP / MCP / `-eval`)缺关键字段时直接退出报错,**绝不阻塞等待**用户输入(这些场景无终端可弹问)。 |
 | CONFIG-R6 | 失败回滚 | 装配任一阶段失败,回滚此前已开资源(关 store、关事件总线、关 debug sink),半成品不泄露到运行期。 |
-| CONFIG-R7 | 枚举强校验 | 枚举字段(permission mode、memory backend、orchestrate mode、run mode、evaluator 名)必须落在合法集合内,否则启动期报错。 |
+| CONFIG-R7 | 枚举强校验 | 枚举字段(permission mode、memory backend、orchestrate mode、execution model、run mode、evaluator 名)必须落在合法集合内,否则启动期报错。 |
 | CONFIG-R8 | 模式互斥 | 三运行模式(cli/http/mcp)单进程单选;`-p` 与 `-eval` 互斥,且均禁止与 `mode: http`/`mode: mcp` 同用。 |
 | CONFIG-R9 | 废弃项软忽略 | 废弃配置键走 "silent ignore + slog.Warn":不阻塞启动,日志明确提示该键被忽略、请删除(避免破坏性升级)。`confirm_tools` 被 `permission_mode` 取代时记弃用警告(PERM-07)。 |
 | CONFIG-R10 | 凭据不落日志 | API key 类字段永不写日志;debug 输出对已知密钥字段做脱敏(DEBUG-03)。向导写 YAML 时把文件权限调到 600。 |

@@ -1623,6 +1623,23 @@ func TestLoad_PrimaryAllowBashEnvOverride(t *testing.T) {
 	}
 }
 
+func TestLoad_ExecutionModelEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  model: gpt-4o\n  api_key: sk-main\norchestrate:\n  execution_model: delegated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VV_EXECUTION_MODEL", "hybrid")
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Orchestrate.ExecutionModel != ExecutionModelHybrid {
+		t.Errorf("VV_EXECUTION_MODEL did not take effect, got %q", cfg.Orchestrate.ExecutionModel)
+	}
+}
+
 // TestLoad_OrchestrateModeUnknownDoesNotReject verifies that an unknown
 // orchestrate.mode value (typo, removed mode, etc.) must NOT abort Load —
 // ValidateOrchestrateMode warns and falls back to unified so the process

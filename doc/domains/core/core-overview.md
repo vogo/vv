@@ -9,7 +9,7 @@ vv 全部领域归于单一业务组 **core**(MVP 阶段)。本文件是 13 个�
 | [configuration](configuration/configuration-overview.md) | 配置加载、cwd 捕获、装配中心 | 否 | 配置优先级固定;零成本默认;失败回滚 |
 | [tools](tools/tools-overview.md) | 内建工具注册 + 安全护栏 | 否 | 工作区隔离;命令分级;注入扫描 |
 | [agents](agents/agents-overview.md) | 专家代理工厂 + 能力分级 | 否 | ToolProfile 决定工具集 |
-| [orchestration](orchestration/orchestration-overview.md) | Primary + Dispatcher + DAG 规划 | 否(内部) | 统一前门;递归硬阀门;Primary 不写 |
+| [orchestration](orchestration/orchestration-overview.md) | Primary + Dispatcher + DAG 规划 | 否(内部) | 统一前门;递归硬阀门;可切换执行模型 |
 | [memory](memory/memory-overview.md) | 三层记忆 + 持久化 + 访问控制 | 是(经 http) | 会话私有访问控制 |
 | [session](session/session-overview.md) | Session / Plan Workspace / Session Tree | 是(经 http) | 共根删除一致性;写者唯一 |
 | [cli](cli/cli-overview.md) | 交互式 TUI + 权限模式 | 否(终端) | 权限模式授权;Allow Always 作用域 |

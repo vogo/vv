@@ -48,6 +48,27 @@ func TestValidate_RejectsBadMemoryBackend(t *testing.T) {
 	}
 }
 
+func TestValidate_ExecutionModel(t *testing.T) {
+	for _, model := range []string{ExecutionModelDelegated, ExecutionModelHybrid, ExecutionModelDirect} {
+		t.Run(model, func(t *testing.T) {
+			c := validCfg()
+			c.Orchestrate.ExecutionModel = "  " + strings.ToUpper(model) + "  "
+			if err := Validate(c); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			if c.Orchestrate.ExecutionModel != model {
+				t.Errorf("execution model = %q, want %q", c.Orchestrate.ExecutionModel, model)
+			}
+		})
+	}
+
+	c := validCfg()
+	c.Orchestrate.ExecutionModel = "automatic"
+	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "unknown execution model") {
+		t.Fatalf("want unknown execution model error, got %v", err)
+	}
+}
+
 func TestValidate_RejectsBadMCPServer(t *testing.T) {
 	c := validCfg()
 	c.MCP.Server.Transport = "carrier-pigeon"
@@ -88,6 +109,9 @@ func TestValidate_NormalizesInPlace(t *testing.T) {
 	}
 	if c.Orchestrate.Mode != OrchestrateModeUnified {
 		t.Errorf("orchestrate mode not normalized, got %q", c.Orchestrate.Mode)
+	}
+	if c.Orchestrate.ExecutionModel != ExecutionModelDelegated {
+		t.Errorf("execution model not defaulted, got %q", c.Orchestrate.ExecutionModel)
 	}
 	if c.MCP.Server.Transport != "http" {
 		t.Errorf("mcp transport not lower-cased, got %q", c.MCP.Server.Transport)

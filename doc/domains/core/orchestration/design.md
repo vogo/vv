@@ -56,7 +56,14 @@ Primary 是一个 ReAct 循环。每一轮 LLM 给出一次响应,从下面的"�
 - 长任务结构化记忆:`tree_add` / `tree_update` / `tree_promote` 等(启用 Session Tree 时)。
 - 一次澄清:`ask_user`(用户意图真的歧义且代价巨大时)。
 
-Primary 的系统提示明确禁止它自己改写文件 —— 它没有写工具,所有 mutation 必须经由 `delegate_to_coder`(对应不变量 [spec.md](spec.md) ORCH-R2)。
+Primary 的工具能力由 `orchestrate.execution_model` 决定:`delegated`(默认)为 ReadOnly(可由 `primary_allow_bash` 提升到 Review),mutation 经 `delegate_to_coder`;`hybrid` 为 Full 且保留 coder 供隔离/并行;`direct` 为 Full 且不挂 `delegate_to_coder`。Fallback Primary 始终无工具。系统提示根据实际工具自适应:有 write/edit/bash 时直接完成普通 coding loop,无写工具时才强制委派(对应 [spec.md](spec.md) ORCH-R2)。
+
+```yaml
+orchestrate:
+  execution_model: hybrid # delegated | hybrid | direct
+```
+
+也可用 `VV_EXECUTION_MODEL` 覆盖。未知值在启动期报错,避免拼写错误静默改变权限面。
 
 ## 委派的语义
 
