@@ -74,13 +74,8 @@ trace / session / session_tree / budget / debug 都遵循同一规则:**未启�
 
 1. 请求进入应用入口,初始递归深度 0。
 2. 分发器检查深度:超上限 → Fallback Primary(无工具);否则 → Primary。
-<<<<<<< HEAD
-3. Primary 跑 ReAct 循环,每轮挑一个动作(直答 / 内联执行 / 派生 worker / 规划 / 记笔记 / 更新树)。
+3. Primary 跑 ReAct 循环,每轮挑一个动作(直答 / 内联执行 / 派生 worker / 规划 / 记笔记 / 更新树);默认自己顺序完成,"规划"仅在满足 ORCH-R11 四项门槛时才被选中。
 4. 选"派生 worker"(`spawn_worker` 或 `delegate_to_*` 预制组合)或"规划"时,对应工具先把递归深度 +1,再执行 worker 或启动 DAG;结果以工具结果回到 Primary,被折叠为最终回复。派生 worker 即用即弃、不进注册表。
-=======
-3. Primary 跑 ReAct 循环,每轮挑一个动作(直答 / 只读探查 / 顺序执行 / 委派 / 规划 / 记笔记 / 更新树);默认自己顺序完成,"规划"仅在满足 ORCH-R11 四项门槛时才被选中。
-4. 选"委派"或"规划"时,对应工具先把递归深度 +1,再调子代理或启动 DAG;子代理结果以工具结果回到 Primary,被折叠为最终回复。
->>>>>>> origin/main
 5. 全过程事件经统一事件总线分发给:流式输出(SSE/TUI)、可选子系统(trace / session / budget / debug)。
 
 详见领域 `orchestration` 的 spec 与 design。

@@ -45,17 +45,11 @@ Primary 是一个 ReAct 循环,也是**与用户直接协作的主执行 agent**
 | 动作 | 触发的工具 | 何时使用 |
 |------|-----------|---------|
 | 直答 | 无 | 闲聊、定义、不依赖项目的计算 |
-<<<<<<< HEAD
 | 内联执行 | `read` / `glob` / `grep` / `web_fetch` / `web_search`(+ 写工具,视 execution model) | 与当前上下文共享的工作:探查、修改、验证一个循环内完成 |
 | 派生 worker | `spawn_worker`(或预制组合快捷方式 `delegate_to_<id>`) | 需要隔离上下文、独立评审、专项调研或并行 |
-| 规划 | `plan_task` | 任务跨多种能力组合 |
-=======
-| 只读探查 | `read` / `glob` / `grep` / `web_fetch` / `web_search` | 需要看代码或公网资料后再回答 |
-| 委派 | `delegate_to_<专家>` | 单个子任务适合隔离或专业处理 |
 | 规划 | `plan_task` | **高级路径**:同时满足四项门槛(见「规划的语义」)才启用 |
 
 > **顺序执行是默认值**:能在当前上下文完成的普通任务由 Primary 自己逐步做完,用 `todo_write` 呈现进度,而不是为了展示结构去构造 DAG。"有多个步骤"或"涉及多个能力域"本身 **不构成** 规划理由 —— 普通 bug fix、单文件/单符号修改、只需顺序检查清单的任务都不走 `plan_task`。
->>>>>>> origin/main
 
 辅助动作还有:
 
@@ -147,7 +141,7 @@ flowchart LR
 
 构造顺序(任一步失败即中止,不产生 worker):
 
-1. **全量校验** spec:base type 必填且 `registry.ValidateRef` 通过;`tool_access` 必须 `ProfileByName` 可解析;每个 skill / context source 必须已注册;isolation ∈ {isolated, shared}(ORCH-R11)。
+1. **全量校验** spec:base type 必填且 `registry.ValidateRef` 通过;`tool_access` 必须 `ProfileByName` 可解析;每个 skill / context source 必须已注册;isolation ∈ {isolated, shared}(ORCH-R12)。
 2. **runtime**:经注册表用 `base_type` 取描述符(决定默认系统提示与默认 ToolProfile)。
 3. **工具集**:`tool_access` 指定则用对应 ToolProfile,否则继承 base descriptor 的 profile;由 profile 构建工具子集,并**注入装配层的 path guard / guardian**,再套上与注册子代理相同的 permission → 截断 → debug 包装链。包装层只能拒绝或改写已装配工具的调用,**永远不新增工具**。
 4. **系统提示**:`system_prompt` 指定则覆盖 base 默认;当显式 `tool_access` 把 profile 从 base 默认**收窄**时,在 base 提示后追加一段「Effective tool access」清单,写明本次实际可用的工具、并明确提示 base 提示里提到的其它工具(尤其 write/edit)**不可用**——否则 base runtime 的提示会向模型广告它没有的工具,模型会反复尝试调用而失败。随后追加所有 skill 的 instructions,最后追加项目级指令。自定义 `system_prompt` 时不再追加该清单(提示词由调用方负责描述任务)。
@@ -170,7 +164,7 @@ flowchart LR
 
 ### 兼容:预制组合适配器
 
-`delegate_to_coder/researcher/reviewer` 保留原有参数与可观察结果。它们与等价 Worker Spec 的工具面相同(有测试断言),共享上述执行路径;差别仅在由**启动期实例**执行,从而保留 memory / PersistentMemory / IterationStore / ExtraContextSources 等装配——若改为每次现构 worker,这些会静默丢失,属于可观察行为回退(ORCH-R12)。
+`delegate_to_coder/researcher/reviewer` 保留原有参数与可观察结果。它们与等价 Worker Spec 的工具面相同(有测试断言),共享上述执行路径;差别仅在由**启动期实例**执行,从而保留 memory / PersistentMemory / IterationStore / ExtraContextSources 等装配——若改为每次现构 worker,这些会静默丢失,属于可观察行为回退(ORCH-R13)。
 
 ## 流式 phase 事件
 
