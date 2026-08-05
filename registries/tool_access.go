@@ -82,6 +82,13 @@ func ProfileByName(name string) (ToolProfile, bool) {
 	}
 }
 
+// ProfileNames returns the four preset profile names in decreasing capability
+// order. Used to render tool schemas so the advertised values and the values
+// ProfileByName accepts stay in lockstep.
+func ProfileNames() []string {
+	return []string{ProfileFull.Name, ProfileReview.Name, ProfileReadOnly.Name, ProfileNone.Name}
+}
+
 // BuildRegistry constructs a new tool.Registry containing only the tools
 // granted by this profile's capabilities. Each tool is freshly registered
 // with the provided tool configuration (bash timeout, working dir, etc.).

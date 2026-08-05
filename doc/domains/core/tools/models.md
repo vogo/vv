@@ -27,7 +27,7 @@
 
 四档预设及能力→工具映射见 [design.md](design.md) § 能力分级。
 
-**关系**:被 AgentDescriptor(agents 领域)持有;`ProfileByName` 供动态代理(orchestration 领域)按 tool-access-level 解析;`BuildRegistry` 据此产出 `tool.Registry`。
+**关系**:被 AgentDescriptor(agents 领域)持有;`ProfileByName` 供派生 worker(orchestration 领域)按 `tool_access` 解析;`BuildRegistry` 据此产出 `tool.Registry`。
 
 ## Bash 分级结果
 

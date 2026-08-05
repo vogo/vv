@@ -3,12 +3,16 @@ package dispatches
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/hook"
 	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/session/tree"
+	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/hooks"
 	"github.com/vogo/vv/registries"
@@ -56,6 +60,39 @@ type Dispatcher struct {
 	hooks          []hooks.Hook
 	maxIterations  int
 	runTokenBudget int
+
+	// Capability dimensions available to derived workers. Both registries
+	// are startup-time constants; nil falls back to the built-in defaults
+	// (see Dispatcher.skillRegistry / contextSourceRegistry).
+	skills         *registries.SkillRegistry
+	contextSources *registries.ContextSourceRegistry
+
+	// regOpts and wrapToolRegistry carry the assembly layer's enforcement
+	// down to derived workers: regOpts injects path guard / guardian into
+	// the tools a ToolProfile assembles, wrapToolRegistry applies the same
+	// permission → truncation → debug chain sub-agents get. Both can only
+	// *reduce* what the profile granted — never widen it.
+	regOpts          []registries.RegistryOption
+	wrapToolRegistry func(*tool.Registry) tool.ToolRegistry
+
+	// hookManager is the shared event bus injected into derived workers so
+	// their iteration / tool / context events reach trace and session
+	// subsystems exactly like a registered sub-agent's do.
+	hookManager *hook.Manager
+
+	// memory is the shared session memory manager attached only to workers
+	// spawned with isolation="shared".
+	memory *memory.Manager
+
+	// maxParallelToolCalls / promptCaching mirror the agents.* config onto
+	// derived workers so a user who tuned (or disabled) them does not get
+	// different behaviour depending on who executes the task. Zero /
+	// unset leaves the taskagent defaults in place.
+	maxParallelToolCalls int
+	promptCaching        *bool
+
+	// workerSeq numbers spawned worker instances within this process run.
+	workerSeq atomic.Uint64
 
 	// dagDefaultAgentID is the optional sub-agent ID used to resolve a static
 	// plan step whose step.Agent is not registered. Zero value disables the
@@ -159,6 +196,70 @@ func WithWorkingDir(dir string) Option {
 func WithToolsConfig(cfg configs.ToolsConfig) Option {
 	return func(d *Dispatcher) {
 		d.toolsCfg = cfg
+	}
+}
+
+// WithSkills installs the skill registry consulted when a worker spec names
+// skills. nil / unset falls back to registries.DefaultSkills().
+func WithSkills(reg *registries.SkillRegistry) Option {
+	return func(d *Dispatcher) {
+		d.skills = reg
+	}
+}
+
+// WithContextSources installs the context source registry consulted when a
+// worker spec names context sources. nil / unset falls back to
+// registries.DefaultContextSources bound to the dispatcher's working dir.
+func WithContextSources(reg *registries.ContextSourceRegistry) Option {
+	return func(d *Dispatcher) {
+		d.contextSources = reg
+	}
+}
+
+// WithRegistryOptions passes the assembly layer's RegistryOptions (path guard,
+// bash path guardian) into every tool registry built for a derived worker.
+// Without it a worker's file tools would run unguarded — the profile would be
+// the only boundary, which is exactly what the permission model forbids.
+func WithRegistryOptions(opts ...registries.RegistryOption) Option {
+	return func(d *Dispatcher) {
+		d.regOpts = opts
+	}
+}
+
+// WithToolRegistryWrapper installs the wrapping chain applied to a derived
+// worker's tool registry (permission confirmation → output truncation → debug),
+// mirroring what setup applies to registered sub-agents. The wrapper may only
+// deny or transform calls to tools the profile already assembled.
+func WithToolRegistryWrapper(fn func(*tool.Registry) tool.ToolRegistry) Option {
+	return func(d *Dispatcher) {
+		d.wrapToolRegistry = fn
+	}
+}
+
+// WithHookManager injects the shared event bus into derived workers so their
+// native events reach trace / session subsystems like a sub-agent's do.
+func WithHookManager(mgr *hook.Manager) Option {
+	return func(d *Dispatcher) {
+		d.hookManager = mgr
+	}
+}
+
+// WithMemory installs the shared session memory manager attached to workers
+// spawned with isolation="shared". Isolated workers (the default) never see it.
+func WithMemory(m *memory.Manager) Option {
+	return func(d *Dispatcher) {
+		d.memory = m
+	}
+}
+
+// WithAgentRuntimeDefaults mirrors the agents.* runtime knobs onto derived
+// workers: concurrent tool dispatch cap and prompt-cache hint emission. Passing
+// the same values setup gives registered sub-agents keeps a task's behaviour
+// independent of whether a worker or a preset combination executes it.
+func WithAgentRuntimeDefaults(maxParallelToolCalls int, promptCaching bool) Option {
+	return func(d *Dispatcher) {
+		d.maxParallelToolCalls = maxParallelToolCalls
+		d.promptCaching = &promptCaching
 	}
 }
 

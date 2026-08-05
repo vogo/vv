@@ -17,7 +17,10 @@
 | **Reviewer Agent** | Review 能力档(read + search + execute,ProfileReview):可跑测试/lint,但无写工具。 |
 | **内联直答(原 Chat / Explorer Agent 已移除)** | 闲聊由 Primary 无工具内联承担,探查由 Primary 用 read/glob/grep 自行完成;`chat` 与 `explorer` 已不再是独立注册的代理。 |
 | **Planner** | ProfileNone(无工具)的内部分类代理,非 dispatchable,不对外暴露 `delegate_to_planner`。 |
-| **Dynamic Agent(动态代理)** | 由 plan step 规格临时构造的临时代理:指定 base type + 工具子集 + 自定义系统提示。 |
+| **派生 worker(derived worker)** | 由 Worker Spec 临时构造的单次执行者:base type + 工具子集 + skills + 只读上下文 + 隔离模式。经 `spawn_worker` 或 DAG 动态节点派生,即用即弃、不注册。旧称 Dynamic Agent(动态代理)。 |
+| **预制组合(preset combination)** | 启动期注册的具名能力组合:coder / researcher / reviewer;经 `delegate_to_<id>` 快捷委派。 |
+| **Skill** | 命名的专项指令片段(如 `review`),追加到执行者系统提示;不授予工具、不放宽权限。 |
+| **ContextSource** | 命名的只读上下文来源(如 `diff`),渲染为标注的只读块注入执行者输入。 |
 | **Operator** | 部署、配置、运营 vv 的人。 |
 | **User** | 通过 CLI/HTTP/MCP 与 vv 交互的人或外部系统。 |
 

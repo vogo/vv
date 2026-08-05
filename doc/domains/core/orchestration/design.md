@@ -1,6 +1,6 @@
 # orchestration 领域设计(design)
 
-> 本文件描述 **HOW**:薄分发的物理实现、Primary 的动作集、委派与规划语义、动态规格装配、流式 phase 事件、递归预算传递、Session Tree 镜像、与 vage 的边界。业务不变量(ORCH-R*)见 [spec.md](spec.md);实体字段见 [models.md](models.md)。
+> 本文件描述 **HOW**:薄分发的物理实现、Primary 的动作集、派生与规划语义、Worker Spec 装配、流式 phase 事件、递归预算传递、Session Tree 镜像、与 vage 的边界。业务不变量(ORCH-R*)见 [spec.md](spec.md);实体字段见 [models.md](models.md)。
 >
 > 源码对照:`vv/dispatches/`。
 
@@ -40,13 +40,13 @@ Fallback 路径存在的唯一目的是 **防止递归失控**:达到深度上�
 
 ## Primary 的四种选择
 
-Primary 是一个 ReAct 循环。每一轮 LLM 给出一次响应,从下面的"动作集合"里选一个:
+Primary 是一个 ReAct 循环,也是**与用户直接协作的主执行 agent**——不是只读路由员。每一轮 LLM 给出一次响应,从下面的"动作集合"里选一个:
 
 | 动作 | 触发的工具 | 何时使用 |
 |------|-----------|---------|
 | 直答 | 无 | 闲聊、定义、不依赖项目的计算 |
-| 只读探查 | `read` / `glob` / `grep` / `web_fetch` / `web_search` | 需要看代码或公网资料后再回答 |
-| 委派 | `delegate_to_<专家>` | 单个子任务适合隔离或专业处理 |
+| 内联执行 | `read` / `glob` / `grep` / `web_fetch` / `web_search`(+ 写工具,视 execution model) | 与当前上下文共享的工作:探查、修改、验证一个循环内完成 |
+| 派生 worker | `spawn_worker`(或预制组合快捷方式 `delegate_to_<id>`) | 需要隔离上下文、独立评审、专项调研或并行 |
 | 规划 | `plan_task` | **高级路径**:同时满足四项门槛(见「规划的语义」)才启用 |
 
 > **顺序执行是默认值**:能在当前上下文完成的普通任务由 Primary 自己逐步做完,用 `todo_write` 呈现进度,而不是为了展示结构去构造 DAG。"有多个步骤"或"涉及多个能力域"本身 **不构成** 规划理由 —— 普通 bug fix、单文件/单符号修改、只需顺序检查清单的任务都不走 `plan_task`。
@@ -67,9 +67,11 @@ orchestrate:
 
 也可用 `VV_EXECUTION_MODEL` 覆盖。未知值在启动期报错,避免拼写错误静默改变权限面。
 
-## 委派的语义
+> `spawn_worker` 在三种模式下都可用,且不受 `delegate_to_coder` 是否挂载影响:`direct` 下 Primary 本就持有 Full 工具,派生一个持写工具的 worker **不构成提权**,只是换取隔离与并行;`delegated` 下派生写 worker 与 `delegate_to_coder` 等价,同样受同一 permission / path guard / sandbox 约束。执行模型约束的是"Primary 自己有没有写工具",不是"能不能把写工作交出去"。
 
-`delegate_to_<agent>` 是 Primary 的核心工具家族:每个 dispatchable 专家都有对应的一只。调用它时:
+## 派生与委派的语义
+
+`spawn_worker` 是通用派生入口;`delegate_to_<agent>` 是预制组合的快捷方式(每个 dispatchable 组合一只)。两者调用时:
 
 1. 递归深度 +1,传递给被委派的子代理(`IncrementDepth(ctx)`)。
 2. Primary 提供任务描述与可选的"已收集到的背景"。
@@ -106,7 +108,7 @@ orchestrate:
 3. 多终端结果由 **PlanGen** 汇总成单一文本返回 Primary。
 4. 整个 DAG 共享一个递归预算(在 Primary 的预算上 +1,对应 ORCH-R7)。
 
-DAG 节点也支持 **动态规格** —— 某 step 的执行者由 spec 临时构造(指定 base type + 工具子集 + 自定义系统提示),用于"为这一步定制一个稍有差异的代理"的场景。
+DAG 节点也支持 **Worker Spec** —— 某 step 的执行者由 spec 临时构造(base type + 工具子集 + skills + 只读上下文),用于"为这一步定制一个能力组合"的场景;它与 `spawn_worker` 共用同一构造路径,详见下一节。
 
 实现要点(`vv/dispatches/dag.go`):
 
@@ -119,7 +121,7 @@ DAG 节点也支持 **动态规格** —— 某 step 的执行者由 spec 临时
 
 ```mermaid
 flowchart LR
-    P[plan_task<br/>goal + steps] --> B[buildNodes<br/>静态专家 / 动态代理]
+    P[plan_task<br/>goal + steps] --> B[buildNodes<br/>预制组合 / 派生 worker]
     B --> D[orchestrate.ExecuteDAG<br/>MaxConcurrency · Skip]
     D --> S{多终端?}
     S -->|是| AGG[summary 节点<br/>PlanGen 汇总]
@@ -128,17 +130,41 @@ flowchart LR
     ONE --> R
 ```
 
-## 动态规格(Dynamic Agent Spec)
+## worker 派生(Worker Spec + spawn_worker)
 
-`buildDynamicAgent` 在 step 执行前临时构造一个 `taskagent`(`vv/dispatches/dag.go`):
+派生 worker 是"临时组一个执行者"的通用机制,有两个入口、一条构造路径:
 
-1. 经注册表用 `base_type` 取基础类型描述符(决定默认系统提示与 ToolProfile)。
-2. 工具集:`tool_access` 指定则用对应 ToolProfile,否则继承 base type 的默认 profile;由 profile 构建工具子集 registry(对应 ORCH-R8 工具子集)。
-3. 系统提示:`system_prompt` 指定则覆盖默认,并追加项目级指令。
-4. 模型 / 最大迭代:spec 覆盖优先,否则取 Dispatcher 默认。
-5. 产出 `dynamic_<base_type>_<step_id>` 命名的临时代理,执行后即弃,**不注册** 到代理注册表(ORCH-R8 即用即弃)。
+- **`spawn_worker` 工具**(`vv/dispatches/worker_tool.go`):Primary 在任意时刻按能力组合派生一个单次 worker。
+- **DAG 动态节点**(plan step 的 `dynamic_spec`):`buildDynamicAgent` 只是把 step ID 拼成实例名后转调同一个构造器。
 
-校验约束(`types.go`):base type 必须经 `registry.ValidateRef` 校验;若 step 同时给了 `agent` 与 `dynamic_spec`,二者 base type 必须一致;`tool_access` 必须是合法 ProfileByName。
+两者共用 `Dispatcher.buildWorker`(`vv/dispatches/worker.go`),这不是去重洁癖:**两个入口若各自装配,就会各自演化出不同的权限面**,而"这个执行者能干什么"必须只有一个答案。
+
+构造顺序(任一步失败即中止,不产生 worker):
+
+1. **全量校验** spec:base type 必填且 `registry.ValidateRef` 通过;`tool_access` 必须 `ProfileByName` 可解析;每个 skill / context source 必须已注册;isolation ∈ {isolated, shared}(ORCH-R12)。
+2. **runtime**:经注册表用 `base_type` 取描述符(决定默认系统提示与默认 ToolProfile)。
+3. **工具集**:`tool_access` 指定则用对应 ToolProfile,否则继承 base descriptor 的 profile;由 profile 构建工具子集,并**注入装配层的 path guard / guardian**,再套上与注册子代理相同的 permission → 截断 → debug 包装链。包装层只能拒绝或改写已装配工具的调用,**永远不新增工具**。
+4. **系统提示**:`system_prompt` 指定则覆盖 base 默认;当显式 `tool_access` 把 profile 从 base 默认**收窄**时,在 base 提示后追加一段「Effective tool access」清单,写明本次实际可用的工具、并明确提示 base 提示里提到的其它工具(尤其 write/edit)**不可用**——否则 base runtime 的提示会向模型广告它没有的工具,模型会反复尝试调用而失败。随后追加所有 skill 的 instructions,最后追加项目级指令。自定义 `system_prompt` 时不再追加该清单(提示词由调用方负责描述任务)。
+5. **模型 / 最大迭代 / token 预算**:spec 覆盖优先,否则取 Dispatcher 默认。
+6. **隔离模式**:`shared` 附加共享会话记忆(与预制组合同源);`isolated`(默认)不附加。
+7. **上下文来源**:按 spec 顺序解析为 `## Context: <id> (read-only)` 块,拼在任务指令之前。provider 失败 → 中止派生。
+8. 产出临时 `taskagent`(`spawn_worker` 命名 `worker_<base_type>_<n>`,DAG 节点沿用 `dynamic_<base_type>_<step_id>`),执行后即弃,**不注册** 到代理注册表(ORCH-R8 即用即弃)。
+
+执行走 `runSubAgentTask`——与 `delegate_to_*` **同一条路径**:递归深度 +1、透传 session ID、`sessionlogs.WithRun` 打标(落到 `subagents/<agent>-<n>.jsonl`)、流式模式下用 `SubAgentStart/End` 包住子级原生事件。父 context 取消随之传入 worker,取消后其模型与工具执行停止,生命周期正常闭合。
+
+校验约束补充(`types.go`):若 step 同时给了 `agent` 与 `dynamic_spec`,二者 base type 必须一致。
+
+### code-review:一个组合,而不是一个新角色
+
+```json
+{"base_type": "coder", "tool_access": "review", "skills": ["review"], "context_sources": ["diff"]}
+```
+
+同一个 coding runtime,换上 review 纪律、Review 能力档(read/search/execute,**无 write/edit**)与只读 diff 上下文。即便 prompt 或 diff 内容要求改文件,ToolProfile 装配与 guard/sandbox 仍共同阻止写入——review skill 只改变评审目标与输出约束,不改变权限。
+
+### 兼容:预制组合适配器
+
+`delegate_to_coder/researcher/reviewer` 保留原有参数与可观察结果。它们与等价 Worker Spec 的工具面相同(有测试断言),共享上述执行路径;差别仅在由**启动期实例**执行,从而保留 memory / PersistentMemory / IterationStore / ExtraContextSources 等装配——若改为每次现构 worker,这些会静默丢失,属于可观察行为回退(ORCH-R13)。
 
 ## 流式 phase 事件
 
@@ -168,7 +194,7 @@ Fallback 路径上额外发一对 `summarize` 静态 phase 事件(零 LLM 调用
 - Dispatcher 实现 vage 的 `agent.Agent` / `agent.StreamAgent` 接口,所以它可以被 HTTP service 当作普通代理注册(ID `orchestrator`)。
 - DAG 执行复用 vage 的 `orchestrate` 包,Dispatcher 只提供 step 列表(`buildNodes`)与节点的输入映射器(`BuildInputMapper`)。
 - 事件流复用 vage 的 schema 事件类型,没有 vv 私有事件。
-- 动态代理复用 vage `taskagent`;工具子集复用 vv `registries` 的 ToolProfile。
+- 派生 worker 复用 vage `taskagent`;工具子集复用 vv `registries` 的 ToolProfile,skill / 上下文来源复用其 SkillRegistry / ContextSourceRegistry。
 
 ## 技术取舍小结
 

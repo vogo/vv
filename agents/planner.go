@@ -40,8 +40,9 @@ You MUST respond with ONLY a JSON object. No other text.
 7. For specialized sub-tasks, add an optional "dynamic_spec" to a plan step:
    {"id": "step_1", "description": "...", "agent": "coder", "depends_on": [],
     "dynamic_spec": {"base_type": "coder", "system_prompt": "You are a Go testing specialist...", "tool_access": "full"}}
-   Fields: "base_type" (required, same as "agent"), "system_prompt" (optional), "tool_access" (optional: "full"/"read-only"/"none"), "model" (optional).
-   Only use dynamic_spec when a sub-task needs a specialized prompt or different tool access. For most tasks, omit it.`
+   Fields: "base_type" (required, same as "agent"), "system_prompt" (optional), "tool_access" (optional: "full"/"review"/"read-only"/"none"), "skills" (optional: registered skill ids, e.g. ["review"]), "context" (optional: registered read-only context sources, e.g. ["diff"]), "model" (optional), "isolation" (optional: "isolated"/"shared").
+   dynamic_spec declares a capability combination rather than a persona: e.g. a code review step is {"base_type": "coder", "tool_access": "review", "skills": ["review"], "context": ["diff"]} — no new agent type needed. Skills never grant tools; tool_access alone decides the tool subset.
+   Only use dynamic_spec when a sub-task needs a specialized prompt, tool access, skill or context. For most tasks, omit it.`
 
 // PlannerSystemPrompt is kept for backward compatibility in tests. It contains
 // the hardcoded agent list matching the original implementation.
@@ -77,8 +78,9 @@ You MUST respond with ONLY a JSON object. No other text.
 7. For specialized sub-tasks, add an optional "dynamic_spec" to a plan step:
    {"id": "step_1", "description": "...", "agent": "coder", "depends_on": [],
     "dynamic_spec": {"base_type": "coder", "system_prompt": "You are a Go testing specialist...", "tool_access": "full"}}
-   Fields: "base_type" (required, same as "agent"), "system_prompt" (optional), "tool_access" (optional: "full"/"read-only"/"none"), "model" (optional).
-   Only use dynamic_spec when a sub-task needs a specialized prompt or different tool access. For most tasks, omit it.`
+   Fields: "base_type" (required, same as "agent"), "system_prompt" (optional), "tool_access" (optional: "full"/"review"/"read-only"/"none"), "skills" (optional: registered skill ids, e.g. ["review"]), "context" (optional: registered read-only context sources, e.g. ["diff"]), "model" (optional), "isolation" (optional: "isolated"/"shared").
+   dynamic_spec declares a capability combination rather than a persona: e.g. a code review step is {"base_type": "coder", "tool_access": "review", "skills": ["review"], "context": ["diff"]} — no new agent type needed. Skills never grant tools; tool_access alone decides the tool subset.
+   Only use dynamic_spec when a sub-task needs a specialized prompt, tool access, skill or context. For most tasks, omit it.`
 
 // BuildPlannerSystemPrompt constructs the planner system prompt by replacing
 // the {{.AgentList}} placeholder with the actual agent list from the registries.

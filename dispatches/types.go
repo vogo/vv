@@ -43,7 +43,7 @@ func (cr *ClassifyResult) validate(reg *registries.Registry, subAgents map[strin
 
 		for _, step := range cr.Plan.Steps {
 			if step.DynamicSpec != nil {
-				if err := step.DynamicSpec.validate(reg); err != nil {
+				if err := step.DynamicSpec.validate(reg, nil, nil); err != nil {
 					return fmt.Errorf("plan step %q: %w", step.ID, err)
 				}
 
@@ -132,32 +132,9 @@ type PlanStep struct {
 	ReplanGeneration int               `json:"replan_generation,omitempty"` // 0=original, 1=first replan, etc.
 }
 
-// DynamicAgentSpec defines configuration for a dynamically created sub-agent.
-type DynamicAgentSpec struct {
-	BaseType     string `json:"base_type"`               // required: coder, researcher, reviewer, chat
-	SystemPrompt string `json:"system_prompt,omitempty"` // optional: custom system prompt
-	ToolAccess   string `json:"tool_access,omitempty"`   // optional: profile name string for JSON compat
-	Model        string `json:"model,omitempty"`         // optional: overrides configured model
-}
-
-// validate checks that a DynamicAgentSpec is well-formed.
-func (s *DynamicAgentSpec) validate(reg *registries.Registry) error {
-	if s.BaseType == "" {
-		return fmt.Errorf("dynamic_spec: base_type is required")
-	}
-
-	if !reg.ValidateRef(s.BaseType) {
-		return fmt.Errorf("dynamic_spec: invalid base_type %q", s.BaseType)
-	}
-
-	if s.ToolAccess != "" {
-		if _, ok := registries.ProfileByName(s.ToolAccess); !ok {
-			return fmt.Errorf("dynamic_spec: invalid tool_access %q", s.ToolAccess)
-		}
-	}
-
-	return nil
-}
+// DynamicAgentSpec / WorkerSpec and its validation live in worker.go: the same
+// contract now serves both DAG dynamic nodes and general spawn_worker
+// derivation.
 
 // PlanAggregator synthesizes sub-task outputs into a coherent response.
 type PlanAggregator struct {

@@ -4,28 +4,63 @@
 
 > Primary / Fallback Primary 的能力分工虽与本领域共享 ToolProfile 模型,但其构造与递归阀门归 [orchestration](../orchestration/);本文仅在「Primary 的特殊装配路径」一节交代它如何复用本领域的 profile 与描述符,细节链接到 orchestration。
 
-## 角色分工:一前门 + 专家
+## 能力维度与预制组合
 
-vv 的代理体系由"一前门 Primary + 若干专家"构成。前门(Primary,归 orchestration)的能力由 execution model 决定:可作为只读路由者,也可直接完成 coding loop;专家用于隔离、并行、研究与独立评审。专家的职责边界完全由 ToolProfile 划分:
+vv 的代理体系由"一前门 Primary + 若干能力组合"构成。Primary(归 orchestration)不是只读路由员,而是**与用户直接协作的主执行 agent**:能力由 execution model 决定,可直接完成 coding loop,也可按需派生一次性 worker 用于隔离、并行、研究与独立评审。
+
+一个执行者由这些**正交维度**共同确定,而非由角色名隐式决定:
+
+| 维度 | 由什么决定 | 归属 |
+|------|-----------|------|
+| **Agent runtime** | `base_type` → 已注册 AgentDescriptor 的 Factory 与基础行为 | agents |
+| **ToolProfile** | 四档预设之一;决定 read/write/execute/search 翻译出的工具子集 | agents |
+| **PermissionPolicy** | 统一 permission / path guard / sandbox;**只减不增** | tools |
+| **ContextSources** | 已注册的只读上下文来源(如 `diff`) | agents |
+| **Skills** | 已注册的专项指令(如 `review`);**不授予工具** | agents |
+| **ModelPolicy** | 系统已配置的模型,或继承默认 | configuration |
+| **IsolationMode** | `isolated`(默认,全新子上下文)/ `shared`(共享会话任务背景) | orchestration |
+
+启动期注册的类型表是**预制组合**,不是能力表达力的上限:
 
 | 代理 | 角色 | ToolProfile | Dispatchable | 归属领域 |
 |------|------|-------------|--------------|---------|
-| Primary | 前门统一助手:直答/只读探查/委派/规划 | ReadOnly(开 bash 切 Review) | 否 | orchestration |
+| Primary | 前门主执行 agent:直答/内联执行/派生 worker/规划 | ReadOnly(开 bash 切 Review;hybrid/direct 切 Full) | 否 | orchestration |
 | Fallback Primary | 递归超限保险:人格同 Primary、无工具、迭代=1 | None | 否 | orchestration |
-| **Coder** | 编码专家:唯一写者 | Full | 是 | **agents** |
-| **Researcher** | 研究员:只读 + 公网 | ReadOnly | 是 | **agents** |
-| **Reviewer** | 评审员:只读 + bash,不写 | Review | 是 | **agents** |
+| **Coder** | 编码预制组合:默认唯一写者 | Full | 是 | **agents** |
+| **Researcher** | 研究预制组合:只读 + 公网 | ReadOnly | 是 | **agents** |
+| **Reviewer** | 评审预制组合:只读 + bash,不写 | Review | 是 | **agents** |
 | Planner | 规划描述:无工具,描述字段被 Primary 提示拼接器消费 | None | 否 | agents(描述符)/ orchestration(语义) |
 
-## 专家代理的能力分工与"能力鸿沟"
+### 为什么是组合而不是枚举
 
-三个 dispatchable 专家的能力面被有意拉开差距:
+按角色枚举时,每出现一种新形态(code-review、只读探查、带 diff 的研究……)都要新增一个类型,组合数随 runtime × 权限 × 上下文 × skill 的维度增长而爆炸。改为声明组合后,新形态不写代码:
 
-- **Coder(Full)**——唯一持有写工具(write/edit)的角色,真正改代码的事都到这里。
-- **Researcher(ReadOnly)**——能跑搜索引擎、抓公网资料,但绝不动文件系统;用于 Primary 不便自读全项目时的二级研究。
-- **Reviewer(Review)**——能跑 bash(测试/lint),但不能写;输出通常是"建议下一步"。
+```
+code-review = coder runtime + Review profile + review skill + 禁写 + diff 上下文
+```
 
-这种"能力鸿沟"保证专家角色不会蔓延:Reviewer 不能修复它发现的问题、Researcher 不能改它读到的代码;在专家集合中 mutation 只能由 Coder 完成。Primary 在 `hybrid` / `direct` 下可以直接 mutation,但仍经过同一 permission / path guard / sandbox,并保留明确的 agent attribution。
+代价是规格校验与装配变复杂(base type / profile / skill / context source 四类引用都要校验),这是刻意接受的:校验集中在一处,而类型爆炸会散布到注册表、提示词、委派工具、HTTP 路由、MCP 暴露五条下游。
+
+### "能力鸿沟"如何在组合模型下继续成立
+
+能力鸿沟现在挂在 **profile 上,而不是名字上**:
+
+- **Full**——唯一带 write/edit 的能力档,真正改代码的事必须落到它。
+- **ReadOnly**——能跑搜索引擎、抓公网资料,但绝不动文件系统。
+- **Review**——能跑 bash(测试/lint),但不能写;输出通常是"建议下一步"。
+
+于是 "Reviewer 不能修复它发现的问题" 这句话的准确形式是:**Review 档不含写工具**——无论它建立在哪个 runtime 上、加载了什么 skill、system prompt 怎么写。runtime 决定行为风格,profile 决定权限,二者正交。Primary 在 `hybrid` / `direct` 下可以直接 mutation,但仍经过同一 permission / path guard / sandbox,并保留明确的 agent attribution。
+
+> **提示词必须与工具面一致**:当 profile 被从 base runtime 的默认档收窄时(如 coder runtime + Review 档),装配层会在系统提示里追加「Effective tool access」清单,写明实际可用工具并点明 write/edit 不可用。若 base 提示继续向模型广告它没有的工具,模型会反复尝试调用而失败——这是提示词正确性,不是权限改变(权限仍由 profile ∩ guard 决定)。
+
+### Skill 与 ContextSource
+
+两者都是"只影响模型看到什么",都不触碰权限:
+
+- **Skill**(`vv/registries/skill.go`):`{ID, Description, Instructions}`,构造时把 `Instructions` 追加到 base runtime 的系统提示之后。内置 `review`(评审纪律:file:line、按严重度排序、绝不改文件)与 `research`(调研纪律:结论必须带出处)。skill 未注册 → 构造期报错。
+- **ContextSource**(`vv/registries/context_source.go`):`{ID, Description, Provider}`,provider 是纯读取器,渲染为 `## Context: <id> (read-only)` 块,拼在 worker 任务输入之前。内置 `diff` = 工作区对 HEAD 的 `git diff`(带体积上限截断)。provider 失败 → **中止派生**,而不是让 worker 在"以为读到了 diff"的状态下运行。
+
+两个注册表与代理注册表同构:启动期构造一次、ID 冲突 `MustRegister` panic、启动后只读。
 
 ## ToolProfile 模型(四档)
 
@@ -34,11 +69,11 @@ ToolProfile 是一个命名的能力集合 `{Name, Capabilities ⊆ {Read, Write
 | Profile | Capabilities | 含义 | 典型代理 |
 |---------|-------------|------|---------|
 | Full | Read + Write + Execute + Search | 读 + 写 + 执行 + 搜索 | Coder |
-| Review | Read + Search + Execute | 读 + 搜索 + 执行 | Reviewer |
+| Review | Read + Search + Execute | 读 + 搜索 + 执行 | Reviewer / code-review worker |
 | ReadOnly | Read + Search | 读 + 搜索 | Researcher / Primary |
 | None | ∅ | 无工具 | Planner / Fallback Primary |
 
-预设之外允许自定义(动态规格场景),但日常使用应优先映射到这四档以保持一致性。`ProfileByName` 把字符串名(来自 DynamicAgentSpec.ToolAccess)解析回 profile。
+四档是**封闭集合**:worker spec 的 `tool_access` 只接受 `ProfileByName` 可解析的这四个名字,不开放自定义 profile。`ProfileNames()` 渲染 `spawn_worker` 的 schema enum,与 `ProfileByName` 的接受集合同源,避免"广告的值"与"校验的值"漂移。
 
 ### 能力 → 工具映射
 
@@ -143,16 +178,20 @@ Primary 复用本领域的 ToolProfile 模型与描述符机制,但不走 `Dispa
 
 ## 演化策略
 
-- **新增专家**:① 在注册表加一个 AgentDescriptor(声明 ToolProfile + 系统提示);② 装配中心自动按 profile 构造工具集、注入 Primary 的 `delegate_to_*` 家族;③ Primary 下一次 LLM 调用即看到新委派目标——无需改 Primary 提示词。
-- **新增能力**(如加 `web_search`):① 把工具归类到一个或多个 Capability;② 任何 ToolProfile 含该 Capability 的代理自动获得新工具。
-- **动态描述符 / 第三方代理**:DAG 中可按 step 的 spec 即时构造代理(base_type + 自定义提示 + 工具子集);插件机制可在装配前追加描述符(数据结构已支持,当前未启用)。
+- **新增任务形态(首选)**:不写代码。声明能力组合即可——`spawn_worker` 或 DAG 动态节点给出 base_type + tool_access + skills + context;组合是运行期数据,不是新类型。
+- **新增 skill / context source**:在对应默认注册表加一条(`DefaultSkills` / `DefaultContextSources`);`spawn_worker` 的 schema enum 与校验同时跟随,无需改 Primary 提示词。
+- **新增预制组合(仅当值得给它一个名字时)**:① 在注册表加一个 AgentDescriptor(声明 ToolProfile + 系统提示);② 装配中心自动按 profile 构造工具集、注入 Primary 的 `delegate_to_*` 家族;③ Primary 下一次 LLM 调用即看到新委派目标。判据是"这个组合值不值得一个稳定的名字与独立会话入口",而不是"我们又需要一种能力面"。
+- **新增能力**(如加 `web_search`):① 把工具归类到一个或多个 Capability;② 任何 ToolProfile 含该 Capability 的执行者自动获得新工具。
+- **第三方代理**:插件机制可在装配前追加描述符(数据结构已支持,当前未启用)。
 
 ## 技术取舍
 
 | 决策 | 取舍理由 |
 |------|---------|
 | **能力分级而非硬编码工具**(候选 ADR-0003) | 若把"代理类型有哪些""能用哪些工具"散落在调用点,新增代理要同步改调用点/HTTP 路由/Primary 工具列表(改多处),且"某代理有什么权限"只能靠读代码归纳。ToolProfile 把权限抽成可一句话陈述的数据,声明式扩展把演化代价压到最小。 |
-| **能力鸿沟(researcher/reviewer 不能写)** | 用类型化代理而非运行期 if 检查实现"单一写者";比"加权限判断"更可靠,且让写入路径单一、可审计。 |
+| **能力鸿沟挂在 profile 而非角色名** | 用能力档而非运行期 if 检查实现"单一写者";挂在 profile 上使它对任意组合都成立(review skill 无论加到哪个 runtime 上都拿不到 write),而挂在角色名上只对枚举出来的那几个名字成立。 |
+| **正交组合而非枚举角色** | 枚举模型下 runtime × 权限 × 上下文 × skill 的组合数会持续膨胀,且每个新角色都要在五条下游(装配、提示、委派工具、HTTP、MCP)留痕;组合模型把扩展代价压成一次声明,代价是集中一处的规格校验。 |
+| **skill 不授权、context source 只读** | 若允许 skill 带工具,"某执行者有什么权限"就要同时读 profile 与全部 skill 才能回答;保持 skill 纯提示,则权限永远是 profile ∩ guard 一句话。 |
 | **公网检索归 Read 而非 Search** | 贴合模型对"外部信息获取"与"项目内查找"的不同认知模式。 |
 | **持久记忆仅注入 Coder** | 只有写代码的角色需要长期项目记忆;其余专家是短任务,注入只增成本。 |
 | **todo_write 共享进程级 Store** | 多代理 dispatcher 计划需看到单一单调待办列表,而非各自割裂的副本。 |
