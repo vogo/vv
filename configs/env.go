@@ -169,6 +169,12 @@ var vectorEnvBindings = []envBinding{
 }
 
 var agentsEnvBindings = []envBinding{
+	{"VV_AGENTS_MAX_ITERATIONS", func(c *Config, v string) {
+		applyIntWarn("VV_AGENTS_MAX_ITERATIONS", v, &c.Agents.MaxIterations)
+	}},
+	{"VV_PRIMARY_MAX_ITERATIONS", func(c *Config, v string) {
+		applyIntWarn("VV_PRIMARY_MAX_ITERATIONS", v, &c.Agents.PrimaryMaxIterations)
+	}},
 	{"VV_AGENTS_MAX_PARALLEL_TOOL_CALLS", func(c *Config, v string) {
 		applyIntWarn("VV_AGENTS_MAX_PARALLEL_TOOL_CALLS", v, &c.Agents.MaxParallelToolCalls)
 	}},

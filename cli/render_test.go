@@ -549,3 +549,37 @@ func TestRenderToolCallResult_SuppressesTodoWrite(t *testing.T) {
 		t.Errorf("renderToolCallResult(todo_write) must return empty string, got %q", got)
 	}
 }
+
+// TestRenderTaskEnd_IncompleteIsNotComplete is the regression test for the
+// silent-failure UX: a turn cut short by its iteration ceiling used to render
+// the same "task complete." line as a successful one.
+func TestRenderTaskEnd_IncompleteIsNotComplete(t *testing.T) {
+	stats := execStats{DurationMs: 22438, PromptTokens: 341556}
+
+	complete := renderTaskEnd(schema.StopReasonComplete, stats)
+	if !strings.Contains(complete, "task complete") {
+		t.Errorf("renderTaskEnd(complete) = %q, want the completion line", complete)
+	}
+
+	// An absent stop reason (non-taskagent paths never set one) must stay on
+	// the completion line rather than raising a false alarm.
+	if empty := renderTaskEnd("", stats); !strings.Contains(empty, "task complete") {
+		t.Errorf("renderTaskEnd(\"\") = %q, want the completion line", empty)
+	}
+
+	truncated := renderTaskEnd(schema.StopReasonMaxIterations, stats)
+	if strings.Contains(truncated, "task complete") {
+		t.Errorf("renderTaskEnd(max_iterations) = %q, must not claim completion", truncated)
+	}
+
+	for _, want := range []string{"task incomplete", "iteration budget", "primary_max_iterations"} {
+		if !strings.Contains(truncated, want) {
+			t.Errorf("renderTaskEnd(max_iterations) = %q, want it to mention %q", truncated, want)
+		}
+	}
+
+	budget := renderTaskEnd(schema.StopReasonBudgetExhausted, stats)
+	if !strings.Contains(budget, "token budget") {
+		t.Errorf("renderTaskEnd(budget_exhausted) = %q, want the token budget named", budget)
+	}
+}

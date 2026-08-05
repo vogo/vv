@@ -254,6 +254,13 @@ type model struct {
 	totalCompletionTokens int
 	totalToolCalls        int
 
+	// lastStopReason holds the stop reason of the top-level agent for the
+	// current turn. Anything other than "complete" means the turn was cut
+	// short (iteration ceiling, token budget), which the completion line must
+	// say out loud — rendering "task complete" over a truncated run is how a
+	// failed turn gets mistaken for a successful one.
+	lastStopReason schema.StopReason
+
 	// Sub-agent level stats accumulation (for DAG path where SubAgentEndData
 	// may lack token stats).
 	subAgentPromptTokens     int
@@ -664,6 +671,7 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	m.totalPromptTokens = 0
 	m.totalCompletionTokens = 0
 	m.totalToolCalls = 0
+	m.lastStopReason = ""
 
 	// Create a cancellable context for this run.
 	runCtx, cancel := context.WithCancel(m.ctx)
@@ -821,6 +829,12 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case schema.EventAgentEnd:
+		// Record the top-level stop reason; nested agents report their own
+		// completion through SubAgentEnd, so only depth 0 speaks for the turn.
+		if data, ok := event.Data.(schema.AgentEndData); ok && m.nestingDepth == 0 {
+			m.lastStopReason = data.StopReason
+		}
+
 		// Finalize any remaining text from the agent.
 		return m, m.flushAgentOutput()
 
@@ -998,7 +1012,7 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 			PromptTokens:     m.totalPromptTokens,
 			CompletionTokens: m.totalCompletionTokens,
 		}
-		rendered := renderTaskComplete(stats)
+		rendered := renderTaskEnd(m.lastStopReason, stats)
 		cmds = append(cmds, tea.Println(rendered))
 	}
 

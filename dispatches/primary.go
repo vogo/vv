@@ -27,6 +27,11 @@ func (d *Dispatcher) runPrimary(ctx context.Context, req *schema.RunRequest) (*s
 		return nil, fmt.Errorf("dispatcher: primary assistant failed: %w", err)
 	}
 
+	// A run that ended on its iteration / token ceiling returns with the model
+	// mid-thought and nothing addressed to the user. Salvage a closing answer
+	// instead of handing back a silent success.
+	d.finalizeIncompleteResponse(ctx, req, resp)
+
 	return resp, nil
 }
 
@@ -45,7 +50,20 @@ func (d *Dispatcher) runPrimaryStream(
 
 	ctx = debugs.WithAgentName(ctx, PrimaryAgentName)
 
-	return relayAgentStream(ctx, send, d.primaryAssistant, req)
+	// Observe the relayed stream without altering it, so a run that ends on a
+	// budget ceiling can be followed by a salvaged closing answer.
+	obs := &primaryRunObserver{}
+
+	observed := func(ev schema.Event) error {
+		obs.observe(ev)
+		return send(ev)
+	}
+
+	if err := relayAgentStream(ctx, observed, d.primaryAssistant, req); err != nil {
+		return err
+	}
+
+	return d.finalizeIncompleteStream(ctx, send, req, obs)
 }
 
 // RunPlan implements PlanExecutor, exposing the dispatcher's existing plan

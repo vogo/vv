@@ -309,7 +309,9 @@ func (d *Dispatcher) buildWorkerPrompt(
 		}
 	}
 
-	return appendProjectInstructions(strings.Join(joined, "\n\n"), d.projectInstructions), nil
+	base := appendEnvironment(strings.Join(joined, "\n\n"), d.environment)
+
+	return appendProjectInstructions(base, d.projectInstructions), nil
 }
 
 // effectiveToolsNotice renders the authoritative tool list for a worker whose

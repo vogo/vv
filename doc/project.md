@@ -6,7 +6,7 @@ vv 是构建在 **vage** 框架与 **aimodel** SDK 之上的、可生产部署�
 
 ## 产品愿景
 
-每一次用户请求都进入同一个 **Primary Assistant**,由它自行决定如何回应:直答、只读探查、委派给专家(coder / researcher / reviewer)、或在任务跨多个能力域时触发 DAG 多步规划。(闲聊与探查由 Primary 内联承担;早期的 `chat` / `explorer` 独立代理已移除。)三层记忆架构(working / session / persistent)让代理在请求内、对话间、会话间保留上下文。用户可通过 CLI 交互式 TUI(默认)、HTTP REST API 或 MCP 服务三种模式接入。
+每一次用户请求都进入同一个 **Primary Assistant**,由它自行决定如何回应:直答、探查并直接动手(读写文件、跑命令)、委派给专家(coder / researcher / reviewer)、或在任务跨多个能力域时触发 DAG 多步规划。(闲聊与探查由 Primary 内联承担;早期的 `chat` / `explorer` 独立代理已移除。)三层记忆架构(working / session / persistent)让代理在请求内、对话间、会话间保留上下文。用户可通过 CLI 交互式 TUI(默认)、HTTP REST API 或 MCP 服务三种模式接入。
 
 vv 的工程定位是 **挑选、组合、配置** vage 的可组合代理类型、工具系统、记忆管理、安全护栏与服务层,装配成单个可部署代理;它不向 vage 注入业务概念,避免基础库被特定应用形态绑死。
 

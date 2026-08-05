@@ -30,7 +30,7 @@ orchestration 是 vv 的核心领域,贯彻 **统一前门、内部分工**:每�
 | Rule ID | 名称 | 描述 |
 |---------|------|------|
 | **ORCH-R1** | 统一前门 | 对外只暴露一个 Dispatcher。它不做意图分类、不做总结、不做策略选择;所有路由决策由 Primary 以工具调用承担。新增任务形态 = Primary 声明一种能力组合(`spawn_worker`),不新增角色类型、不改 Dispatcher;值得具名的组合可额外注册为预制组合并获得 `delegate_to_<id>` 快捷方式。 |
-| **ORCH-R2** | 执行模型 | `delegated`(默认)下 Primary 不持有写工具,mutation 经 coder;`hybrid` 下 Primary 持有 Full 工具且保留 coder 供隔离/并行;`direct` 下 Primary 持有 Full 工具且不挂 `delegate_to_coder`。Fallback Primary 始终无工具。所有模式共享 permission / path guard / sandbox。 |
+| **ORCH-R2** | 执行模型 | Primary 在所有模式下持有 Full 工具(read/search + write/edit + bash):前门必须能自己完成它被要求的产出。execution model 只决定是否挂载 `delegate_to_coder`——`delegated`(默认)与 `hybrid` 挂载,`direct` 不挂。`primary_allow_bash` 为惰性兼容键。Fallback Primary 始终无工具。所有模式共享 permission / path guard / sandbox,mutation 的边界由这些层负责而非由"不给工具"实现。 |
 | **ORCH-R3** | 递归硬阀门 | 递归深度经 `context` 携带。Dispatcher 入口统一检查:`depth >= maxRecursionDepth`(默认 2)时强制切换到无工具的 Fallback Primary,**物理上**消除再次委派/再次规划的可能。这是硬阀门,不是计数式 try/limit。 |
 | **ORCH-R4** | 派生 +1 | 任何派生执行(`spawn_worker` 或 `delegate_to_<id>`)触发时,递归深度 +1 后传给被派生执行者。它在自己的 ReAct 循环中独立完成;若再次进入 Dispatcher(例如经 ask_user 链),同一上限再次生效,不可能突破。调用方 `context`、session ID 与取消信号必须一并传入:父请求取消后 worker 必须停止模型与工具执行,并正常闭合可观测生命周期。 |
 | **ORCH-R5** | 子代理结果折叠 | 子代理的回答以 **工具结果** 形式回到 Primary,被 Primary 折叠进自己的最终回复 —— 而非原样转发。用户始终看到一个连贯的 Primary 视角。 |
@@ -41,6 +41,7 @@ orchestration 是 vv 的核心领域,贯彻 **统一前门、内部分工**:每�
 | **ORCH-R10** | Primary 直透 | 主路径与 Fallback 路径均 **直接透传** Primary / Fallback Primary 的事件流,不额外包 phase 或 SubAgentStart/End 信封。委派子代理(`delegate_to_*` / `spawn_worker` / DAG step)仍由各自 handler 发出 SubAgentStart/End。token / 耗时统计由消费者从 `EventLLMCallEnd` 与 task 级汇总获取。 |
 | **ORCH-R11** | 规划门槛(显式高级能力) | 顺序执行是默认路径;`plan_task` 是显式高级能力,仅在 **四项条件同时成立** 时启用:① 至少两个真正独立的工作流(非同一修改的连续切段);② 并行有实际墙钟收益;③ 次序可用 `depends_on` 表达或分支无依赖;④ 用户明确要求并行或要求长任务后台执行。普通 bug fix、单文件/单符号修改、只需顺序检查清单的任务 **不得** 走 `plan_task`。门槛是 **提示层决策契约**(系统提示与工具描述必须一致),**不是运行时拒绝规则**:执行器对已提交的有效 DAG 照常执行,不引入前置分类器或"是否值得并行"的硬校验。 |
 | **ORCH-R12** | 规格校验前置且全量 | Worker Spec 的 base type(必填且已注册)、`tool_access`(合法 ProfileByName)、skills、context source、isolation 全部在构造前校验;任一不合法 → **不产生 worker**,以可诊断的工具错误回到 Primary。context source provider 失败同样中止派生,绝不让 worker 在缺少既定上下文的情况下运行。 |
+| **ORCH-R14** | 预算耗尽必须收尾 | Primary 运行以 `max_iterations_exceeded` 或 `token_budget_exhausted` 结束时,ReAct 循环在模型"话说到一半"处返回,用户拿不到任何回复。Dispatcher **必须** 在两条入口(流式与同步)追加一次 **无工具** 收尾调用(复用 Fallback Primary),产出"已查明什么 / 还差什么 / 建议的下一步",并**保留原 stop reason**——收尾是补一份交代,不是把失败改写成成功。收尾自身失败只记日志、不把已有输出变成错误;未装配 Fallback Primary 时静默跳过。 |
 | **ORCH-R13** | 预制组合是快捷方式而非特权 | `delegate_to_coder/researcher/reviewer` 是预制组合的适配器:它们与等价 Worker Spec 的工具面相同,并共享同一执行路径(递归 +1、会话标记、流式 SubAgentStart/End、错误折叠)。差别只在"由启动期实例执行"(因而保留 memory / checkpoint / 上下文源装配),不在能力表达力。 |
 
 > 规则刻意只保留 **不变量与边界**。逐步流程(哪轮选哪个动作、DAG 如何调度并行)由代码承载,不在此复述。

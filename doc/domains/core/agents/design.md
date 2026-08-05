@@ -6,14 +6,14 @@
 
 ## 能力维度与预制组合
 
-vv 的代理体系由"一前门 Primary + 若干能力组合"构成。Primary(归 orchestration)不是只读路由员,而是**与用户直接协作的主执行 agent**:能力由 execution model 决定,可直接完成 coding loop,也可按需派生一次性 worker 用于隔离、并行、研究与独立评审。
+vv 的代理体系由"一前门 Primary + 若干能力组合"构成。Primary(归 orchestration)不是只读路由员,而是**与用户直接协作的主执行 agent**:它在所有 execution model 下持有 Full 工具,可直接完成 coding loop,也可按需派生一次性 worker 用于隔离、并行、研究与独立评审。
 
 一个执行者由这些**正交维度**共同确定,而非由角色名隐式决定:
 
 | 维度 | 由什么决定 | 归属 |
 |------|-----------|------|
 | **Agent runtime** | `base_type` → 已注册 AgentDescriptor 的 Factory 与基础行为 | agents |
-| **ToolProfile** | 四档预设之一;决定 read/write/execute/search 翻译出的工具子集 | agents |
+| **ToolProfile** | 五档预设之一;决定 read/write/execute/search 翻译出的工具子集 | agents |
 | **PermissionPolicy** | 统一 permission / path guard / sandbox;**只减不增** | tools |
 | **ContextSources** | 已注册的只读上下文来源(如 `diff`) | agents |
 | **Skills** | 已注册的专项指令(如 `review`);**不授予工具** | agents |
@@ -24,7 +24,7 @@ vv 的代理体系由"一前门 Primary + 若干能力组合"构成。Primary(�
 
 | 代理 | 角色 | ToolProfile | Dispatchable | 归属领域 |
 |------|------|-------------|--------------|---------|
-| Primary | 前门主执行 agent:直答/内联执行/派生 worker/规划 | ReadOnly(开 bash 切 Review;hybrid/direct 切 Full) | 否 | orchestration |
+| Primary | 前门主执行 agent:直答/内联执行/派生 worker/规划 | Full(所有 execution model) | 否 | orchestration |
 | Fallback Primary | 递归超限保险:人格同 Primary、无工具、迭代=1 | None | 否 | orchestration |
 | **Coder** | 编码预制组合:默认唯一写者 | Full | 是 | **agents** |
 | **Researcher** | 研究预制组合:只读 + 公网 | ReadOnly | 是 | **agents** |
@@ -45,11 +45,12 @@ code-review = coder runtime + Review profile + review skill + 禁写 + diff 上�
 
 能力鸿沟现在挂在 **profile 上,而不是名字上**:
 
-- **Full**——唯一带 write/edit 的能力档,真正改代码的事必须落到它。
+- **Full**——读 + 写 + 执行 + 搜索的完整档;Coder 与 Primary 用它,真正改代码的事落到它。
+- **Edit**——带 write/edit 但不带 shell;给需要改文件、不必跑命令的派生 worker。
 - **ReadOnly**——能跑搜索引擎、抓公网资料,但绝不动文件系统。
 - **Review**——能跑 bash(测试/lint),但不能写;输出通常是"建议下一步"。
 
-于是 "Reviewer 不能修复它发现的问题" 这句话的准确形式是:**Review 档不含写工具**——无论它建立在哪个 runtime 上、加载了什么 skill、system prompt 怎么写。runtime 决定行为风格,profile 决定权限,二者正交。Primary 在 `hybrid` / `direct` 下可以直接 mutation,但仍经过同一 permission / path guard / sandbox,并保留明确的 agent attribution。
+于是 "Reviewer 不能修复它发现的问题" 这句话的准确形式是:**Review 档不含写工具**——无论它建立在哪个 runtime 上、加载了什么 skill、system prompt 怎么写。runtime 决定行为风格,profile 决定权限,二者正交。Primary 持 Full 档、可直接 mutation,但仍经过同一 permission / path guard / sandbox,并保留明确的 agent attribution——前门的边界由这些护栏给出,而不是靠抽走它的写工具。
 
 > **提示词必须与工具面一致**:当 profile 被从 base runtime 的默认档收窄时(如 coder runtime + Review 档),装配层会在系统提示里追加「Effective tool access」清单,写明实际可用工具并点明 write/edit 不可用。若 base 提示继续向模型广告它没有的工具,模型会反复尝试调用而失败——这是提示词正确性,不是权限改变(权限仍由 profile ∩ guard 决定)。
 
@@ -62,18 +63,19 @@ code-review = coder runtime + Review profile + review skill + 禁写 + diff 上�
 
 两个注册表与代理注册表同构:启动期构造一次、ID 冲突 `MustRegister` panic、启动后只读。
 
-## ToolProfile 模型(四档)
+## ToolProfile 模型(五档)
 
-ToolProfile 是一个命名的能力集合 `{Name, Capabilities ⊆ {Read, Write, Execute, Search}}`。四档预设(`vv/registries/tool_access.go`):
+ToolProfile 是一个命名的能力集合 `{Name, Capabilities ⊆ {Read, Write, Execute, Search}}`。五档预设(`vv/registries/tool_access.go`):
 
 | Profile | Capabilities | 含义 | 典型代理 |
 |---------|-------------|------|---------|
-| Full | Read + Write + Execute + Search | 读 + 写 + 执行 + 搜索 | Coder |
+| Full | Read + Write + Execute + Search | 读 + 写 + 执行 + 搜索 | Coder / Primary |
 | Review | Read + Search + Execute | 读 + 搜索 + 执行 | Reviewer / code-review worker |
-| ReadOnly | Read + Search | 读 + 搜索 | Researcher / Primary |
+| Edit | Read + Search + Write | 读 + 搜索 + 写(无 shell) | 需要改文件但不需要 shell 的派生 worker |
+| ReadOnly | Read + Search | 读 + 搜索 | Researcher |
 | None | ∅ | 无工具 | Planner / Fallback Primary |
 
-四档是**封闭集合**:worker spec 的 `tool_access` 只接受 `ProfileByName` 可解析的这四个名字,不开放自定义 profile。`ProfileNames()` 渲染 `spawn_worker` 的 schema enum,与 `ProfileByName` 的接受集合同源,避免"广告的值"与"校验的值"漂移。
+五档是**封闭集合**:worker spec 的 `tool_access` 只接受 `ProfileByName` 可解析的这五个名字,不开放自定义 profile。`ProfileNames()` 渲染 `spawn_worker` 的 schema enum,与 `ProfileByName` 的接受集合同源,避免"广告的值"与"校验的值"漂移。
 
 ### 能力 → 工具映射
 
@@ -164,7 +166,7 @@ flowchart TD
 每个代理每轮看到的系统级背景分层叠加,以"额外 Source"形式注入 vage ContextBuilder 管道,所有代理统一处理,无需每个 Factory 自写注入逻辑:
 
 ```
-代理基础系统提示（含 VV.md 项目级提示，经 AppendProjectInstructions 附加）
+代理基础系统提示（+ Environment 运行时事实块 + 项目级提示，经 ComposeSystemPrompt 依次附加）
   + 持久化记忆（仅 Coder，见 AGENTS-R10）
   + Plan Workspace 视图（启用时，经 ExtraContextSources）
   + Session Tree 视图（启用时；可被 auto-enable 门控延后激活）
@@ -174,7 +176,7 @@ flowchart TD
 
 ## Primary 的特殊装配路径
 
-Primary 复用本领域的 ToolProfile 模型与描述符机制,但不走 `Dispatchable()` 自动循环——装配中心单独处理(`Dispatchable=false`,故不出现在 HTTP 子端点 / `delegate_to_*`,只能经 Dispatcher 进入)。其 profile 由"是否允许 Primary 直接跑 bash"开关决定(默认 ReadOnly,开 bash 切 Review),并在常规工具集上额外挂载委派工具家族、规划工具、Plan Workspace / Session Tree 工具、ask_user、todo_write。构造细节与递归阀门 / Fallback Primary 见 [orchestration](../orchestration/)。
+Primary 复用本领域的 ToolProfile 模型与描述符机制,但不走 `Dispatchable()` 自动循环——装配中心单独处理(`Dispatchable=false`,故不出现在 HTTP 子端点 / `delegate_to_*`,只能经 Dispatcher 进入)。其 profile 在所有执行模型下固定为 Full(read/search + write/edit + bash;`primary_allow_bash` 已降为惰性兼容键),并在常规工具集上额外挂载委派工具家族、规划工具、Plan Workspace / Session Tree 工具、ask_user、todo_write。构造细节与递归阀门 / Fallback Primary 见 [orchestration](../orchestration/)。
 
 ## 演化策略
 

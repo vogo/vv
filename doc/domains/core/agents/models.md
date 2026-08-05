@@ -47,16 +47,17 @@
 | Execute | bash(受超时 / 路径 guardian 约束) |
 | Search | glob + grep |
 
-**四档预设**:
+**五档预设**:
 
 | Profile | Capabilities | 典型代理 |
 |---------|-------------|---------|
-| Full | Read + Write + Execute + Search | Coder |
+| Full | Read + Write + Execute + Search | Coder / Primary |
 | Review | Read + Search + Execute | Reviewer |
-| ReadOnly | Read + Search | Researcher / Primary |
+| Edit | Read + Search + Write | 需要改文件但不需要 shell 的派生 worker |
+| ReadOnly | Read + Search | Researcher |
 | None | ∅ | Planner / Fallback Primary |
 
-**关系**:被 AgentDescriptor 引用,或被 worker spec 的 `tool_access` 直接引用;`BuildRegistry` 把它翻译成一个 `tool.Registry`(具体工具映射见 [tools](../tools/) 与 [design.md](design.md))。四档为封闭集合:`ProfileByName` 是唯一解析入口,`ProfileNames()` 是唯一广告入口。
+**关系**:被 AgentDescriptor 引用,或被 worker spec 的 `tool_access` 直接引用;`BuildRegistry` 把它翻译成一个 `tool.Registry`(具体工具映射见 [tools](../tools/) 与 [design.md](design.md))。五档为封闭集合:`ProfileByName` 是唯一解析入口,`ProfileNames()` 是唯一广告入口。
 
 ## Skill
 
@@ -97,7 +98,8 @@
 | MaxParallelToolCalls | number | 单条 assistant 消息内并发工具上限(0=默认,≤1=串行) |
 | PromptCaching | enum(bool) | 是否发 prompt-cache 断点提示 |
 | Memory / PersistentMemory | reference | 会话记忆;持久记忆**仅 Coder** 注入(AGENTS-R10) |
-| ProjectInstructions | text | VV.md 内容,经 `AppendProjectInstructions` 附加到系统提示尾 |
+| Environment | text | 运行时事实块(工作目录、平台、日期、git、项目提示文件名、迭代预算),经 `AppendEnvironment` 插入基础提示与项目级提示之间 |
+| ProjectInstructions | text | 项目级提示文件内容(`VV.md`/`AGENTS.md`/`CLAUDE.md` 首个命中),经 `AppendProjectInstructions` 附加到系统提示尾 |
 | ToolResultGuards | reference 集合 | 工具结果注入扫描器(nil=未启用) |
 | HookManager | reference | 事件总线(nil=不分发,零成本) |
 | ExtraContextSources | reference 集合 | 追加到 ContextBuilder 的 Source(Plan Workspace / Session Tree 视图) |

@@ -55,7 +55,7 @@ func RegisterCoder(reg *registries.Registry) {
 		SystemPrompt: CoderSystemPrompt,
 		Dispatchable: true,
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
-			basePrompt := AppendProjectInstructions(CoderSystemPrompt, opts.ProjectInstructions)
+			basePrompt := ComposeSystemPrompt(CoderSystemPrompt, opts.Environment, opts.ProjectInstructions)
 
 			// Build system prompt: use persistent memory prompt if available.
 			var sysPrompt prompt.PromptTemplate

@@ -13,7 +13,7 @@
 | `llm` | reference | LLM provider / model / api_key / base_url。api_key 必填(CONFIG-R4),env 优先(不落盘)。provider 未定时回退读取标准 `ANTHROPIC_*` 环境变量推断 anthropic(优先级 YAML ＞ `VV_LLM_*` ＞ `ANTHROPIC_*`,详见 design.md §1.1)。 |
 | `server` | text | HTTP 监听地址(默认 `:8080`)。仅 http 模式生效。 |
 | `tools` | group | 工具行为:bash 超时(默认 120s)、bash 危险命令分类器(`bash_rules`:enabled + 用户黑/红/白名单正则)、tool_output 截断等。 |
-| `agents` | number | 各代理 ReAct 上限与 token 预算(coder/researcher/reviewer 的 max_iterations、token_budget)。 |
+| `agents` | number | 各代理 ReAct 上限与 token 预算。`max_iterations`(默认 10)用于专家代理与派生 worker;`primary_max_iterations`(默认 24)单独给 Primary——它在一次运行内要走完探查 → 执行/委派 → 汇报,按专家档配额会在探查中途撞顶;两者取较大值生效,故调高全局上限不会反而收窄前门。env:`VV_AGENTS_MAX_ITERATIONS` / `VV_PRIMARY_MAX_ITERATIONS`。 |
 | `mode` | enum (run mode) | cli / http / mcp,单进程单选(CONFIG-R8);默认 cli。 |
 | `cli` | enum | CLI 专属:`permission_mode`(默认 default;取代废弃 `confirm_tools`,CONFIG-R9)。 |
 | `memory` | group | 三层记忆:持久化 backend(file/sqlite,枚举校验)、memory_dir(默认 `~/.vv/memory/`)、session_memory token 预算。默认开。 |
@@ -29,7 +29,9 @@
 | `session_tree` | boolean+ | Session Tree;默认关,需 `session.enabled=true`(CONFIG-R3),否则启动报错。 |
 | `vector` | group | 向量召回子系统;默认关,失败可软降级(soft-fail)。 |
 | `debug` | boolean | 详细 LLM/工具 I/O 调试记录;默认 false。CLI > VV_DEBUG > YAML(DEBUG-01)。false 时零行为副作用(DEBUG-02)。 |
-| `ProjectInstructions` | text(运行时) | 从 `<workdir>/VV.md` 读入,附加到各代理系统提示尾;`yaml:"-"`,不序列化。 |
+| `project_instructions_files` | list(text) | 覆盖项目级提示的候选文件名与顺序;空则用默认链 `VV.md` → `AGENTS.md` → `CLAUDE.md`。 |
+| `ProjectInstructions` | text(运行时) | 从首个命中的候选文件读入,附加到各代理系统提示尾;`yaml:"-"`,不序列化。 |
+| `ProjectInstructionsFile` | text(运行时) | 命中的文件基名(未命中为空);进 Environment 段与启动日志,使"未加载"可见而非静默。`yaml:"-"`。 |
 
 **关系**(详见 model-configuration「Relationships」):被 Agent / Tool / CLI Session / Memory / Session Memory / Cost Tracker / Budget 等使用;`model_pricing` 含 Model Pricing 条目;`budget` 含 Budget Config。
 

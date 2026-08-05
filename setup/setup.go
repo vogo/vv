@@ -236,6 +236,7 @@ func New(
 			PromptCaching:        cfg.Agents.EffectivePromptCaching(),
 			Memory:               memMgr,
 			PersistentMemory:     persistentMem,
+			Environment:          buildEnvironment(cfg, cfg.Agents.MaxIterations),
 			ProjectInstructions:  cfg.ProjectInstructions,
 			ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
 			HookManager:          getHookManager(opts),
@@ -307,6 +308,7 @@ func New(
 		dispatches.WithRunTokenBudget(cfg.Agents.RunTokenBudget),
 		dispatches.WithMaxRecursionDepth(maxRecursionDepth),
 		dispatches.WithProjectInstructions(cfg.ProjectInstructions),
+		dispatches.WithEnvironment(buildEnvironment(cfg, cfg.Agents.MaxIterations)),
 
 		// Capability dimensions available to derived workers (spawn_worker
 		// and DAG dynamic nodes share this configuration).
@@ -506,15 +508,18 @@ func buildPrimaryAssistant(
 		return nil, fmt.Errorf("primary: descriptor missing after RegisterPrimary")
 	}
 
+	primaryMaxIterations := cfg.Agents.EffectivePrimaryMaxIterations()
+
 	return desc.Factory(registries.FactoryOptions{
 		LLM:                  llm,
 		Model:                cfg.LLM.Model,
 		ToolRegistry:         finalToolReg,
-		MaxIterations:        cfg.Agents.MaxIterations,
+		MaxIterations:        primaryMaxIterations,
 		RunTokenBudget:       cfg.Agents.RunTokenBudget,
 		MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
 		PromptCaching:        cfg.Agents.EffectivePromptCaching(),
 		Memory:               memMgr,
+		Environment:          buildEnvironment(cfg, primaryMaxIterations),
 		ProjectInstructions:  cfg.ProjectInstructions,
 		ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
 		HookManager:          getHookManager(opts),
@@ -601,28 +606,25 @@ func toolRegistryWrapper(cfg *configs.Config, opts *Options) func(*tool.Registry
 	}
 }
 
-// primaryToolProfile picks the capability profile that the Primary
-// Assistant's toolset is built from. Delegated defaults to ProfileReadOnly
-// (read/glob/grep), matching the researcher agent's wiring so the
-// path-guard plumbing stays consistent. When
-// orchestrate.primary_allow_bash is set we promote to
-// ProfileReview, the same capability set reviewer uses
-// (read/glob/grep + bash), so single-line shell tasks like
-// `calc`/`echo`/`ls` finish inline without a delegate_to_coder round-trip.
-// Hybrid and direct use ProfileFull so Primary can keep inspect, edit, and
-// verification in one context.
-// The fallback Primary deliberately keeps no tools at all regardless of
-// this flag — see buildFallbackPrimary.
-func primaryToolProfile(cfg *configs.Config) registries.ToolProfile {
-	if cfg.Orchestrate.EffectiveExecutionModel() != configs.ExecutionModelDelegated {
-		return registries.ProfileFull
-	}
-
-	if cfg.Orchestrate.PrimaryAllowBash {
-		return registries.ProfileReview
-	}
-
-	return registries.ProfileReadOnly
+// primaryToolProfile returns the capability profile the Primary Assistant's
+// toolset is built from: ProfileFull (read/glob/grep + write/edit + bash) in
+// every execution model.
+//
+// The front door receives every "create this file" / "fix this line" /
+// "run the tests" request. An agent that can only read has no way to satisfy
+// one: it either burns its whole iteration budget investigating and returns
+// nothing, or routes a single-file edit through a full delegation round-trip.
+// Mutations stay bounded by the layers that actually enforce boundaries — path
+// guard, bash path guardian, and the permission confirmation chain — not by
+// withholding the tool.
+//
+// orchestrate.primary_allow_bash is therefore no longer a gate; it is retained
+// as an accepted-but-inert key so existing configs keep loading.
+//
+// The fallback (depth-exceeded) Primary deliberately stays tool-free — see
+// buildFallbackPrimary.
+func primaryToolProfile(_ *configs.Config) registries.ToolProfile {
+	return registries.ProfileFull
 }
 
 // primaryDelegateIDs keeps specialist delegation available in hybrid mode,
@@ -671,9 +673,12 @@ func buildFallbackPrimary(
 		MaxParallelToolCalls: cfg.Agents.MaxParallelToolCalls,
 		PromptCaching:        cfg.Agents.EffectivePromptCaching(),
 		Memory:               memMgr,
-		ProjectInstructions:  cfg.ProjectInstructions,
-		ToolResultGuards:     buildToolResultGuards(cfg.Security.ToolResultInjection),
-		HookManager:          getHookManager(opts),
+		// No iteration budget line: the fallback Primary has no tools and
+		// runs exactly one turn, so a budget hint would be noise.
+		Environment:         buildEnvironment(cfg, 0),
+		ProjectInstructions: cfg.ProjectInstructions,
+		ToolResultGuards:    buildToolResultGuards(cfg.Security.ToolResultInjection),
+		HookManager:         getHookManager(opts),
 		// Fallback Primary still benefits from a read-only Plan Workspace
 		// view: it cannot write (no plan_update tool registered), but it
 		// can refer to the current plan when crafting its inline reply.
@@ -870,9 +875,28 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		cfg.Tools.BashWorkingDir = wd
 	}
 
-	// Load project instructions from VV.md.
+	// Load project instructions from the first matching candidate file
+	// (VV.md → AGENTS.md → CLAUDE.md, unless overridden). The hit is logged:
+	// a project whose rules never reach the system prompt is otherwise
+	// indistinguishable from an agent that ignores them.
 	if cfg.ProjectInstructions == "" {
-		cfg.ProjectInstructions = configs.LoadProjectInstructions(cfg.Tools.BashWorkingDir)
+		content, name := configs.LoadProjectInstructionsFrom(
+			cfg.Tools.BashWorkingDir,
+			cfg.ProjectInstructionsFiles,
+		)
+		cfg.ProjectInstructions = content
+		cfg.ProjectInstructionsFile = name
+	}
+
+	if cfg.ProjectInstructionsFile != "" {
+		slog.Info("vv: project instructions loaded",
+			"file", cfg.ProjectInstructionsFile,
+			"dir", cfg.Tools.BashWorkingDir,
+			"bytes", len(cfg.ProjectInstructions))
+	} else {
+		slog.Debug("vv: no project instructions file found",
+			"dir", cfg.Tools.BashWorkingDir,
+			"candidates", configs.DefaultProjectInstructionsFiles)
 	}
 
 	// Normalize opts once so every installer can populate it in place without

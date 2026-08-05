@@ -101,7 +101,7 @@ func RegisterPlanner(reg *registries.Registry) {
 			// The system prompt should be set by the caller via opts or
 			// computed from the registries. We use the fallback PlannerSystemPrompt
 			// as a sensible default.
-			sysPrompt := AppendProjectInstructions(PlannerSystemPrompt, opts.ProjectInstructions)
+			sysPrompt := ComposeSystemPrompt(PlannerSystemPrompt, opts.Environment, opts.ProjectInstructions)
 
 			taskOpts := []taskagent.Option{
 				taskagent.WithCaller(opts.LLM),

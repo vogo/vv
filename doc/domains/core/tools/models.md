@@ -25,7 +25,7 @@
 | name | text | 是 | full / review / read-only / none |
 | capabilities | enum 集合 | 是 | {read, write, execute, search} 的子集 |
 
-四档预设及能力→工具映射见 [design.md](design.md) § 能力分级。
+五档预设及能力→工具映射见 [design.md](design.md) § 能力分级。
 
 **关系**:被 AgentDescriptor(agents 领域)持有;`ProfileByName` 供派生 worker(orchestration 领域)按 `tool_access` 解析;`BuildRegistry` 据此产出 `tool.Registry`。
 

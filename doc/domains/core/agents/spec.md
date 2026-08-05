@@ -6,7 +6,7 @@ agents 领域定义 vv 的**能力维度与预制组合**:被前门(Primary)派�
 
 coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默认 profile + 默认提示),它们仍然可委派、仍是启动期注册的类型,但**不再是扩展能力的唯一手段**:新任务形态(如 code-review)只需声明维度组合,由 orchestration 的 worker 派生机制装配。
 
-**范围**:能力维度(ToolProfile / Skill / ContextSource)的模型与注册表、预制组合的职责边界与工具能力面、ToolProfile 四档分级、代理描述符(AgentDescriptor)与注册表所建模的不变量。
+**范围**:能力维度(ToolProfile / Skill / ContextSource)的模型与注册表、预制组合的职责边界与工具能力面、ToolProfile 五档分级、代理描述符(AgentDescriptor)与注册表所建模的不变量。
 
 **边界**:本领域**不含** Primary / Dispatcher 编排、递归阀门、DAG 规划与执行(归 [orchestration](../orchestration/))。它只提供编排所消费的专家代理与 profile 模型。具体工具实体与护栏归 [tools](../tools/);代理的实例化时机与依赖来自 [configuration](../configuration/) 的装配中心。
 
@@ -18,7 +18,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 |------|------|------|
 | AgentDescriptor | 单一代理类型的声明式元数据:id / 显示名 / 描述 / ToolProfile / 系统提示 / 工厂函数 / 是否 dispatchable。注册表的元素。 | [models.md](models.md) |
 | AgentType | 代理底层实现类型枚举:`task`(ReAct 循环,带可选工具)/ `orchestrator`(任务理解与分发,归 orchestration) | [models.md](models.md) |
-| ToolProfile | 命名的能力集合(Capabilities ⊆ {Read, Write, Execute, Search});四档预设 Full / Review / ReadOnly / None | [models.md](models.md)、[design.md](design.md) |
+| ToolProfile | 命名的能力集合(Capabilities ⊆ {Read, Write, Execute, Search});五档预设 Full / Review / Edit / ReadOnly / None | [models.md](models.md)、[design.md](design.md) |
 | Skill | 命名的**专项指令片段**(id / 描述 / instructions),追加到 worker 系统提示;**不授予任何工具、不绕过权限**。内置 `review` / `research`。 | [models.md](models.md) |
 | ContextSource | 命名的**只读上下文来源**(id / 描述 / provider),渲染为 `## Context: <id> (read-only)` 块注入 worker 输入。内置 `diff`(工作区 vs HEAD)。 | [models.md](models.md) |
 | 预制组合(coder / researcher / reviewer) | 三个具名维度组合,全部 dispatchable 的 task 代理 | 本文「预制组合表」、[models.md](models.md) |
@@ -54,7 +54,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 | AGENTS-R12 | ContextSource 只读且 allow-list | 上下文只能来自已注册的 ContextSource;provider 是纯读取器,渲染为显式标注的只读块。未注册来源在构造期报错,provider 失败则中止派生——**绝不**让 worker 在"以为读到了上下文"的状态下运行。 |
 | AGENTS-R2 | Researcher 无写无 bash | researcher 预制组合 = ProfileReadOnly(read + search),**绝无** write / edit / bash。它读到的代码不能改,发现的问题只能反馈。 |
 | AGENTS-R3 | Reviewer = Review 能力档 | reviewer 预制组合 = ProfileReview(read + search + execute),可跑测试/lint,但**无写工具**;它的输出是"建议下一步",由 Primary 决定是否交给具备写能力的执行者。 |
-| AGENTS-R4 | 写权限只来自 Full | write / edit **只**由 ProfileFull 授予。在 dispatchable 预制组合中仅 coder 默认持有 Full;派生 worker 的写能力同样只能来自显式声明的 `tool_access: full`,与它选哪个 base runtime 无关——runtime 决定行为风格,profile 决定权限。Primary 是否持有 Full 工具由 orchestration execution model 决定。 |
+| AGENTS-R4 | 写权限只来自带 Write 能力的档 | write / edit **只**由含 Write 能力的档授予,即 ProfileFull 与 ProfileEdit。在 dispatchable 预制组合中仅 coder 默认持有 Full;派生 worker 的写能力同样只能来自显式声明的 `tool_access: full` 或 `edit`,与它选哪个 base runtime 无关——runtime 决定行为风格,profile 决定权限。Primary 在所有 execution model 下持有 Full(见 orchestration ORCH-R2)。 |
 | AGENTS-R5 | ProfileNone 代理无工具 | ProfileNone 代理(`planner`、Fallback Primary)LLM-only,不挂任何工具(含 `ask_user` / `todo_write`)。闲聊由 Primary 同样以无工具方式内联直答。 |
 | AGENTS-R6 | 每个 dispatchable 对应一个委派工具 | 注册表中每个 `Dispatchable=true` 的描述符,在 Primary 工具集里自动获得一个 `delegate_to_<id>` 工具,并被 PlannerAgentList 汇入"可委派目标列表"。非 dispatchable 代理(如 planner)永不出现在委派工具家族、HTTP 子端点或 MCP 工具中。 |
 | AGENTS-R7 | 描述符声明一次、多处消费 | 一个新代理只需写一个 AgentDescriptor + 一个 Factory,即被工厂装配、Primary 提示拼接、委派工具家族、HTTP 子路由、MCP 暴露五条路径自动看见(具体下游见 design.md)。 |
@@ -62,7 +62,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 | AGENTS-R9 | ID 唯一 + 启动期校验 | 注册表 ID 冲突在启动期 panic,不允许运行期出现"半就绪"的代理表。 |
 | AGENTS-R10 | 持久记忆仅 Coder | 持久化记忆(PersistentMemory)只注入 coder 的系统提示;其余专家不读持久记忆(对应代码中仅 coder 使用 `NewPersistentMemoryPrompt`)。 |
 
-> 注:能力 → 具体工具的映射表(Read 含公网抓取等)、ToolProfile 四档定义为可从代码恢复的细节,见 [design.md](design.md)「能力 → 工具映射」与 [tools](../tools/) 领域,此处不复述。
+> 注:能力 → 具体工具的映射表(Read 含公网抓取等)、ToolProfile 五档定义为可从代码恢复的细节,见 [design.md](design.md)「能力 → 工具映射」与 [tools](../tools/) 领域,此处不复述。
 
 ## States & transitions
 
@@ -76,7 +76,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 
 | 协作领域 | 关系 |
 |----------|------|
-| [orchestration](../orchestration/) | 消费方:Primary 经 `delegate_to_<id>` 委派 dispatchable 专家;Dispatcher 持有子代理 map;Primary 复用本领域 ToolProfile 模型(默认 ReadOnly,开 bash 切 Review)。 |
+| [orchestration](../orchestration/) | 消费方:Primary 经 `delegate_to_<id>` 委派 dispatchable 专家;Dispatcher 持有子代理 map;Primary 复用本领域 ToolProfile 模型(所有执行模型下均为 Full)。 |
 | [configuration](../configuration/) | 上游:装配中心创建注册表、注册描述符、按 ToolProfile 构造工具集、提供 Factory 全部依赖(LLM/记忆/护栏/Guard/Hook/IterationStore)。 |
 | [tools](../tools/) | 上游:Capability 翻译为具体工具;`ask_user` / `todo_write` 由装配阶段注入工具集;注入 Guard(ToolResultGuards)挂到代理。 |
 | [http-api](../http-api/) | 下游:每个 dispatchable 代理注册为独立子端点。 |
@@ -84,8 +84,8 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 
 ## Non-goals
 
-- **用户不能定义自定义代理类型**:代理类型集合(coder/researcher/reviewer + 内部 planner)、skill 集合与 context source 集合都是启动期内置常量,**不是运行期可配置项**。运行期"特化"只能通过 orchestration 的 worker 派生(`spawn_worker` 或 DAG 动态节点:选 base_type + 维度组合),且仍受四档 ToolProfile 与已注册 skill / context source 约束——见 orchestration 领域,不在本领域范围。
-- **不开放自定义 Profile**:Full / Review / ReadOnly / None 四档名称与能力含义固定,不支持用户新增或改写能力档。
+- **用户不能定义自定义代理类型**:代理类型集合(coder/researcher/reviewer + 内部 planner)、skill 集合与 context source 集合都是启动期内置常量,**不是运行期可配置项**。运行期"特化"只能通过 orchestration 的 worker 派生(`spawn_worker` 或 DAG 动态节点:选 base_type + 维度组合),且仍受五档 ToolProfile 与已注册 skill / context source 约束——见 orchestration 领域,不在本领域范围。
+- **不开放自定义 Profile**:Full / Review / Edit / ReadOnly / None 五档名称与能力含义固定,不支持用户新增或改写能力档。
 - 不做代理、skill、context source 的运行期热插拔/卸载(三个注册表均每次启动构造一次,启动后只读)。
 - 不实现 ReAct 循环、上下文构建、工具执行、记忆读写本身(均来自 vage 或归各自领域)。
 - 不含 Primary/Fallback Primary 的构造与递归阀门(归 orchestration)。
@@ -95,7 +95,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 
 - **Researcher 绝不写文件、绝不跑 bash**:即便任务隐含"顺手修一下",researcher 预制组合也只能产出"建议",mutation 必须交给持 Full 的执行者(违反则破坏单一写者与能力鸿沟)。
 - **Reviewer 绝不写文件**:可跑测试发现问题,但不能直接改。
-- **ReadOnly / Review / None 三档绝不出现 write/edit**——即使临时、即使"只改一行",即使 skill 或 system prompt 这么要求。
+- **ReadOnly / Review / None 三档绝不出现 write/edit**——即使临时、即使"只改一行",即使 skill 或 system prompt 这么要求(写工具只能来自 Full 或 Edit 档)。
 - **skill 绝不隐式带工具**:`review` skill 加到任何组合上,都不得改变该组合的工具面。
 - **非 dispatchable 代理(planner)绝不出现在** `delegate_to_*`、HTTP 子端点或 MCP 工具列表中。
 - **绝不**在调用点用 if 分支临时给某执行者加发/减工具——能力变更必须经 ToolProfile(描述符声明或 spec 显式声明),否则"某执行者有什么权限"将无法一句话陈述。

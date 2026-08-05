@@ -78,6 +78,11 @@ type Dispatcher struct {
 
 	projectInstructions string
 
+	// environment is the runtime environment block (working directory,
+	// platform, date, iteration budget) appended to a derived worker's system
+	// prompt, matching what registered sub-agents receive via FactoryOptions.
+	environment string
+
 	maxRecursionDepth int
 
 	// primaryAssistant carries the unified Primary; required now — Run and
@@ -276,6 +281,14 @@ func WithMaxRecursionDepth(n int) Option {
 func WithProjectInstructions(instructions string) Option {
 	return func(d *Dispatcher) {
 		d.projectInstructions = instructions
+	}
+}
+
+// WithEnvironment sets the runtime environment block appended to the system
+// prompt of every derived worker. Empty leaves worker prompts unchanged.
+func WithEnvironment(env string) Option {
+	return func(d *Dispatcher) {
+		d.environment = env
 	}
 }
 

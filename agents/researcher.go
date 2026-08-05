@@ -52,7 +52,7 @@ func RegisterResearcher(reg *registries.Registry) {
 		SystemPrompt: ResearcherSystemPrompt,
 		Dispatchable: true,
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
-			sysPrompt := AppendProjectInstructions(ResearcherSystemPrompt, opts.ProjectInstructions)
+			sysPrompt := ComposeSystemPrompt(ResearcherSystemPrompt, opts.Environment, opts.ProjectInstructions)
 
 			var taskOpts []taskagent.Option
 

@@ -33,6 +33,7 @@ cli 是 vv 的**默认形态**:一个常驻的交互式终端会话,用户在此
 | **CLI-R7** | 确认对话框无超时 | 工具确认对话框(Allow/Allow Always/Deny)**永不超时**,无限等待用户输入;Ctrl+C 视同 Deny。ask_user 对话框则**有** `ask_user_timeout`,超时返回降级消息。两者超时策略相反。 | CLICONF-03, ASKUSR-03/07 |
 | **CLI-R8** | 命令前缀分流 | 以 `/` 开头的输入视为对 vv 进程的**元命令**(内建命令),本地处理,不下发给代理;其余为代理消息。元命令与代理能力解耦,使代理提示词无需处理 UI 控制。 | CLIMSG-01 |
 | **CLI-R9** | 输入互斥 | 代理处理期间(processing/awaiting_*)输入区禁用,防止并发请求;流结束回 idle 才重新启用。 | CLIMSG-05 |
+| **CLI-R10** | 结束行必须如实 | 轮次结束行由顶层 `AgentEnd` 的 stop reason 决定:`complete`(或未携带 stop reason 的非 taskagent 路径)渲染 `task complete`;`max_iterations_exceeded` / `token_budget_exhausted` 渲染 `task incomplete — …` 并指出可调的上限。**不得** 对被截断的运行渲染完成行——把失败显示成成功比不显示更糟。子代理的 `AgentEnd`(嵌套深度 > 0)不参与判定。 | ORCH-R14 |
 
 ## States & transitions
 

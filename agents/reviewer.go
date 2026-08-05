@@ -54,7 +54,7 @@ func RegisterReviewer(reg *registries.Registry) {
 		SystemPrompt: ReviewerSystemPrompt,
 		Dispatchable: true,
 		Factory: func(opts registries.FactoryOptions) (agent.Agent, error) {
-			sysPrompt := AppendProjectInstructions(ReviewerSystemPrompt, opts.ProjectInstructions)
+			sysPrompt := ComposeSystemPrompt(ReviewerSystemPrompt, opts.Environment, opts.ProjectInstructions)
 
 			var taskOpts []taskagent.Option
 

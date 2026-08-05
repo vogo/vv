@@ -250,6 +250,37 @@ func renderTaskComplete(stats execStats) string {
 	return sb.String()
 }
 
+// renderTaskEnd renders the task-level end line for the given stop reason.
+// Only schema.StopReasonComplete (and an absent reason, which every
+// non-taskagent path leaves empty) counts as completion; a run cut short by
+// its iteration or token ceiling says so, and names the knob that raises it.
+func renderTaskEnd(stop schema.StopReason, stats execStats) string {
+	if stop == "" || stop == schema.StopReasonComplete {
+		return renderTaskComplete(stats)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(errorStyle.Render(bullet))
+	sb.WriteString(errorStyle.Render("task incomplete — " + stopReasonHint(stop)))
+	sb.WriteString("  ")
+	sb.WriteString(statsStyle.Render(buildStatsLine(stats)))
+
+	return sb.String()
+}
+
+// stopReasonHint turns a stop reason into a line that says what ran out and
+// what to do about it.
+func stopReasonHint(stop schema.StopReason) string {
+	switch stop {
+	case schema.StopReasonMaxIterations:
+		return "tool-iteration budget exhausted (raise agents.primary_max_iterations / VV_PRIMARY_MAX_ITERATIONS, or send a narrower request)"
+	case schema.StopReasonBudgetExhausted:
+		return "token budget exhausted (raise agents.run_token_budget, or send a narrower request)"
+	default:
+		return "stop=" + string(stop)
+	}
+}
+
 // renderPhaseSummary renders a phase summary (e.g., plan overview) with dim styling.
 func renderPhaseSummary(summary string, depth int) string {
 	return indentBlock(dimStyle.Render(summary), depth)

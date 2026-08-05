@@ -57,7 +57,13 @@ var (
 	ProfileFull     = ToolProfile{"full", []ToolCapability{CapRead, CapWrite, CapExecute, CapSearch}}
 	ProfileReadOnly = ToolProfile{"read-only", []ToolCapability{CapRead, CapSearch}}
 	ProfileReview   = ToolProfile{"review", []ToolCapability{CapRead, CapSearch, CapExecute}}
-	ProfileNone     = ToolProfile{"none", nil}
+	// ProfileEdit is "full minus shell": file inspection, search, and
+	// write/edit, without bash. It is what the Primary Assistant runs under in
+	// delegated mode — an agent that can be asked to create or change a file
+	// must be able to actually do it, while shell execution stays behind the
+	// explicit primary_allow_bash opt-in.
+	ProfileEdit = ToolProfile{"edit", []ToolCapability{CapRead, CapSearch, CapWrite}}
+	ProfileNone = ToolProfile{"none", nil}
 )
 
 // Has returns true if the profile includes the given capability.
@@ -75,6 +81,8 @@ func ProfileByName(name string) (ToolProfile, bool) {
 		return ProfileReadOnly, true
 	case "review":
 		return ProfileReview, true
+	case "edit":
+		return ProfileEdit, true
 	case "none":
 		return ProfileNone, true
 	default:
@@ -86,7 +94,7 @@ func ProfileByName(name string) (ToolProfile, bool) {
 // order. Used to render tool schemas so the advertised values and the values
 // ProfileByName accepts stay in lockstep.
 func ProfileNames() []string {
-	return []string{ProfileFull.Name, ProfileReview.Name, ProfileReadOnly.Name, ProfileNone.Name}
+	return []string{ProfileFull.Name, ProfileReview.Name, ProfileEdit.Name, ProfileReadOnly.Name, ProfileNone.Name}
 }
 
 // BuildRegistry constructs a new tool.Registry containing only the tools

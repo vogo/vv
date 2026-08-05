@@ -6,7 +6,7 @@
 
 tools 领域决定 **每个代理实际能调用哪些工具,以及这些调用被约束在什么边界内**。vv 不自实现工具实体——所有工具来自 vage 的 `tool/*` 子包;本领域的业务价值在三件事:
 
-1. **能力分级(ToolProfile)**:用四档预设把"代理能用哪些能力"声明化,代理代码不再硬编码工具名单。
+1. **能力分级(ToolProfile)**:用五档预设把"代理能用哪些能力"声明化,代理代码不再硬编码工具名单。
 2. **装饰链装配**:为每个代理的工具注册表统一叠加权限拦截、长度截断、调试记录,顺序固定。
 3. **安全护栏**:在工具构造期一次性写入工作区隔离、bash 风险分级、工具结果注入扫描、MCP 凭据过滤四道独立防线。
 
@@ -19,7 +19,7 @@ tools 领域决定 **每个代理实际能调用哪些工具,以及这些调用�
 | 实体 | 业务定位 |
 |------|---------|
 | **Tool / ToolDef** | 注册到工具注册表的一个可调用能力,带 `name`、`description`、JSON Schema `parameters`、`source`、`read_only`。`read_only` 决定其在 plan 模式下是否可用。 |
-| **ToolProfile** | 一组具名能力(Capabilities ⊆ {read, write, execute, search})。四档预设:Full / Review / ReadOnly / None。代理通过持有一个 profile 间接获得工具集。 |
+| **ToolProfile** | 一组具名能力(Capabilities ⊆ {read, write, execute, search})。五档预设:Full / Review / Edit / ReadOnly / None。代理通过持有一个 profile 间接获得工具集。 |
 | **PathGuard / PathGuardian** | 工作区隔离的两个执行件:`PathGuard` 约束文件类工具(read/write/edit/glob/grep);`PathGuardian` 约束 bash 路径参数并做硬阻断。 |
 | **注入 Guard(ToolResultGuard)** | 间接提示注入防御件,扫描工具返回文本,产出注入扫描结果(命中规则 + 严重度 + 动作)。 |
 | **凭据 Scanner(credscrub)** | MCP I/O 边界的凭据/敏感字段扫描件,产出凭据扫描结果(掩码预览 + 类型 + 动作)。 |

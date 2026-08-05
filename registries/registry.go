@@ -44,10 +44,14 @@ type FactoryOptions struct {
 	// PromptCaching controls emission of prompt-cache boundary hints on
 	// the system message and last tool definition. True by default at the
 	// vv layer; false opts out.
-	PromptCaching       bool
-	Memory              *memory.Manager
-	PersistentMemory    memory.Memory // for coder's persistent memory prompt; nil if not available
-	ProjectInstructions string        // content from VV.md; empty if no file
+	PromptCaching    bool
+	Memory           *memory.Manager
+	PersistentMemory memory.Memory // for coder's persistent memory prompt; nil if not available
+	// Environment is the runtime environment block (working directory,
+	// platform, date, iteration budget) appended to the system prompt ahead of
+	// the project instructions. Empty leaves the prompt unchanged.
+	Environment         string
+	ProjectInstructions string        // project instruction file content; empty if no file
 	ToolResultGuards    []guard.Guard // optional: scanners for tool-result injection; nil means not enabled
 	HookManager         *hook.Manager // optional: event bus for trace/observability hooks; nil disables dispatch
 	// ExtraContextSources are vage/context Sources appended to the

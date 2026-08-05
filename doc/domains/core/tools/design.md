@@ -22,16 +22,17 @@ vv 不自实现工具实体——全部来自 vage 的 `tool/<name>` 子包(`bas
 
 > AgentDescriptor / 注册表生命周期 / 下游消费者(委派工具、HTTP 路由、MCP 暴露)等属 agents 领域,不在此重复。
 
-四档预设(`ProfileFull/ProfileReview/ProfileReadOnly/ProfileNone`):
+五档预设(`ProfileFull/ProfileReview/ProfileEdit/ProfileReadOnly/ProfileNone`):
 
 | Profile | Capabilities | 典型代理 |
 |---------|-------------|---------|
-| Full | read + write + execute + search | Coder |
+| Full | read + write + execute + search | Coder / Primary |
 | Review | read + search + execute | Reviewer |
-| ReadOnly | read + search | Researcher / Primary(默认) |
+| Edit | read + search + write | 需要改文件但不需要 shell 的派生 worker |
+| ReadOnly | read + search | Researcher |
 | None | ∅ | Planner / Fallback Primary |
 
-四档是封闭集合,不开放自定义 profile。`ProfileByName` 把 `full/read-only/review/none` 字符串解析为预设,供 [orchestration](../orchestration/) 的派生 worker 使用;`ProfileNames()` 渲染 `spawn_worker` 的 schema enum,与解析入口同源。
+五档是封闭集合,不开放自定义 profile。`ProfileByName` 把 `full/review/edit/read-only/none` 字符串解析为预设,供 [orchestration](../orchestration/) 的派生 worker 使用;`ProfileNames()` 渲染 `spawn_worker` 的 schema enum,与解析入口同源。
 
 **能力 → 工具映射**(`registerCapabilityTools`,装配期翻译):
 

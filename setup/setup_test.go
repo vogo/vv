@@ -376,12 +376,14 @@ func TestNew_AgentNotFound(t *testing.T) {
 	}
 }
 
-// TestPrimaryToolProfile_AllowBashSwitch verifies the env contract:
-// orchestrate.primary_allow_bash gates whether the Primary Assistant's
-// tool registry is built from ProfileReadOnly (read/web_fetch/glob/grep) or the
-// promoted ProfileReview (read/web_fetch/glob/grep + bash). The fallback Primary
-// always stays tool-free regardless and is covered separately.
-func TestPrimaryToolProfile_AllowBashSwitch(t *testing.T) {
+// TestPrimaryToolProfile_AlwaysFull locks in the contract that the Primary
+// Assistant carries ProfileFull (read/web_fetch/glob/grep + write/edit + bash)
+// in every execution model, and that orchestrate.primary_allow_bash no longer
+// changes it. A read-only front door could not satisfy "create this file"
+// without a delegation round-trip — mutations are bounded by the path guard
+// and permission chain instead. The fallback Primary stays tool-free
+// regardless and is covered separately.
+func TestPrimaryToolProfile_AlwaysFull(t *testing.T) {
 	cases := []struct {
 		name        string
 		model       string
@@ -390,8 +392,8 @@ func TestPrimaryToolProfile_AllowBashSwitch(t *testing.T) {
 		wantBash    bool
 		wantWrite   bool
 	}{
-		{name: "delegated off → read-only", model: configs.ExecutionModelDelegated, wantProfile: "read-only"},
-		{name: "delegated bash → review", model: configs.ExecutionModelDelegated, allowBash: true, wantProfile: "review", wantBash: true},
+		{name: "delegated → full", model: configs.ExecutionModelDelegated, wantProfile: "full", wantBash: true, wantWrite: true},
+		{name: "delegated allow_bash inert → full", model: configs.ExecutionModelDelegated, allowBash: true, wantProfile: "full", wantBash: true, wantWrite: true},
 		{name: "hybrid → full", model: configs.ExecutionModelHybrid, wantProfile: "full", wantBash: true, wantWrite: true},
 		{name: "direct → full", model: configs.ExecutionModelDirect, wantProfile: "full", wantBash: true, wantWrite: true},
 	}

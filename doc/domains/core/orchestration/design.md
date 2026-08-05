@@ -58,7 +58,9 @@ Primary 是一个 ReAct 循环,也是**与用户直接协作的主执行 agent**
 - 长任务结构化记忆:`tree_add` / `tree_update` / `tree_promote` 等(启用 Session Tree 时)。
 - 一次澄清:`ask_user`(用户意图真的歧义且代价巨大时)。
 
-Primary 的工具能力由 `orchestrate.execution_model` 决定:`delegated`(默认)为 ReadOnly(可由 `primary_allow_bash` 提升到 Review),mutation 经 `delegate_to_coder`;`hybrid` 为 Full 且保留 coder 供隔离/并行;`direct` 为 Full 且不挂 `delegate_to_coder`。Fallback Primary 始终无工具。系统提示根据实际工具自适应:有 write/edit/bash 时直接完成普通 coding loop,无写工具时才强制委派(对应 [spec.md](spec.md) ORCH-R2)。
+Primary 在**所有** execution model 下都持有 Full 工具(read/glob/grep + write/edit + bash):前门承接每一条"建这个文件""改这一行""跑一下测试"的请求,只读的前门无法满足其中任何一条——要么把迭代预算烧在探查上最终交付为零,要么把单文件修改绕成一次完整委派往返。mutation 的边界由真正执行边界的层负责(permission 确认链 / path guard / bash guardian),不靠"不给工具"来实现。`orchestrate.primary_allow_bash` 因此降级为**惰性兼容键**(解析但不改变行为)。
+
+execution model 现在只决定**是否挂载 `delegate_to_coder`**:`delegated`(默认)与 `hybrid` 挂载,`direct` 不挂(仅保留 researcher / reviewer)。Fallback Primary 始终无工具。委派的理由随之改变——为隔离上下文、独立评审、专项研究而委派,而不是因为"这件事要改文件"(对应 [spec.md](spec.md) ORCH-R2)。
 
 ```yaml
 orchestrate:
@@ -81,6 +83,17 @@ orchestrate:
 流式请求中,`delegate_to_*` 从工具执行 `context` 取得当前 `Emitter`,优先调用专家的 `RunStream`:先发出 `SubAgentStart`,随后原样转发专家的 tool / text / usage 等事件,最后发出带聚合统计的 `SubAgentEnd`;同时从专家的 `AgentEnd.Message` 聚合工具结果供 Primary 折叠。非流式请求以及不实现 `StreamAgent` 的专家保留同步回退。工具处理器不得直接写 console,CLI / HTTP SSE 只消费同一条结构化事件流。
 
 子代理失败不会冒泡为 Run 错误,而是以 `IsError=true` 的工具结果返回。这让 Primary 能基于错误内容继续决策(例如改派另一个专家、改用直答、向用户澄清),而不是让整轮请求 abort(ORCH-R6)。
+
+## 预算耗尽的收尾
+
+ReAct 循环撞到迭代或 token 上限时,框架在最后一批工具调用之后直接返回:没有"最后一轮不给工具、强制产出"的机制,于是这一轮对用户而言 **只有工具噪音,没有回复**。Dispatcher 因此在两条 Primary 入口都做收尾(ORCH-R14):
+
+- **流式**:用一个观察器旁路记录中继事件(stop reason、工具调用轨迹、是否出现过正文),事件流本身原样透传;运行结束且 stop reason 属"预算耗尽"类时,追加收尾正文与一条携带 **原 stop reason** 的 `AgentEnd`。
+- **同步**:检测 `RunResponse.StopReason`,把收尾正文追加为一条 assistant 消息,`StopReason` 保持不变。
+
+收尾复用 **Fallback Primary**(无工具、单轮):这一轮已经证明它在预算内完不成,再给工具只会重启烧光预算的那个循环。收尾提示带上工具轨迹,要求回答"已查明什么 / 还差什么 / 下一步",且明确禁止编造。收尾运行以 run tag 落到 `subagents/`,不进入 `--resume` 恢复时间线。
+
+stop reason 一路保留到 UI:CLI 对非 `complete` 的结束渲染 `task incomplete — …` 并指出该调哪个上限,不再对截断的运行打印 `task complete`。
 
 ## 规划的语义
 

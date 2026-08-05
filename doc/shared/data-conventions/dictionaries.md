@@ -6,7 +6,7 @@
 |------|---------|---------|---------|
 | Agent Type | task / orchestrator | agents, orchestration | `dictionary-agent-type.md` |
 | Tool Source | 工具来源(内建 / MCP …) | tools | `dictionary-tool-source.md` |
-| Tool Access Level | 动态子代理工具级别:full / read-only / review / none(对应 ToolProfile) | agents, orchestration | `dictionary-tool-access-level.md` |
+| Tool Access Level | 动态子代理工具级别:full / review / edit / read-only / none(对应 ToolProfile) | agents, orchestration | `dictionary-tool-access-level.md` |
 | Bash Risk Tier | Safe / Caution / Dangerous / Blocked | tools | `dictionary-bash-risk-tier.md` |
 | Tool-Result Injection Action | log / rewrite / block | tools | `dictionary-tool-result-injection-action.md` |
 | Permission Mode | default / accept-edits / auto / plan | cli | `dictionary-permission-mode.md` |

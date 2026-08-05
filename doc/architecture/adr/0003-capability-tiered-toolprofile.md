@@ -40,6 +40,13 @@
 - 代码:禁止在调用点用 if 分支临时给代理加/减工具;能力变更必须经描述符的 ToolProfile。
 - 测试:每个 profile 产出的工具集需断言正确(如 researcher 无 write/bash)。
 
+## Amendments
+
+本 ADR 的核心决策(能力分级、封闭集合、调用点不硬编码工具)不变,预设集合与 Primary 的取档后续调整过:
+
+1. **四档 → 五档**:新增 `Edit`(Read + Search + Write,无 shell),供"要改文件但不需要跑命令"的派生 worker 使用。`ProfileByName` 现接受 `full/review/edit/read-only/none`。
+2. **Primary 改为 Full**:原表把 Primary 列在 ReadOnly。实践证明只读前门无法完成它被要求的产出——"建个 README"这类请求会把迭代预算全部烧在探查上、最终交付为零。前门现在在所有 execution model 下持有 Full,mutation 的边界改由 permission 确认链 / path guard / bash guardian 给出。见 orchestration 的 ORCH-R2。
+
 ## References
 
 - `doc/domains/core/agents/`、`doc/domains/core/tools/`

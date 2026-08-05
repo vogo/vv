@@ -1,5 +1,16 @@
 package dispatches
 
+// appendEnvironment appends the runtime environment block to a base system
+// prompt. Package-local copy of agents.AppendEnvironment for the same reason
+// appendProjectInstructions is duplicated below: agents imports dispatches.
+func appendEnvironment(basePrompt, env string) string {
+	if env == "" {
+		return basePrompt
+	}
+
+	return basePrompt + "\n\n# Environment\n\n" + env
+}
+
 // appendProjectInstructions appends project instructions to a base system
 // prompt. If instructions is empty, the base prompt is returned unchanged.
 // This is a package-local copy of the same logic in agents.AppendProjectInstructions

@@ -73,11 +73,13 @@ type OrchestrateConfig struct {
 	// stale-key sweep.
 	Mode string `yaml:"mode,omitempty"`
 
-	// PrimaryAllowBash, when true, mounts the bash tool on the Primary
-	// Assistant so single-line shell tasks finish inline without
-	// delegate_to_coder. Off by default. Env override:
-	// VV_PRIMARY_ALLOW_BASH. The fallback (depth-exceeded) Primary
-	// always stays tool-free regardless.
+	// PrimaryAllowBash is inert. The Primary Assistant now always carries the
+	// full tool profile (read/glob/grep + write/edit + bash) so it can finish
+	// ordinary file and shell work inline; mutations are bounded by the path
+	// guard, the bash path guardian, and the permission confirmation chain
+	// rather than by withholding tools. The key (and VV_PRIMARY_ALLOW_BASH)
+	// is still accepted so existing configs load unchanged. The fallback
+	// (depth-exceeded) Primary always stays tool-free.
 	PrimaryAllowBash bool `yaml:"primary_allow_bash,omitempty"`
 
 	// WriteTree, when set true, mirrors plan_task DAG plans into the
@@ -220,9 +222,22 @@ type Config struct {
 	Vector       VectorConfig                 `yaml:"vector,omitempty"`
 	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
-	// ProjectInstructions holds content loaded from VV.md in the working directory.
+	// ProjectInstructionsFiles overrides the file names searched for project
+	// instructions in the working directory. Empty falls back to
+	// DefaultProjectInstructionsFiles (VV.md, AGENTS.md, CLAUDE.md); the first
+	// readable non-empty file wins.
+	ProjectInstructionsFiles []string `yaml:"project_instructions_files,omitempty"`
+
+	// ProjectInstructions holds content loaded from the first matching
+	// project instructions file in the working directory.
 	// Runtime-only; not persisted to vv.yaml.
 	ProjectInstructions string `yaml:"-"`
+
+	// ProjectInstructionsFile records the base name the instructions above
+	// came from (e.g. "AGENTS.md"); empty when no file matched. Runtime-only;
+	// surfaced in the agent environment block and startup logs so a missing
+	// project-instruction load is visible instead of silent.
+	ProjectInstructionsFile string `yaml:"-"`
 }
 
 // MCPConfig groups MCP-related configuration. Currently only the `server`
@@ -487,7 +502,16 @@ func (b BashRulesConfig) IsEnabled() bool {
 
 // AgentsConfig holds agent configuration.
 type AgentsConfig struct {
-	MaxIterations  int `yaml:"max_iterations"`   // default 10
+	MaxIterations int `yaml:"max_iterations"` // default 10
+
+	// PrimaryMaxIterations is the ReAct ceiling for the Primary Assistant
+	// alone. The Primary pays for a full investigate → act/delegate → report
+	// cycle inside a single run, so the specialist default (10) leaves it
+	// prone to exhausting the budget mid-investigation and returning nothing.
+	// 0 falls back to DefaultPrimaryMaxIterations. Env override:
+	// VV_PRIMARY_MAX_ITERATIONS.
+	PrimaryMaxIterations int `yaml:"primary_max_iterations,omitempty"`
+
 	RunTokenBudget int `yaml:"run_token_budget"` // default 0 (unlimited)
 	AskUserTimeout int `yaml:"ask_user_timeout"` // seconds, default 300 (5 minutes)
 	// MaxParallelToolCalls caps concurrent tool dispatch within a single
@@ -498,6 +522,32 @@ type AgentsConfig struct {
 	// Set to a pointer to false to disable. No on-wire effect for OpenAI
 	// backends — OpenAI prefix-caches automatically.
 	PromptCaching *bool `yaml:"prompt_caching"`
+}
+
+// DefaultPrimaryMaxIterations is the fallback ReAct ceiling for the Primary
+// Assistant. Sized for "investigate a few turns, then act or delegate, then
+// report" — the shape every non-trivial request takes through the front door.
+const DefaultPrimaryMaxIterations = 24
+
+// EffectivePrimaryMaxIterations resolves the Primary's ReAct ceiling,
+// falling back to DefaultPrimaryMaxIterations when unset. A configured
+// agents.max_iterations larger than the Primary value wins, so raising the
+// global ceiling never silently narrows the front door.
+func (c *AgentsConfig) EffectivePrimaryMaxIterations() int {
+	if c == nil {
+		return DefaultPrimaryMaxIterations
+	}
+
+	n := c.PrimaryMaxIterations
+	if n <= 0 {
+		n = DefaultPrimaryMaxIterations
+	}
+
+	if c.MaxIterations > n {
+		return c.MaxIterations
+	}
+
+	return n
 }
 
 // EffectivePromptCaching resolves the nil-default-on pointer. nil / unset
@@ -1011,6 +1061,10 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.Agents.MaxIterations == 0 {
 		cfg.Agents.MaxIterations = 10
+	}
+
+	if cfg.Agents.PrimaryMaxIterations == 0 {
+		cfg.Agents.PrimaryMaxIterations = DefaultPrimaryMaxIterations
 	}
 
 	if cfg.Tools.BashTimeout == 0 {

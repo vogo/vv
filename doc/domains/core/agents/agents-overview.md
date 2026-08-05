@@ -24,7 +24,7 @@
 | 文档 | 内容 |
 |------|------|
 | [spec.md](spec.md) | 业务行为、核心实体、不变量(AGENTS-R*)、预制组合表、领域事件、Anti-scenario、数据字典 |
-| [design.md](design.md) | 能力维度与预制组合、ToolProfile 四档模型、Skill / ContextSource、注册表与描述符、Factory+profile 装配、ask_user/todo_write 注入、Guard/HookManager 注入、技术取舍 |
+| [design.md](design.md) | 能力维度与预制组合、ToolProfile 五档模型、Skill / ContextSource、注册表与描述符、Factory+profile 装配、ask_user/todo_write 注入、Guard/HookManager 注入、技术取舍 |
 | [models.md](models.md) | AgentDescriptor、AgentType、ToolProfile/ToolCapability、Skill、ContextSource、预制组合配置 |
 
 ## 关联文档
