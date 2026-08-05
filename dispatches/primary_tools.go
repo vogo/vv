@@ -26,6 +26,25 @@ const (
 	PrimaryDelegateToolPrefix = "delegate_to_"
 )
 
+// PlanTaskToolDescription is the description advertised to the LLM for the
+// `plan_task` tool. It states the same four-condition gate as the Primary
+// system prompt (agents.PrimarySystemPrompt): DAG planning is an advanced,
+// opt-in path, not the default route for ordinary multi-step coding work.
+//
+// Exported so drift between the prompt contract and the tool contract can be
+// asserted in tests — a tool description that keeps advertising "spans
+// multiple capabilities" would silently re-open the over-planning behaviour
+// the prompt is trying to close.
+const PlanTaskToolDescription = "Advanced parallel orchestration — NOT the default path for multi-step work. " +
+	"Run a DAG only when ALL FOUR conditions hold: (a) the work splits into at least two genuinely independent workflows, " +
+	"not consecutive slices of one change; (b) running them in parallel saves real wall-clock time; " +
+	"(c) their ordering is clear enough to express with depends_on, or the branches have no dependencies at all; " +
+	"(d) the user asked for parallel execution, or asked for a long task to run in the background. " +
+	"An ordinary bug fix, a single-file or single-symbol change, and any task that only needs a sequential checklist " +
+	"must be done directly instead — use todo_write for progress. " +
+	"Typical fits: repo-wide migrations, independent modules implemented side by side, research + implementation + review in parallel. " +
+	"Each step names an agent and lists dependencies; returns the synthesised result of the DAG once all steps complete."
+
 // PlanExecutor abstracts the dispatcher's multi-step plan execution so the
 // `plan_task` tool can drive a DAG without holding a *Dispatcher (which would
 // re-export internal state). The dispatcher implements this interface via
@@ -344,8 +363,11 @@ func planTaskParameters() map[string]any {
 				"description": "The overall objective of the plan.",
 			},
 			"steps": map[string]any{
-				"type":        "array",
-				"description": "Ordered list of steps. Use depends_on for ordering; steps with no dependencies run in parallel.",
+				"type": "array",
+				"description": "One step per genuinely independent workflow; keep the plan to 2-5 steps. " +
+					"Use depends_on for ordering; steps with no dependencies run in parallel. " +
+					"Do not slice a single sequential change into artificial steps: if the steps would just be consecutive parts of the same edit, " +
+					"skip this tool and do the work directly, tracking progress with todo_write.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -379,7 +401,7 @@ func RegisterPlanTaskTool(reg tool.ToolRegistry, exec PlanExecutor) error {
 
 	def := schema.ToolDef{
 		Name:        PrimaryToolPlanTask,
-		Description: "Run a multi-step plan when the task spans multiple distinct sub-agent capabilities. Each step names an agent and lists dependencies. Returns the synthesised result of the DAG once all steps complete.",
+		Description: PlanTaskToolDescription,
 		Parameters:  planTaskParameters(),
 		Source:      schema.ToolSourceLocal,
 	}
