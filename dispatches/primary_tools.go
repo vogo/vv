@@ -9,6 +9,7 @@ import (
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
+	"github.com/vogo/vv/sessionlogs"
 )
 
 // Primary Assistant tool name constants. Exported so tests and observability
@@ -126,9 +127,26 @@ func newDelegateHandler(ag agent.Agent) tool.ToolHandler {
 			input = "Task: " + task + "\n\nContext:\n" + extra
 		}
 
+		// The specialist runs under the caller's session so its work is
+		// persisted at all: without a session id every checkpoint Save
+		// fails with ErrInvalidArgument and every event it emits is
+		// dropped by SessionHook, which is why delegated work used to
+		// leave nothing on disk. vage puts the id on the tool handler's
+		// ctx (taskagent tool_batch), so it is simply read back here.
+		sessionID := schema.SessionIDFromContext(ctx)
+
 		req := schema.RunRequest{
-			Messages: []schema.Message{schema.NewUserMessage(ag.Protocol(), input)},
+			Messages:  []schema.Message{schema.NewUserMessage(ag.Protocol(), input)},
+			SessionID: sessionID,
 		}
+
+		// Tag the dispatch so the transcript store files it under
+		// subagents/<agent>-<n>.jsonl instead of appending to the
+		// session's own resume timeline.
+		ctx = sessionlogs.WithRun(ctx, sessionlogs.Run{
+			Key:  sessionlogs.NewRunKey(),
+			Task: task,
+		})
 
 		resp, err := ag.Run(ctx, &req)
 		if err != nil {

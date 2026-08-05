@@ -30,7 +30,7 @@
 
 **子系统未启用 → 对应路由不挂**。这维持了"零成本默认路径"的一致性,也避免暴露半禁用的 endpoint(对应 spec HTTP-R6)。
 
-技术取舍:大多数可选路由用"nil store → 不 `HandleFunc`"实现;少数(resume / metrics / build-reports / vector)选择**无条件挂载但返回结构化 503**,因为它们要区分"子系统整体关闭"(404,路由不存在)与"子系统在但可选子存储缺失"(503,语义明确)。这是一个刻意的 404-vs-503 语义取舍。
+技术取舍:大多数可选路由用"nil store → 不 `HandleFunc`"实现;少数(resume / metrics / build-reports / subagents / vector)选择**无条件挂载但返回结构化 503**,因为它们要区分"子系统整体关闭"(404,路由不存在)与"子系统在但可选子存储缺失"(503,语义明确)。这是一个刻意的 404-vs-503 语义取舍。
 
 ## 中间件链
 
@@ -104,7 +104,7 @@ CLI 模式的 `ask_user` 是同步对话框,HTTP 模式不可能做同步——�
 | Memory | memory CRUD | memory | 恒挂(user-path,仅共享 namespace) |
 | Budget | GET /budget | budget | 至少一个 Tracker 激活 |
 | Eval | POST /eval/run | eval | `eval.enabled=true`(opt-in) |
-| Sessions | sessions 元数据/事件/children/patch/delete/resume/metrics/build-reports | session | sessionStore 非 nil(resume/metrics 无条件挂、缺子存储返 503) |
+| Sessions | sessions 元数据/事件/subagents/patch/delete/resume/metrics/build-reports(`children` 已弃用,恒空) | session | sessionStore 非 nil(resume/metrics/subagents 无条件挂、缺子存储返 503) |
 | Workspace | workspace plan/notes/scratch/artifacts | session(Plan Workspace) | planWorkspace 非 nil |
 | Tree | sessions/{id}/tree* | session(Session Tree) | treeStore 非 nil |
 | Vector | vector add/search | session(向量) | store+embedder 都在,单缺返 503 |

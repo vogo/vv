@@ -118,7 +118,12 @@ func Serve(ctx context.Context, cfg *configs.Config, llm largemodel.Caller, disp
 		mux.HandleFunc("GET /v1/sessions", handleListSessions(sessionStore))
 		mux.HandleFunc("GET /v1/sessions/{id}", handleGetSession(sessionStore))
 		mux.HandleFunc("GET /v1/sessions/{id}/events", handleListEvents(sessionStore))
+		// Deprecated: /children keys off Session.ParentID, which vv never
+		// writes, so it is always an empty list. Kept for one release;
+		// use /subagents.
 		mux.HandleFunc("GET /v1/sessions/{id}/children", handleListChildren(sessionStore))
+		mux.HandleFunc("GET /v1/sessions/{id}/subagents", handleListSubAgents(initResult))
+		mux.HandleFunc("GET /v1/sessions/{id}/subagents/{agent}/{run}", handleGetSubAgentRun(initResult))
 		mux.HandleFunc("DELETE /v1/sessions/{id}", handleDeleteSession(sessionStore, planWorkspace))
 		mux.HandleFunc("PATCH /v1/sessions/{id}", handlePatchSession(sessionStore))
 		// Resume mounts unconditionally with the session subsystem so the

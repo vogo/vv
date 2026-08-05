@@ -1752,8 +1752,68 @@ func TestSessionConfig_DefaultEnabled(t *testing.T) {
 	if !cfg.Session.IsEnabled() {
 		t.Errorf("Session.IsEnabled() = false, want true (default-on)")
 	}
-	if cfg.Session.HistoryReplayMaxEvents != 5000 {
-		t.Errorf("HistoryReplayMaxEvents = %d, want 5000 (default)", cfg.Session.HistoryReplayMaxEvents)
+	if cfg.Session.ResumeMaxMessages != DefaultResumeMaxMessages {
+		t.Errorf("ResumeMaxMessages = %d, want %d (default)", cfg.Session.ResumeMaxMessages, DefaultResumeMaxMessages)
+	}
+	if cfg.Session.EffectiveEventPersist() != EventPersistControl {
+		t.Errorf("EventPersist = %q, want %q (default)", cfg.Session.EffectiveEventPersist(), EventPersistControl)
+	}
+	if cfg.Session.EffectiveToolResultMaxInlineBytes() != DefaultToolResultMaxInlineBytes {
+		t.Errorf("ToolResultMaxInlineBytes = %d, want %d (default)",
+			cfg.Session.EffectiveToolResultMaxInlineBytes(), DefaultToolResultMaxInlineBytes)
+	}
+}
+
+// TestSessionConfig_LegacyReplayKeyFoldsForward locks in that the
+// deprecated history_replay_max_events keeps working: it was sized in
+// events back when the (unreplayable) event stream was the only
+// transcript, and now feeds the message-based cap.
+func TestSessionConfig_LegacyReplayKeyFoldsForward(t *testing.T) {
+	cfg := loadYAML(t, "session:\n  history_replay_max_events: 120\n")
+
+	if cfg.Session.ResumeMaxMessages != 120 {
+		t.Errorf("ResumeMaxMessages = %d, want 120 (folded from the deprecated key)", cfg.Session.ResumeMaxMessages)
+	}
+
+	// The explicit key wins when both are present.
+	cfg = loadYAML(t, "session:\n  history_replay_max_events: 120\n  resume_max_messages: 7\n")
+
+	if cfg.Session.ResumeMaxMessages != 7 {
+		t.Errorf("ResumeMaxMessages = %d, want 7 (explicit key wins)", cfg.Session.ResumeMaxMessages)
+	}
+}
+
+func TestSessionConfig_EventPersistNormalisation(t *testing.T) {
+	cases := map[string]string{
+		"":          EventPersistControl,
+		"control":   EventPersistControl,
+		"  ALL  ":   EventPersistAll,
+		"none":      EventPersistNone,
+		"nonsense":  EventPersistControl,
+		"CONTROL\n": EventPersistControl,
+	}
+
+	for in, want := range cases {
+		cfg := &Config{Session: SessionConfig{EventPersist: in}}
+		applySessionDefaults(&cfg.Session)
+
+		if got := cfg.Session.EffectiveEventPersist(); got != want {
+			t.Errorf("event_persist %q normalised to %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSessionConfig_ToolResultSpillDisable(t *testing.T) {
+	s := SessionConfig{ToolResultMaxInlineBytes: -1}
+
+	if got := s.EffectiveToolResultMaxInlineBytes(); got != 0 {
+		t.Errorf("a negative threshold must disable spilling (0), got %d", got)
+	}
+
+	s = SessionConfig{ToolResultMaxInlineBytes: 42}
+
+	if got := s.EffectiveToolResultMaxInlineBytes(); got != 42 {
+		t.Errorf("explicit threshold = %d, want 42", got)
 	}
 }
 

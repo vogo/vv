@@ -84,7 +84,7 @@ streaming 模式下经 SSE 发出的事件类型(契约与字段见 procedure-st
 | **cost-tracking** | 复用 | 成本富化中间件调用其价格表查询与 USD 折算 |
 | **budget** | 复用 + 暴露 | budget 中间件识别其超限错误并重写 429;`GET /v1/budget` 暴露其 Tracker 快照 |
 | **memory** | 暴露 | `/v1/memory/*` CRUD(走 user-path,仅共享 namespace) |
-| **session** | 暴露 | `/v1/sessions/*`(元数据/事件/children/patch/delete/resume/metrics)、`/v1/sessions/{id}/workspace/*`、`/v1/sessions/{id}/tree*` |
+| **session** | 暴露 | `/v1/sessions/*`(元数据/事件/subagents/patch/delete/resume/metrics;`children` 已弃用)、`/v1/sessions/{id}/workspace/*`、`/v1/sessions/{id}/tree*` |
 | **eval** | 暴露 | `POST /v1/eval/run`(opt-in,`eval.enabled=true` 才挂) |
 
 ## Non-goals

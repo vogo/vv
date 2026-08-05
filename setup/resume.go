@@ -23,6 +23,7 @@ import (
 
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vv/agents"
+	"github.com/vogo/vv/sessionlogs"
 )
 
 // ErrSessionDisabled is returned when a resume call is attempted but the
@@ -42,6 +43,24 @@ var ErrNoIterationStore = errors.New("vv: iteration checkpoint store not configu
 // the agent was renamed, removed, or never registered between checkpoint
 // write and resume call. Both transports surface this as 404.
 var ErrAgentNotFound = errors.New("vv: checkpoint references an agent that is no longer registered")
+
+// TranscriptStore returns the session transcript backend when the wired
+// IterationStore is one, and nil otherwise (session disabled, or a test
+// / eval harness injected a different backend).
+//
+// Callers use it for the reads that are not part of the generic
+// checkpoint contract: replaying a conversation on resume and listing
+// sub-agent dispatches. Every such caller must degrade gracefully on
+// nil rather than treat it as a wiring error.
+func (ir *InitResult) TranscriptStore() *sessionlogs.Store {
+	if ir == nil {
+		return nil
+	}
+
+	store, _ := ir.IterationStore.(*sessionlogs.Store)
+
+	return store
+}
 
 // ResumeAgent resolves the agent that wrote the resumed checkpoint.
 // Sub-agents (Dispatchable: true) are looked up via Result.Agent; the

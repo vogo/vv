@@ -1,12 +1,16 @@
 # session — Domain Models
 
-本领域四个实体共用字符串 `session_id`、同一存储根。下表为业务语义视图。
+本领域实体共用字符串 `session_id`、同一存储根。下表为业务语义视图。
 
 实体关系总览:
 
 ```mermaid
 erDiagram
     PERSISTENT_SESSION ||--|| PLAN_WORKSPACE : "1:1 共寿 (共 session_id)"
+    PERSISTENT_SESSION ||--|| TRANSCRIPT : "1:1 主链对话事实源"
+    PERSISTENT_SESSION ||--o{ SUBAGENT_RUN : "0..n 委派"
+    TRANSCRIPT ||--o{ MESSAGE_BODY : "内容寻址引用"
+    SUBAGENT_RUN ||--o{ MESSAGE_BODY : "内容寻址引用"
     PERSISTENT_SESSION ||--o| SESSION_TREE : "0..1 (共 session_id)"
     SESSION_TREE ||--o{ TREE_NODE : "拥有 (Nodes 字典)"
     TREE_NODE ||--o{ TREE_NODE : "父子 (parent/children)"
@@ -15,7 +19,7 @@ erDiagram
 
 ## Persistent Session
 
-**用途**:vv 端会话一等公民;把跨进程对话历史固化为文件系统实体,持有事实全集(元数据 + 全量事件 + 状态 KV)。
+**用途**:vv 端会话一等公民;把跨进程会话固化为文件系统实体,持有元数据、控制面事件与状态 KV。对话正文不在此实体内——它归 Transcript(见下),这是单一 owner 原则(SESS-R10)的直接体现。
 
 | 属性 | 语义类型 | 必填 | 说明 |
 |------|---------|------|------|
@@ -30,9 +34,43 @@ erDiagram
 
 事件流(append-only)与状态 KV(覆盖语义)不内嵌,经独立 store 寻址,使 `Get` 保持 O(1)。
 
-**关系**:1:1 共寿 Plan Workspace;0..1 拥有 Session Tree;承载全量 Trace Event(events.jsonl,行格式同 Trace File);与 Session Memory 共 session_id(正交)。
+**关系**:1:1 共寿 Plan Workspace 与 Transcript;0..n 拥有 Sub-Agent Run;0..1 拥有 Session Tree;承载控制面事件(events.jsonl);与 Session Memory 共 session_id(正交)。
 
 **状态**:`state` 是标签,任意切换不影响事件追加;真正生命周期由共根目录的存在与否表达(Delete 即一次 RemoveAll)。
+
+## Transcript
+
+**用途**:会话对话的唯一事实源(`messages.jsonl`)。既是 `--resume` 恢复对话的读取对象,也是每轮迭代检查点的落点。
+
+| 属性 | 语义类型 | 必填 | 说明 |
+|------|---------|------|------|
+| session_id | text | 是 | 与 Session.id 一致 |
+| message_bodies | map\<content_id, Message\> | 否 | 内容寻址;同一正文至多存一份 |
+| checkpoints | list\<Checkpoint\> | 否 | 每次迭代一条,只含有序 content_id 列表 |
+| subagent_pointers | list\<Pointer\> | 否 | 指向各次委派的事实源文件 |
+
+Checkpoint 语义字段:`sequence`(文件内单调)、`agent_id`、`iteration`、`final` + `stop_reason`(二者同真同假)、`usage`、`session_msg_count`。
+
+**关系**:1:1 隶属 Session;引用 Message Body(多对多:同一正文可被多个 checkpoint 引用);指向 Sub-Agent Run。
+
+**状态**:只追加,不改写。被上下文压缩淘汰的 Message Body 仍在文件里,只是不再被新 checkpoint 引用——历史因此可审计。
+
+## Sub-Agent Run
+
+**用途**:一次子代理委派的独立事实源(`subagents/<agent>-<n>.jsonl`),结构与 Transcript 同构。
+
+| 属性 | 语义类型 | 必填 | 说明 |
+|------|---------|------|------|
+| session_id | text | 是 | 所属会话 |
+| agent_id | text | 是 | 专家代理 id(coder / researcher / reviewer / …) |
+| run | int | 是 | 该 agent 在本会话内的第几次委派,从 1 起 |
+| task | text | 否 | 委派时的子目标,同时记在主链指针行上 |
+| iterations | int | 是 | 该次委派的检查点数 |
+| final / stop_reason | bool / enum | 否 | 末条检查点的终止标记 |
+
+**关系**:n:1 隶属 Session;与 Transcript 同构但**不在**会话的恢复时间线上(SESS-R11)。
+
+**状态**:委派开始即建文件(即使尚无检查点也可被列出),结束后不再追加。
 
 ## Plan Workspace
 

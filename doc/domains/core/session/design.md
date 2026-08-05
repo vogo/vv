@@ -15,8 +15,14 @@ vv 把三个 vage 子系统组合到同一个会话目录下:
 ```
 <session-root>/<project>/<sessionID>/
   ├── meta.json            # session.FileSessionStore —— 元数据
-  ├── events.jsonl         # session.FileSessionStore —— append-only 事件流
+  ├── events.jsonl         # session.FileSessionStore —— append-only 事件流(超限轮转为 events.N.jsonl)
   ├── state.json           # session.FileSessionStore —— 状态 KV
+  ├── metrics.json         # session.MetricsStore —— 计量
+  ├── messages.jsonl       # sessionlogs.Store —— 主链对话事实源(内容寻址)
+  ├── subagents/
+  │   └── <agent>-<n>.jsonl  # sessionlogs.Store —— 每次委派一份同构事实源
+  ├── tool-results/<id>.json # sessionlogs.Store —— 超阈值工具消息外置
+  ├── build_reports/NNNNNN.json  # vctx.FileBuildReportSink —— 每轮上下文构建报告
   ├── workspace/           # workspace.FileWorkspace
   │   ├── plan.md
   │   └── notes/<name>.md
@@ -41,15 +47,69 @@ vv 把三个 vage 子系统组合到同一个会话目录下:
 
 `session.enabled=false` 时:workspace 不构造、工具不注册、Source 不挂载、HTTP 路由不挂载——零开销(constitution § 6)。
 
+## 单一所有者原则
+
+会话目录里的每一份内容**有且仅有一个 owner 文件,其它位置只允许存指针**。这条规则是整个存储布局的推导起点,来源是一次实测:重设计前一个 7 次迭代的短会话占 179 KB 磁盘,而其中唯一内容只有约 36 KB —— checkpoint 每轮存全量消息(O(n²)),`text_delta` 逐 token 落盘后又等于同一段助手文本,`build_reports/` 与 `context_built` 事件逐字段等价。
+
+| 内容 | owner | 其它位置的形态 |
+|------|-------|--------------|
+| 消息正文(system / user / assistant / tool) | `messages.jsonl` | ckpt 行存 16 字符消息 id;事件面不落 |
+| 流式增量 `text_delta` | **不落盘** | 内存直通 UI;最终文本已在 `messages.jsonl` |
+| 工具输出 | `messages.jsonl` 的 tool 消息(超阈值外置到 `tool-results/`) | `tool_call_start/end` 事件只留 name/args/duration |
+| 上下文构建报告 | `build_reports/NNNNNN.json` | `context_built` 事件不落盘 |
+| 计量 | `metrics.json` | —— |
+| 控制面时间线 | `events.jsonl` | —— |
+| 全量事件流(调试) | `events.jsonl`(`event_persist: all`) | 不再另起 `~/.vv/traces` 树 |
+
+`build_reports/` 之所以是 owner 而非事件面,是因为它是这份数据**唯一能反序列化读回**的形态:`schema.Event.Data` 是接口,从 JSONL 读回来恒为 `nil`。
+
 ## Session 子系统
 
 负责对话历史的持久化。设计要点:
 
 - **元数据 + 事件流分离**:元数据(`meta.json`)小而频繁更新(last accessed、title),事件流(`events.jsonl`)是追加写性质。两类负载用不同文件,避免互相影响;`updated_at` **不**反映事件追加(高频追加不刷此字段以减 I/O),使 `Get` 保持 O(1)。状态 KV(`state.json`)覆盖语义,单独寻址。
-- **异步 hook 写入**:事件不在主路径上同步落盘,而是通过事件总线异步写(SessionHook 与 trace 同为旁路订阅者)。代价是关闭进程时需主动 flush——Shutdown 在解耦的独立 3s 上下文执行(CONFIG-R12);收益是在线请求延迟与子系统启用与否无关。
-- **id-only 恢复**:当前 MVP 复用 id 让记忆/plan/tree 共目录,但**不重放对话历史**。完整 checkpoint+replay 在路线图中。
+- **异步 hook 写入**:事件不在主路径上同步落盘,而是通过事件总线异步写。代价是关闭进程时需主动 flush——Shutdown 在解耦的独立 3s 上下文执行(CONFIG-R12);收益是在线请求延迟与子系统启用与否无关。
+- **事件面三档**(`session.event_persist`):
+  - `control`(默认)—— 白名单订阅控制面事件;排除 `text_delta` / `tool_result` / `context_built` 三类**已有 owner 文件**的载荷。白名单而非黑名单:上游新增事件类型默认不落盘,悄悄变大的日志比缺一行更难处理。
+  - `all` —— 不过滤,等价于旧行为,并**取代 trace 子系统**。
+  - `none` —— 仅保留 `agent_start`。不是真的一条不留:HTTP 模式下 `meta.json` 靠 SessionHook 的 autoCreate 产生,完全静默的 hook 会让会话有事实源却没有元数据记录。
+- **trace 归并**:`trace.enabled=true` 且 session 开启时**不构造 trace hook**,改为把会话自身的事件面放宽到 `all`。旧实现把同一批事件在 `~/.vv/traces/<ProjectHash>/` 下再写一份,既是重复字节,又引入了第二套目录命名(hash 桶 vs 可读项目名)。session 关闭时 trace 仍走原路径——那时它是唯一的事件落盘途径。
+- **事件轮转**:`events.jsonl` 超过 `events_max_file_bytes`(默认 64 MiB,继承自 trace hook)时改名为 `events.N.jsonl`。读侧按序拼接,轮转对 API 调用方不可见。
+- **真恢复**:`--resume` 从 `messages.jsonl` 回放对话历史(上限 `resume_max_messages`),不再是 id-only。事件流做不到这件事——它的 `Data` 反序列化为 `nil`。
 - 设计上**没有引入"会话状态机"**——会话只是一组按时间顺序写入的事件,任何"当前状态"都可由事件回放计算得到(SESS-R8)。`state` 字段(active/paused/completed/failed)是元数据标签,切换不影响事件追加。
 - **自动创建**:SessionHook autoCreate(默认)在首个事件追加时隐式创建会话,`agent_id` 取自首个事件;CLI 的 `TouchSession` 可显式创建。
+- **保留策略**:`session.retention_days > 0` 时启动扫一次,删除超期会话目录。判龄取会话内活动文件(`messages.jsonl` / `events.jsonl` / `meta.json` / `state.json` / `metrics.json`)mtime 的最大值——**不能用目录 mtime**,因为向已存在的文件追加不会更新它,天天在用的会话看起来会像从未动过。无法判龄的目录一律保留:删用户历史是不可逆操作,任何歧义都往"保留"倒。
+
+## 对话事实源 —— messages.jsonl
+
+`sessionlogs.Store` 实现 vage 的 `checkpoint.IterationStore`:TaskAgent 照旧在每轮迭代末尾递交**完整消息数组**,去重发生在存储层,而不是要求 agent 循环自己算增量。
+
+每行一条记录,`k` 区分类型:
+
+| `k` | 含义 |
+|-----|------|
+| `msg` | 一条消息正文。同一内容在一个文件里**至多写一次** |
+| `ckpt` | 一次迭代快照,只存**有序的消息 id 列表**,不含正文 |
+| `subagent` | 委派指针,指向 `subagents/<agent>-<n>.jsonl` |
+
+- **内容寻址**:id = 消息 JSON(Timestamp 置零后)的 SHA-256 前 8 字节。选内容寻址而非"前缀增量",是因为实测上下文压缩会重写、丢弃、重排消息(样本里一轮 8 条压到 5 条),前缀 diff 会频繁失配退化成全量;内容寻址对压缩、重排、历史消息重新入列都天然正确。被压缩掉的旧消息仍留在文件里可审计,只是不再被任何新 ckpt 行引用。
+- **Timestamp 不参与哈希**:每轮重建的 system prompt 除创建时间外逐字节相同,把时间戳算进哈希就等于放弃去重(样本里是每次迭代重写 2.6 KiB)。代价是重复出现的同内容消息恢复时带首次出现的时间戳——对相同内容而言这个时间戳本就没有语义。
+- **Sequence 按文件单调**:主链的序列即"会话级",与旧实现一致;子代理的一次委派从 1 开始自己编号,这正是让一次委派可以脱离上下文独立阅读的原因。
+- **Load(id="") 只认主链**:旧布局下主/子代理 checkpoint 挤在同一序列里,"取序列最大的那份"可能返回专家代理的消息数组,`--resume` 会把子代理上下文当成主对话恢复。现在结构上不可能发生。
+- **旧格式回退**:`messages.jsonl` 不存在时 `Load` / `List` 落到旧 `checkpoints/` 目录,老会话照常恢复;新写入只走新格式,一个小版本后下线回退路径。
+
+## 子代理存储
+
+一次**委派 = 一次 run**,独立文件 `subagents/<agentID>-<runSeq>.jsonl`,格式与主链完全同构。主链同步写一行 `k:"subagent"` 指针 —— 这就是"子代理的工作存在哪"的答案。
+
+重设计前它根本没落盘:`delegate_to_<agent>` 工具构造 `RunRequest` 时漏了 `SessionID`,于是专家代理全程 `sessionID == ""`,checkpoint 保存返回 `ErrInvalidArgument` 只打一条 warn,发出的事件又被 `SessionHook` 按空 id 丢弃。修复必须两件事一起做:
+
+1. 委派时从 ctx 取回 session id(vage 的 `taskagent/tool_batch` 已把它放进工具处理器的 ctx);
+2. 存储层按 `AgentID` 与 ctx 里的 `sessionlogs.Run` 分流。
+
+只做 1 会让子代理 checkpoint 挤进主序列污染 resume;只做 2 则子代理依旧无 session id,什么都写不出来。
+
+路由是双保险:ctx 里的 `Run` 是精确信号,同时任何 `AgentID != primary` 的 checkpoint 也一律不进主链。某条委派路径忘了打标记时,退化成"一个 agent 一个文件",而不是破坏会话的恢复时间线。
 
 ## Plan Workspace —— 协作语义层
 
@@ -129,11 +189,15 @@ Session Tree 启用后默认每轮请求都会渲染 tree 到 prompt 顶部。�
 
 ## CLI 与 HTTP 入口
 
-CLI 提供:列出会话、按 id 恢复、强制开新会话、按 id 打印 tree(可选包含已折叠节点)。
+CLI 提供:列出会话、按 id 恢复(含对话历史回放)、强制开新会话、按 id 打印 tree(可选包含已折叠节点)。
 
-HTTP 提供完整 REST 视图:会话列表/详情/事件、Plan Workspace 文件读取、Session Tree 节点 CRUD 与折叠操作。
+HTTP 提供完整 REST 视图:会话列表/详情/事件、子代理委派列表与单次委派详情、Plan Workspace 文件读取、Session Tree 节点 CRUD 与折叠操作。
 
-`DELETE /v1/sessions/{id}` 因为共根设计,单一调用清掉全部三套子系统的状态(SESS-R1)。HTTP 路由契约细节归 [http-api](../http-api/http-api-overview.md) 领域;CLI 命令归 [cli](../cli/cli-overview.md)。
+- `GET /v1/sessions/{id}/subagents` —— 列出本会话的每一次委派(agent / run / task / 迭代数 / 终止状态)。
+- `GET /v1/sessions/{id}/subagents/{agent}/{run}` —— 单次委派的最终消息与用量。
+- `GET /v1/sessions/{id}/children` —— **已弃用**。它按 `Session.ParentID` 过滤,而 vv 从未写入该字段,因此恒返回空列表;保留一个版本,由 `/subagents` 取代。
+
+`DELETE /v1/sessions/{id}` 因为共根设计,单一调用清掉全部子系统的状态(SESS-R1)——新增的 `subagents/`、`tool-results/` 同在根下,这条不变量比重设计前更强。HTTP 路由契约细节归 [http-api](../http-api/http-api-overview.md) 领域;CLI 命令归 [cli](../cli/cli-overview.md)。
 
 ## 技术取舍回顾
 
@@ -147,3 +211,11 @@ HTTP 提供完整 REST 视图:会话列表/详情/事件、Plan Workspace 文件
 | 默认渐进开启(auto-enable) | 短对话零负担,长对话才挂载 | 阈值进程级,重启清零(可接受,非审计事实) |
 | 元数据/事件流分离 + 异步 hook | 在线延迟与子系统无关 | 需 Shutdown 主动 flush(独立 3s 上下文) |
 | 折叠默认用 compressor | 零额外 LLM 成本 | 摘要质量不及 llm 档 |
+| 单一 owner + 指针(见上) | 样本会话 179 KB → ~38 KB;消息存储 O(n²) → O(n) | 规则要靠约定维持,新增 sink 时必须先问"谁是 owner" |
+| 内容寻址去重 | 对压缩、重排、历史重入都正确 | 每会话内存持一份 id 集合(数百条,可忽略);冷启动扫一次文件 |
+| 哈希忽略 Timestamp | 跨轮 system prompt 只存一份 | 同内容消息恢复时带首次出现的时间戳 |
+| 默认丢弃 `text_delta` | 事件面降约 76% | 逐 token 时序不可事后审计——需要时开 `event_persist: all` |
+| 子代理一次委派一个文件 | 可寻址、可独立阅读、不污染主序列 | 高频委派的会话文件数增多(`retention_days` 兜底) |
+| trace 并入事件面 | 一套目录约定,消除第三份副本 | 自定义 `trace.dir` 的用户需迁移(弃用期告警) |
+
+设计存档(现状实测、方案推导、分阶段落地)见 [storage-redesign.md](storage-redesign.md)。

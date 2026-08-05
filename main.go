@@ -411,6 +411,9 @@ func main() {
 		if initResult.SessionStore != nil {
 			appOpts = append(appOpts, cli.WithSessionResume(initResult.SessionStore, sessionArg))
 		}
+		if transcripts := initResult.TranscriptStore(); transcripts != nil {
+			appOpts = append(appOpts, cli.WithTranscriptStore(transcripts))
+		}
 		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem, cliInteractor, initResult.Compactor, appOpts...)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vv: CLI error", "error", err)

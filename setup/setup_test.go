@@ -515,3 +515,83 @@ func TestBuildHookManagerAndSession_BadDirFails(t *testing.T) {
 		t.Fatal("expected error for unwritable session dir")
 	}
 }
+
+// TestBuildHookManagerAndSession_TraceFoldsIntoEventLog locks in that
+// enabling trace no longer produces a second copy of the event stream
+// under a second directory convention: it widens the session's own log
+// instead. Losing this would silently double every session's disk cost.
+func TestBuildHookManagerAndSession_TraceFoldsIntoEventLog(t *testing.T) {
+	on := true
+	sessionDir := t.TempDir()
+	traceDir := t.TempDir()
+
+	cfg := &configs.Config{
+		Session: configs.SessionConfig{Dir: sessionDir},
+		Trace:   configs.TraceConfig{Enabled: &on, Dir: traceDir, MaxFileBytes: 4096},
+	}
+
+	_, store, _, shutdown, err := buildHookManagerAndSession(cfg)
+	if err != nil {
+		t.Fatalf("buildHookManagerAndSession: %v", err)
+	}
+	defer shutdown(context.Background())
+
+	if store == nil {
+		t.Fatal("expected a SessionStore")
+	}
+
+	if got := cfg.Session.EffectiveEventPersist(); got != configs.EventPersistAll {
+		t.Errorf("event_persist = %q, want %q (trace must widen the event log)", got, configs.EventPersistAll)
+	}
+
+	if cfg.Session.EventsMaxFileBytes != 4096 {
+		t.Errorf("events rotation threshold = %d, want the trace hook's 4096 carried over", cfg.Session.EventsMaxFileBytes)
+	}
+
+	// Nothing may be written under the old trace tree.
+	entries, err := os.ReadDir(traceDir)
+	if err != nil {
+		t.Fatalf("read trace dir: %v", err)
+	}
+
+	if len(entries) != 0 {
+		t.Errorf("trace directory got %d entries, want none (the second copy is gone)", len(entries))
+	}
+}
+
+// TestBuildHookManagerAndSession_TraceAloneStillWritesTraceFiles keeps
+// the escape hatch honest: with the session subsystem off, the trace
+// hook is the only event sink there is.
+func TestBuildHookManagerAndSession_TraceAloneStillWritesTraceFiles(t *testing.T) {
+	on, off := true, false
+	traceDir := t.TempDir()
+
+	cfg := &configs.Config{
+		Session: configs.SessionConfig{Enabled: &off},
+		Trace:   configs.TraceConfig{Enabled: &on, Dir: traceDir},
+		Tools:   configs.ToolsConfig{BashWorkingDir: "/test/proj"},
+	}
+
+	mgr, store, _, shutdown, err := buildHookManagerAndSession(cfg)
+	if err != nil {
+		t.Fatalf("buildHookManagerAndSession: %v", err)
+	}
+	defer shutdown(context.Background())
+
+	if mgr == nil {
+		t.Fatal("expected a hook.Manager for the trace-only path")
+	}
+
+	if store != nil {
+		t.Fatal("expected no SessionStore when the session subsystem is off")
+	}
+
+	entries, err := os.ReadDir(traceDir)
+	if err != nil {
+		t.Fatalf("read trace dir: %v", err)
+	}
+
+	if len(entries) == 0 {
+		t.Error("trace-only mode must still create its project bucket")
+	}
+}

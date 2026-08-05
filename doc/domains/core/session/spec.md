@@ -36,8 +36,10 @@ session 领域把三个相互正交、却共享同一会话身份的 vage 子系
 | SESS-R5 | 折叠语义有损可逆 | Promotion 把过载子树折叠为父节点 summary;子节点**保留**并标 `Promoted=true`,默认从渲染视图隐藏并加 `(folded: N children, M done)` 提示。`Pinned=true` 子节点永不折叠;`tree_zoom_in` 或 `?include_promoted=1` 可重新看到。 |
 | SESS-R6 | auto-enable 门控 | Session Tree 启用后,在累积 N 个 agent 完成(AgentEnd)事件**之前不渲染** tree 视图(仍可手动激活);达阈值后才付出渲染成本。计数是**进程级**,重启清零(UX 提示而非审计事实)。 |
 | SESS-R7 | 写树镜像失败不阻塞 | 启用 Session Tree 且打开"分发器写树"开关时,每次 `plan_task` 把 plan 镜像为 tree 节点(首次创建 goal 根,后续在根下追加子树);镜像失败**仅记录告警,不阻塞** DAG。对应 constitution § 5"失败不冒泡为 abort"。 |
-| SESS-R8 | id-only 恢复 | MVP 仅复用 `session_id` 让记忆/plan/tree 共目录,**不重放对话历史**;完整 checkpoint+replay 在路线图中。会话不引入状态机:任何"当前状态"可由事件流回放计算得到。 |
+| SESS-R8 | 会话即事件序列 | 会话不引入状态机:任何"当前状态"可由事件流回放计算得到;`state` 字段是元数据标签,切换不影响事件追加。 |
 | SESS-R9 | 容量上限即错误 | plan.md ≤ 64 KiB、单条 note ≤ 32 KiB、note 数 ≤ 200、单棵树节点 ≤ 1024。超限对 LLM surface 一个明确错误(`ErrTreeFull` 等),由模型决定如何分拆,避免 prompt 无限增长。 |
+| SESS-R10 | 单一 owner | 会话目录内每份内容有且仅有一个 owner 文件,其它位置只存指针:消息正文归 `messages.jsonl`(ckpt 行只存内容地址),上下文构建报告归 `build_reports/`,`text_delta` 不落盘。默认事件面(`event_persist: control`)是**白名单**,新增事件类型默认不持久化。 |
+| SESS-R11 | 委派可寻址且不污染恢复 | 每次子代理委派写入独立的 `subagents/<agent>-<n>.jsonl`,并在主链留一行指针;`Load(id="")` 只返回主链检查点,子代理的检查点在结构上不可能被当成会话对话恢复。 |
 
 底层字段约束(IDPattern、节点不可变字段、删除约束)属 vage,见 [models.md](models.md),不在此复述。
 
@@ -78,7 +80,7 @@ Persistent Session 的 state 字段(`active`/`paused`/`completed`/`failed`)是�
 | `workspace.note_written` | Primary 经 `notes_write` 写 note | trace 落盘 |
 | `session_tree.updated` | CreateTree/AddNode/UpdateNode/DeleteNode/SetCursor/DeleteTree 完成 | trace;HTTP 查询读最新视图 |
 | `session_tree.promotion.started` / `.completed` / `.failed` | PromoteNode 异步路径各阶段 | trace;`.failed` 仅告警不阻塞(SESS-R7) |
-| (Persistent Session 事件) | 任意 agent/tool 事件经 SessionHook 落入 events.jsonl | 行格式与 Trace File 一致;由 [trace](../trace/trace-overview.md) 共用事件总线持久化 |
+| (Persistent Session 事件) | 控制面事件经 SessionHook 落入 events.jsonl(白名单,SESS-R10) | `event_persist: all` 放宽为全量并取代 trace 子系统;详见 [trace](../trace/trace-overview.md) |
 
 Persistent Session 自身不定义独立事件 schema;它**承载**全量 agent/tool 事件(append-only),与 trace 共用同一事件总线(constitution § 6"不污染主路径")。
 
@@ -88,13 +90,13 @@ Persistent Session 自身不定义独立事件 schema;它**承载**全量 agent/
 |----------|------|
 | [configuration](../configuration/configuration-overview.md) | 装配中心构造 SessionStore/Workspace/TreeStore/MetricsStore(均可为 nil);强校验启用关系(SESS-R3) |
 | [orchestration](../orchestration/orchestration-overview.md) | Primary 经 `plan_update`/`notes_*` 写 Workspace(写者唯一);`plan_task` 被镜像为 tree 节点(SESS-R7) |
-| [cli](../cli/cli-overview.md) / [http-api](../http-api/http-api-overview.md) | 查询会话列表/详情/事件、读 Plan Workspace 文件、Session Tree 节点 CRUD/折叠;HTTP `DELETE /v1/sessions/{id}` 触发共根删除(SESS-R1) |
+| [cli](../cli/cli-overview.md) / [http-api](../http-api/http-api-overview.md) | 查询会话列表/详情/事件、子代理委派列表与详情、读 Plan Workspace 文件、Session Tree 节点 CRUD/折叠;CLI `--resume` 从 `messages.jsonl` 回放对话;HTTP `DELETE /v1/sessions/{id}` 触发共根删除(SESS-R1) |
 | [trace](../trace/trace-overview.md) | 共用事件总线:SessionHook 与 TraceHook 同为旁路订阅者,异步落盘 |
 | [memory](../memory/memory-overview.md) | 共用 `session_id`;Persistent Session 是事实全集,Session Memory 是 prompt 有损切片,二者正交 |
 
 ## Non-goals
 
-- **不做 checkpoint + replay 重放**:MVP 为 id-only 恢复(SESS-R8),不重建对话历史。
+- **不做跨协议重放**:一个协议(OpenAI / Anthropic)下记录的消息不能在另一协议下恢复——`schema.Message` 存的是厂商原生线格式。
 - **不引入会话状态机**:state 字段是标签,不约束事件追加;当前状态由事件回放得到。
 - **不做跨进程并发写保证**:Workspace 写入仅进程内 per-session mutex 串行化,跨进程不承诺。
 - **不做 notes ↔ memory.Store 双写同步**:本期无 WorkspaceMemoryAdapter。
@@ -107,6 +109,8 @@ Persistent Session 自身不定义独立事件 schema;它**承载**全量 agent/
 - **绝不**在 `session.enabled=false` 时构造 Workspace/Tree 或挂载其路由(违反零成本默认);也绝不在 Session 关闭时静默启用 Session Tree(必须启动期报错,SESS-R3)。
 - **绝不**因写树镜像失败而中断 DAG(SESS-R7)。
 - **绝不**让 `DELETE` 只清掉部分子系统而留下孤儿 plan/tree(违反共根删除一致性,SESS-R1)。
+- **绝不**为同一份内容开第二个 sink(SESS-R10)。新增持久化前先回答"谁是 owner";需要第二处可见时存指针,不存副本。
+- **绝不**让子代理的检查点进入主链事实源(SESS-R11)——那会让 `--resume` 把专家代理的上下文当成用户对话恢复。
 
 ## Data dictionary
 
@@ -122,4 +126,5 @@ Persistent Session 自身不定义独立事件 schema;它**承载**全量 agent/
 | auto-enable 门控 | 概念 | 累积 N 个 AgentEnd 前不渲染 tree;进程级计数,重启清零 |
 | 写树镜像 | 概念 | `plan_task` 镜像为 tree 节点;失败仅告警不阻塞 |
 | plan vs todo | 边界 | plan=跨会话长策略(持久);todo=当前 turn 检查清单(内存) |
-| id-only 恢复 | 概念 | 复用 session_id 共目录但不重放对话历史 |
+| 内容寻址 | 概念 | 消息按正文哈希寻址,同一内容在一个事实源文件里至多存一份 |
+| 委派(run) | 概念 | 一次子代理调用;是获得独立事实源文件的最小单位 |

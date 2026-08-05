@@ -113,6 +113,7 @@ var traceEnvBindings = []envBinding{
 var sessionEnvBindings = []envBinding{
 	{"VV_SESSION_ENABLED", func(c *Config, v string) { applyBoolPtrWarn("VV_SESSION_ENABLED", v, &c.Session.Enabled) }},
 	{"VV_SESSION_DIR", func(c *Config, v string) { c.Session.Dir = v }},
+	{"VV_SESSION_EVENT_PERSIST", func(c *Config, v string) { c.Session.EventPersist = v }},
 }
 
 var sessionTreeEnvBindings = []envBinding{

@@ -74,6 +74,11 @@ func (d *Dispatcher) buildNodes(plan *Plan, req *schema.RunRequest, contextSumma
 			runner = subAgent
 		}
 
+		// Each plan step is one sub-agent dispatch and gets its own
+		// transcript file; tagging must sit inside the hook wrapper so
+		// the hooks still observe the un-tagged agent identity.
+		runner = tagRun(runner, stepCopy.Description)
+
 		// Wrap with lifecycle hooks.
 		runner = d.wrapWithHooks(stepCopy.ID, runner)
 

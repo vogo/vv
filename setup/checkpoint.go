@@ -21,8 +21,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/vogo/vage/checkpoint"
+	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/sessionlogs"
 )
 
 // sessionRootDir returns the resolved session root directory for the
@@ -40,17 +41,29 @@ func sessionRootDir(cfg *configs.Config) string {
 
 // buildIterationStore constructs a per-iteration checkpoint store rooted
 // under the same directory as the session subsystem so a session id maps
-// 1:1 to <root>/<id>/checkpoints/. Returns (nil, nil) when the session
-// subsystem is disabled — checkpoint persistence is meaningless without
-// a stable session identity, and FactoryOptions.IterationStore == nil
-// disables the option on every TaskAgent factory.
-func buildIterationStore(cfg *configs.Config) (checkpoint.IterationStore, error) {
+// 1:1 to <root>/<id>/. Returns (nil, nil) when the session subsystem is
+// disabled — checkpoint persistence is meaningless without a stable
+// session identity, and FactoryOptions.IterationStore == nil disables
+// the option on every TaskAgent factory.
+//
+// The backend is sessionlogs, which stores each message body once per
+// transcript instead of re-serialising the whole conversation on every
+// iteration, and files sub-agent dispatches separately from the
+// session's own resume timeline. Sessions written by the previous
+// full-snapshot store still load: sessionlogs falls back to the legacy
+// checkpoints/ directory when no transcript exists.
+func buildIterationStore(cfg *configs.Config) (*sessionlogs.Store, error) {
 	if cfg == nil || !cfg.Session.IsEnabled() {
 		return nil, nil
 	}
 
 	root := sessionRootDir(cfg)
-	store, err := checkpoint.NewFileIterationStore(root)
+
+	store, err := sessionlogs.New(
+		root,
+		sessionlogs.WithPrimaryAgentID(agents.PrimaryAgentID),
+		sessionlogs.WithToolResultSpillBytes(cfg.Session.EffectiveToolResultMaxInlineBytes()),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("iteration store: %w", err)
 	}

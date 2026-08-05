@@ -17,7 +17,7 @@ vv 的可观测性由四个**正交、按需挂载**的子系统组成,共享 va
 
 vage 的事件总线是统一基础:代理执行时发出标准 `schema.Event`(请求开始/结束、LLM 调用开始/结束、工具调用开始/结束、阶段进出等),订阅者各自决定如何处理,互不感知。vv 把以下旁路订阅者注册到同一条总线:
 
-- 持久化 Session 的 `events.jsonl` 写入(session 领域)。
+- 持久化 Session 的 `events.jsonl` 写入与其事件白名单(session 领域);session 开启时它也承接 trace 的职责。
 - Trace 的 JSONL 落盘(本领域)。
 - Session Tree 的 auto-enable 计数(session 领域)。
 - Cost Tracker 的逐次 token/成本累加(cost-tracking 领域,经 LLM 中间件同源)。
@@ -39,7 +39,9 @@ flowchart LR
 
 ## 2. Trace:异步落盘 / 缓冲 / 分目录 / 轮转
 
-当 `trace.enabled=true` 时,`tracelog.JSONLHook` 作为**进程级**资源由 `setup.Init` 构造一次,被每个 agent 与每种 run 模式(CLI / -p / -eval / HTTP / MCP)共享。所有 session 的事件经一条 channel 进一个消费 goroutine,再路由到各自的 JSONL 文件。
+> **归并前提**:`trace.enabled=true` 且 **session 子系统开启**时,`tracelog.JSONLHook` **不构造** —— 请求改由把会话自身的事件面放宽到 `session.event_persist: all` 来满足,`trace.max_file_bytes` 结转为 `events.jsonl` 的轮转阈值。原因是两者写的是同一批事件,只是落在两套目录命名下(此处按 project-hash 分桶,会话存储按可读项目名),重复既费磁盘也让运维要在两棵树之间对照。本节描述的是 **session 关闭时**的 trace-only 路径 —— 那时它是唯一的事件落盘途径。详见 [session 领域设计](../session/design.md)。
+
+当 trace-only 路径生效时,`tracelog.JSONLHook` 作为**进程级**资源由 `setup.Init` 构造一次,被每个 agent 与每种 run 模式(CLI / -p / -eval / HTTP / MCP)共享。所有 session 的事件经一条 channel 进一个消费 goroutine,再路由到各自的 JSONL 文件。
 
 设计要点:
 

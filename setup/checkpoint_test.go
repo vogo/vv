@@ -27,6 +27,7 @@ import (
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
 	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
 )
 
@@ -64,9 +65,9 @@ func TestBuildIterationStore_NilCfg(t *testing.T) {
 }
 
 // TestBuildIterationStore_EnabledRoundtrip verifies that a session-on
-// config produces a usable FileIterationStore rooted at the same path as
+// config produces a usable transcript store rooted at the same path as
 // FileSessionStore would use, so DELETE /v1/sessions/{id} (which
-// os.RemoveAll's <root>/<id>) wipes checkpoints alongside meta/events.
+// os.RemoveAll's <root>/<id>) wipes transcripts alongside meta/events.
 func TestBuildIterationStore_EnabledRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &configs.Config{
@@ -82,20 +83,17 @@ func TestBuildIterationStore_EnabledRoundtrip(t *testing.T) {
 		t.Fatal("expected non-nil store when session enabled")
 	}
 
-	fs, ok := store.(*checkpoint.FileIterationStore)
-	if !ok {
-		t.Fatalf("expected *FileIterationStore, got %T", store)
-	}
-
 	wantRoot := filepath.Join(dir, SessionProjectName("/test/proj"))
-	if fs.Root() != wantRoot {
-		t.Errorf("Root = %q, want %q", fs.Root(), wantRoot)
+	if store.Root() != wantRoot {
+		t.Errorf("Root = %q, want %q", store.Root(), wantRoot)
 	}
 
-	// Round-trip: save then load by latest pointer.
+	// Round-trip: save then load by latest pointer. The agent id is the
+	// primary's because Load(id="") only ever reports the session's own
+	// timeline — a sub-agent checkpoint would land in subagents/.
 	cp := &checkpoint.Checkpoint{
 		SessionID: "sess-build-iter-roundtrip",
-		AgentID:   "coder",
+		AgentID:   agents.PrimaryAgentID,
 		Iteration: 0,
 	}
 	if err := store.Save(context.Background(), cp); err != nil {
@@ -106,8 +104,8 @@ func TestBuildIterationStore_EnabledRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.AgentID != "coder" {
-		t.Errorf("AgentID = %q, want coder", got.AgentID)
+	if got.AgentID != agents.PrimaryAgentID {
+		t.Errorf("AgentID = %q, want %q", got.AgentID, agents.PrimaryAgentID)
 	}
 }
 

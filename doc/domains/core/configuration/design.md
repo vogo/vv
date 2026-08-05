@@ -146,7 +146,7 @@ Primary 不是普通 dispatchable 代理:
 | Session | 开 | `session.enabled` | 提供事件总线下游消费者 |
 | Plan Workspace | 跟随 session | 无独立开关 | 共用会话根;Primary 多注册工具 |
 | Session Tree | 关 | `session_tree.enabled` + **session 必须开** | 共用会话根;Primary 多注册工具;可挂 auto-enable 计数 hook |
-| Trace | 关 | `trace.enabled` | 事件总线另一消费者 |
+| Trace | 关 | `trace.enabled` **且 session 关** | session 开时归并为 `session.event_persist: all`,不再另起消费者与目录树 |
 | Budget | 按需 | 任一硬上限非零即开 | LLM 中间件链额外一层 |
 | Debug | 关 | `--debug` / `VV_DEBUG` | LLM 中间件 + 工具装饰各加一层 |
 | Web Search | 按需 | provider + 凭据 | — |
@@ -154,6 +154,18 @@ Primary 不是普通 dispatchable 代理:
 | Eval | 关(HTTP 端点);CLI `-eval` 始终可用 | — | — |
 
 依赖关系在装配阶段显式校验(CONFIG-R3):`session_tree.enabled=true` 而 `session.enabled=false` → 启动报错而非沉默忽略。
+
+Trace 与 Session 的关系是**归并而非并存**:两者都开时不构造 trace hook,改为把会话事件面放宽到 `all`,并把 `trace.max_file_bytes` 结转为 `events.jsonl` 的轮转阈值。旧行为是同一批事件写两份、落在两套目录命名下(tracelog 按 ProjectHash 分桶,会话存储按可读项目名),归并同时消掉重复字节与双轨路径。session 关闭时 trace 仍走原路径——那时它是唯一的事件落盘途径。
+
+### session 存储相关键
+
+| 键 | 默认 | 作用 |
+|----|------|------|
+| `session.event_persist` | `control` | 事件面档位:`control` 白名单 / `all` 全量(取代 trace)/ `none` 仅 `agent_start` |
+| `session.resume_max_messages` | 5000 | `--resume` 从 `messages.jsonl` 回放的消息上限;取代已弃用的 `history_replay_max_events`(仍解析并告警) |
+| `session.tool_result_max_inline_bytes` | 8 KiB | 超过则把 tool 消息正文外置到 `tool-results/`;负值关闭 |
+| `session.events_max_file_bytes` | 64 MiB | `events.jsonl` 轮转阈值;负值关闭 |
+| `session.retention_days` | 0(不清理) | 启动时清理超期会话目录 |
 
 ## 9. InitResult / Options 契约
 

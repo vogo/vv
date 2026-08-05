@@ -6,7 +6,7 @@
 |----|----|
 | 领域名 | trace(结构化 trace 日志 + debug + hooks 可观测) |
 | 业务组 | core |
-| 一句话职责 | opt-in 的异步事件落盘子系统:把 vage 代理生命周期的 `schema.Event` 全量写为按项目散列 + 会话 id 分目录的 JSONL;并统辖与 trace 正交的两个可观测扩展点 —— 开发期 Debug 逐次 I/O 记录与业务侧 Hooks 扩展接口。 |
+| 一句话职责 | opt-in 的异步事件落盘子系统:**session 关闭时**把 vage 代理生命周期的 `schema.Event` 全量写为按项目散列 + 会话 id 分目录的 JSONL(session 开启时该职责归并入会话事件面,见 [session](../session/design.md));并统辖与 trace 正交的两个可观测扩展点 —— 开发期 Debug 逐次 I/O 记录与业务侧 Hooks 扩展接口。 |
 
 ## Ownership
 

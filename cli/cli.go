@@ -20,11 +20,13 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/checkpoint"
 	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/session"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/sessionlogs"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
 )
@@ -51,11 +53,16 @@ type App struct {
 	// Session subsystem wiring; nil when --session subsystem is disabled.
 	sessionStore       session.SessionStore
 	requestedSessionID string // user-supplied --session id; "" = mint new
+	transcripts        *sessionlogs.Store
 
 	// Set by Run() once a session id is bound, recording how the resume was
 	// resolved so the welcome banner can describe it.
 	sessionResumeMode SessionResumeMode
 	sessionMeta       *session.Session // populated only for SessionResumeExisting
+
+	// restoredMessages counts what a resume pulled back into history; -1
+	// means no restore was attempted. Drives the welcome banner.
+	restoredMessages int
 }
 
 // WithPermissionState sets the shared permission state on the App.
@@ -85,6 +92,17 @@ func WithSessionResume(store session.SessionStore, requestedID string) func(*App
 	}
 }
 
+// WithTranscriptStore supplies the session transcript backend so resuming
+// an existing id restores the conversation itself, not just the id.
+//
+// Optional: when absent (or nil) the App keeps the previous id-only
+// behaviour and says so in the banner.
+func WithTranscriptStore(store *sessionlogs.Store) func(*App) {
+	return func(a *App) {
+		a.transcripts = store
+	}
+}
+
 // New creates a new CLI App.
 func New(
 	orchestrator agent.StreamAgent,
@@ -105,6 +123,8 @@ func New(
 		contextCfg:    cfg.Context,
 		costTracker:   costtraces.New(cfg.LLM.Model, pricing),
 		confirmCh:     make(chan PermissionAction, 1),
+
+		restoredMessages: -1,
 	}
 
 	for _, opt := range opts {
@@ -135,6 +155,10 @@ func (a *App) Run(ctx context.Context) error {
 		// fires (e.g. user exits before sending a message).
 		if terr := TouchSession(ctx, a.sessionStore, id, ""); terr != nil {
 			slog.Warn("vv: touch session failed", "session_id", id, "error", terr)
+		}
+
+		if mode == SessionResumeExisting {
+			a.restoreHistory(ctx)
 		}
 	} else {
 		b := make([]byte, 8)
@@ -314,13 +338,45 @@ func (m *model) Init() tea.Cmd {
 	)
 }
 
+// restoreHistory replays a resumed session's conversation back into
+// App.history from the transcript store.
+//
+// This is what the event stream could never do: schema.Event.Data is an
+// interface whose markers are unexported, so events.jsonl decodes back
+// with nil payloads. messages.jsonl stores concrete schema.Message
+// values, so a resume can pick up where the conversation left off.
+//
+// Every failure is non-fatal — a session that cannot be replayed still
+// opens, it just starts empty, and the banner says so.
+func (a *App) restoreHistory(ctx context.Context) {
+	if a.transcripts == nil {
+		return
+	}
+
+	msgs, err := a.transcripts.Messages(ctx, a.sessionID, a.cfg.Session.EffectiveResumeMaxMessages())
+	if err != nil {
+		if !errors.Is(err, checkpoint.ErrCheckpointNotFound) {
+			slog.Warn("vv: restore session history failed", "session_id", a.sessionID, "error", err)
+		}
+
+		a.restoredMessages = 0
+
+		return
+	}
+
+	a.history = msgs
+	a.restoredMessages = len(msgs)
+
+	total := 0
+	for _, m := range msgs {
+		total += memory.DefaultTokenEstimator(m)
+	}
+
+	a.estimatedTokens = total
+}
+
 // sessionBanner returns a one-line description of how the session was bound,
 // or "" when the session subsystem is disabled (legacy random id path).
-//
-// Resume = id only: previous transcript is NOT replayed into history because
-// schema.Event.Data unmarshals as nil from events.jsonl (the EventData
-// interface has unexported markers). Restoring real conversation state is
-// future work tracked under P8 (checkpoint/snapshot).
 func (a *App) sessionBanner() string {
 	if a.sessionStore == nil {
 		return ""
@@ -334,8 +390,14 @@ func (a *App) sessionBanner() string {
 				count = len(events)
 			}
 		}
-		return fmt.Sprintf("Resuming session %s (events=%s, history not restored).",
-			a.sessionID, formatCount(count))
+
+		restored := "history not restored"
+		if a.restoredMessages >= 0 {
+			restored = fmt.Sprintf("restored %d messages", a.restoredMessages)
+		}
+
+		return fmt.Sprintf("Resuming session %s (events=%s, %s).",
+			a.sessionID, formatCount(count), restored)
 	case SessionResumeNotFound:
 		return fmt.Sprintf("Starting session %s (id supplied, no prior data).", a.sessionID)
 	default:

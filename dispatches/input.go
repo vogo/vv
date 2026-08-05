@@ -38,19 +38,22 @@ func (s *StepInput) BuildMessages(proto schema.Protocol) []schema.Message {
 	var msgs []schema.Message
 
 	if s.WorkingDir != "" {
-		msgs = append(msgs, schema.NewUserMessage(proto,
+		msgs = append(msgs, schema.NewUserMessage(
+			proto,
 			fmt.Sprintf("Working directory: %s", s.WorkingDir),
 		))
 	}
 
 	if s.ContextSummary != "" {
-		msgs = append(msgs, schema.NewUserMessage(proto,
+		msgs = append(msgs, schema.NewUserMessage(
+			proto,
 			fmt.Sprintf("Project context:\n%s", s.ContextSummary),
 		))
 	}
 
 	if s.OriginalGoal != "" {
-		msgs = append(msgs, schema.NewUserMessage(proto,
+		msgs = append(msgs, schema.NewUserMessage(
+			proto,
 			fmt.Sprintf("Original request: %s", s.OriginalGoal),
 		))
 	}
@@ -66,7 +69,8 @@ func (s *StepInput) BuildMessages(proto schema.Protocol) []schema.Message {
 	for _, depID := range upstreamKeys {
 		result := s.Upstream[depID]
 		if result.Status == StepCompleted && result.Output != "" {
-			msgs = append(msgs, schema.NewUserMessage(proto,
+			msgs = append(msgs, schema.NewUserMessage(
+				proto,
 				fmt.Sprintf("Result from step %q:\n%s", depID, result.Output),
 			))
 		}
@@ -97,18 +101,21 @@ func BuildInputMapper(proto schema.Protocol, workDir, contextSummary, goal strin
 		var msgs []schema.Message
 
 		if workDir != "" {
-			msgs = append(msgs, schema.NewUserMessage(proto,
+			msgs = append(msgs, schema.NewUserMessage(
+				proto,
 				fmt.Sprintf("Working directory: %s", workDir),
 			))
 		}
 
 		if contextSummary != "" {
-			msgs = append(msgs, schema.NewUserMessage(proto,
+			msgs = append(msgs, schema.NewUserMessage(
+				proto,
 				fmt.Sprintf("Project context:\n%s", contextSummary),
 			))
 		}
 
-		msgs = append(msgs, schema.NewUserMessage(proto,
+		msgs = append(msgs, schema.NewUserMessage(
+			proto,
 			fmt.Sprintf("Original request: %s", goal),
 		))
 

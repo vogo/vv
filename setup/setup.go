@@ -1065,8 +1065,26 @@ func buildTreeDecider(cfg *configs.Config) tree.PromotionDecider {
 // per-hook rollback automatically.
 func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.SessionStore, workspace.Workspace, func(context.Context), error) {
 	noopShutdown := func(context.Context) {}
-	traceEnabled := cfg.Trace.IsEnabled()
 	sessionEnabled := cfg.Session.IsEnabled()
+
+	// Trace logging is the event stream written a second time, under a
+	// second directory convention (tracelog buckets by ProjectHash, the
+	// session store by a readable project name). When the session
+	// subsystem is on, the trace hook is not constructed; the request is
+	// honoured by widening the session's own event log to every type.
+	// One file, one layout, no duplicate bytes.
+	traceEnabled := cfg.Trace.IsEnabled() && !sessionEnabled
+
+	if cfg.Trace.IsEnabled() && sessionEnabled {
+		cfg.Session.EventPersist = configs.EventPersistAll
+
+		if cfg.Session.EventsMaxFileBytes == 0 && cfg.Trace.MaxFileBytes != 0 {
+			cfg.Session.EventsMaxFileBytes = cfg.Trace.MaxFileBytes
+		}
+
+		slog.Info("vv: trace logging folded into the session event log",
+			"event_persist", configs.EventPersistAll, "dir", sessionRootDir(cfg))
+	}
 
 	if !traceEnabled && !sessionEnabled {
 		return nil, nil, nil, noopShutdown, nil
@@ -1099,7 +1117,18 @@ func buildHookManagerAndSession(cfg *configs.Config) (*hook.Manager, session.Ses
 			return nil, nil, nil, noopShutdown, fmt.Errorf("session store: %w", err)
 		}
 		sessionStore = store
-		mgr.RegisterAsync(session.NewSessionHook(store))
+
+		if maxBytes := cfg.Session.EffectiveEventsMaxFileBytes(); maxBytes > 0 {
+			sessionStore = newRotatingSessionStore(store, sessionRoot, maxBytes)
+		}
+
+		// The hook writes through the rotating wrapper so a long-running
+		// session cannot grow one unbounded events.jsonl.
+		mgr.RegisterAsync(session.NewSessionHook(sessionStore, sessionHookOptions(cfg)...))
+
+		if days := cfg.Session.RetentionDays; days > 0 {
+			sweepExpiredSessions(sessionRoot, days)
+		}
 
 		// Plan Workspace shares the session root so a single
 		// SessionStore.Delete (which os.RemoveAll's <root>/<id>) wipes the

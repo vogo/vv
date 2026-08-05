@@ -56,10 +56,16 @@ func TestSetup_SessionEnabled_TraceDisabled(t *testing.T) {
 	}
 }
 
-// TestSetup_SessionAndTraceCoexist confirms Story C's "both subsystems on at
-// once" promise: the hook.Manager carries TWO async hooks and the events
-// dispatched flow into both the SessionStore and the trace JSONL file.
-func TestSetup_SessionAndTraceCoexist(t *testing.T) {
+// TestSetup_TraceFoldsIntoSessionEventLog confirms that asking for trace
+// logging while the session subsystem is on produces ONE event sink, not
+// two.
+//
+// This inverts the previous expectation on purpose. The trace hook wrote
+// the same events a second time under a second directory convention
+// (ProjectHash buckets vs the session store's readable project name);
+// the request is now honoured by widening the session's own log to every
+// event type, which is where the bytes were going to land anyway.
+func TestSetup_TraceFoldsIntoSessionEventLog(t *testing.T) {
 	cfg := newTestConfig(t)
 
 	on := true
@@ -80,13 +86,17 @@ func TestSetup_SessionAndTraceCoexist(t *testing.T) {
 		t.Fatal("expected non-nil HookManager with trace+session both on")
 	}
 
-	// Push an event and confirm BOTH sinks observed it: the SessionStore
-	// must contain the event, AND the trace base directory must have been
-	// created (the project-hash subdir comes from working dir hash).
+	if got := cfg.Session.EffectiveEventPersist(); got != configs.EventPersistAll {
+		t.Errorf("event_persist = %q, want %q — trace must widen the session log", got, configs.EventPersistAll)
+	}
+
+	// A text_delta is the probe: it is excluded from the default
+	// whitelist precisely because messages.jsonl owns the assembled
+	// text, so seeing it here proves the widening took effect.
 	const sid = "coexist-smoke"
 	res.SetupResult.HookManager.Dispatch(context.Background(), schema.Event{
-		Type: schema.EventAgentStart, AgentID: "coder", SessionID: sid,
-		Timestamp: time.Now(), Data: schema.AgentStartData{},
+		Type: schema.EventTextDelta, AgentID: "coder", SessionID: sid,
+		Timestamp: time.Now(), Data: schema.TextDeltaData{Delta: "hello"},
 	})
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -101,20 +111,23 @@ func TestSetup_SessionAndTraceCoexist(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	// Trigger graceful shutdown so trace files are flushed before we stat.
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	res.Shutdown(stopCtx)
 	cancel()
 
-	// The trace tracer creates a project-hash subdir under cfg.Trace.Dir.
-	// Confirm at least one entry exists; specifying file shape further would
-	// couple to tracelog internals.
-	entries, err := os.ReadDir(traceDir)
+	events, err := res.SessionStore.ListEvents(context.Background(), sid)
 	if err != nil {
-		t.Fatalf("read trace dir %s: %v", traceDir, err)
+		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(entries) == 0 {
-		t.Errorf("expected trace dir %s to contain project-hash subdir, got empty", traceDir)
+
+	if len(events) == 0 || events[0].Type != schema.EventTextDelta {
+		t.Errorf("session log = %+v, want the text_delta that event_persist:all admits", events)
+	}
+
+	// The old trace tree must stay untouched: that second copy is the
+	// duplication this redesign removes.
+	if _, err := os.ReadDir(traceDir); !os.IsNotExist(err) {
+		t.Errorf("trace directory %s was created (err=%v); the second event copy is supposed to be gone", traceDir, err)
 	}
 }
 

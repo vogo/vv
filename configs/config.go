@@ -523,12 +523,38 @@ func (t TraceConfig) EffectiveDir() string {
 type SessionConfig struct {
 	Enabled *bool  `yaml:"enabled,omitempty"` // default true
 	Dir     string `yaml:"dir,omitempty"`     // default ~/.vv/sessions
-	// HistoryReplayMaxEvents caps how many events a future resume-and-replay
-	// path may pull from events.jsonl. The current MVP performs id-only
-	// resume (banner + reused session id, no transcript replay) so the value
-	// is recorded but not consumed yet — kept on the struct so the
-	// configuration surface stays stable when checkpoint/replay lands.
-	HistoryReplayMaxEvents int `yaml:"history_replay_max_events,omitempty"` // default 5000
+
+	// EventPersist selects which slice of the event bus reaches
+	// events.jsonl. Every payload that already has an owner file is
+	// excluded from the default so no byte is written twice:
+	//
+	//   control (default) — control-plane whitelist; text_delta,
+	//                       tool_result and context_built are dropped
+	//                       because their owners are messages.jsonl
+	//                       (message bodies) and build_reports/.
+	//   all               — no filter; restores the pre-redesign
+	//                       behaviour and subsumes trace logging.
+	//   none              — no events persisted; messages.jsonl alone.
+	//
+	// Empty falls back to control. See doc/domains/core/session/design.md.
+	EventPersist string `yaml:"event_persist,omitempty"`
+
+	// ResumeMaxMessages caps how many messages a resume replays out of
+	// messages.jsonl into the restored conversation. 0 falls back to
+	// DefaultResumeMaxMessages.
+	//
+	// Replaces history_replay_max_events, which was sized in events back
+	// when the (unreplayable) event stream was the only transcript;
+	// the legacy key is still parsed into this field.
+	ResumeMaxMessages int `yaml:"resume_max_messages,omitempty"`
+
+	// HistoryReplayMaxEvents is the deprecated spelling of
+	// ResumeMaxMessages. Parsed for backward compatibility and folded
+	// into ResumeMaxMessages by Load with a warning; remove after one
+	// minor release.
+	//
+	// Deprecated: use ResumeMaxMessages.
+	HistoryReplayMaxEvents int `yaml:"history_replay_max_events,omitempty"`
 
 	// PersistBuildReports toggles per-turn BuildReport persistence to
 	// <session-root>/<id>/build_reports/. Default true — the disk cost
@@ -542,7 +568,52 @@ type SessionConfig struct {
 	// (50). Increase for long debugging sessions; decrease in disk-
 	// constrained environments.
 	BuildReportLimit int `yaml:"build_report_limit,omitempty"`
+
+	// ToolResultMaxInlineBytes is the size above which a tool message
+	// body is spilled to <session>/tool-results/<hash>.txt and replaced
+	// by a pointer inside messages.jsonl. The spill is a storage detail:
+	// reads rehydrate transparently, so agents and HTTP callers never
+	// see the pointer. 0 falls back to DefaultToolResultMaxInlineBytes;
+	// negative disables spilling.
+	ToolResultMaxInlineBytes int `yaml:"tool_result_max_inline_bytes,omitempty"`
+
+	// EventsMaxFileBytes rotates events.jsonl once it exceeds this size
+	// (events.jsonl → events.1.jsonl → …). Reads stitch the rotated
+	// segments back together, so rotation is invisible to API callers.
+	// 0 falls back to DefaultEventsMaxFileBytes; negative disables
+	// rotation. Inherited from the trace hook, which event_persist:all
+	// now subsumes.
+	EventsMaxFileBytes int64 `yaml:"events_max_file_bytes,omitempty"`
+
+	// RetentionDays deletes session directories untouched for longer
+	// than this many days, swept once at startup. 0 (the default) keeps
+	// everything: sessions are the user's history, and silently
+	// deleting it must be opted into.
+	RetentionDays int `yaml:"retention_days,omitempty"`
 }
+
+// Session event_persist modes.
+const (
+	EventPersistControl = "control"
+	EventPersistAll     = "all"
+	EventPersistNone    = "none"
+)
+
+// DefaultResumeMaxMessages bounds a resume replay when the user has not
+// configured resume_max_messages.
+const DefaultResumeMaxMessages = 5000
+
+// DefaultToolResultMaxInlineBytes is the inline ceiling for tool message
+// bodies in messages.jsonl. 8 KiB keeps ordinary results (file reads,
+// command output) inline while pushing the rare multi-megabyte dump into
+// its own file, where it costs one write instead of one per checkpoint.
+const DefaultToolResultMaxInlineBytes = 8 << 10
+
+// DefaultEventsMaxFileBytes is the events.jsonl rotation threshold. It
+// matches the trace hook's historical default so merging trace into the
+// event log does not change how much a debugging session may accumulate
+// in one file.
+const DefaultEventsMaxFileBytes int64 = 64 << 20
 
 // IsEnabled returns true unless the user explicitly set `enabled: false`.
 // Default-on so a fresh install gets persistent sessions without configuration.
@@ -555,6 +626,54 @@ func (s SessionConfig) IsEnabled() bool {
 // default" which is true.
 func (s SessionConfig) PersistBuildReportsEnabled() bool {
 	return s.PersistBuildReports == nil || *s.PersistBuildReports
+}
+
+// EffectiveEventPersist returns the normalised event_persist mode.
+// Unknown values are rejected by Validate, so the fallback here only
+// covers the empty (unset) case.
+func (s SessionConfig) EffectiveEventPersist() string {
+	if s.EventPersist == "" {
+		return EventPersistControl
+	}
+
+	return strings.ToLower(strings.TrimSpace(s.EventPersist))
+}
+
+// EffectiveResumeMaxMessages returns the resume replay cap, defaulting to
+// DefaultResumeMaxMessages.
+func (s SessionConfig) EffectiveResumeMaxMessages() int {
+	if s.ResumeMaxMessages > 0 {
+		return s.ResumeMaxMessages
+	}
+
+	return DefaultResumeMaxMessages
+}
+
+// EffectiveToolResultMaxInlineBytes returns the tool-body spill threshold.
+// A negative configured value disables spilling and is returned as 0.
+func (s SessionConfig) EffectiveToolResultMaxInlineBytes() int {
+	switch {
+	case s.ToolResultMaxInlineBytes < 0:
+		return 0
+	case s.ToolResultMaxInlineBytes == 0:
+		return DefaultToolResultMaxInlineBytes
+	default:
+		return s.ToolResultMaxInlineBytes
+	}
+}
+
+// EffectiveEventsMaxFileBytes returns the events.jsonl rotation
+// threshold. A negative configured value disables rotation and is
+// returned as 0.
+func (s SessionConfig) EffectiveEventsMaxFileBytes() int64 {
+	switch {
+	case s.EventsMaxFileBytes < 0:
+		return 0
+	case s.EventsMaxFileBytes == 0:
+		return DefaultEventsMaxFileBytes
+	default:
+		return s.EventsMaxFileBytes
+	}
 }
 
 // EffectiveDir returns the resolved session root directory, defaulting to
@@ -933,8 +1052,36 @@ func applyDefaults(cfg *Config) {
 		cfg.Budget.WarnPercent = 0.8
 	}
 
-	if cfg.Session.HistoryReplayMaxEvents == 0 {
-		cfg.Session.HistoryReplayMaxEvents = 5000
+	applySessionDefaults(&cfg.Session)
+}
+
+// applySessionDefaults normalises the session storage knobs: it folds the
+// deprecated history_replay_max_events key into ResumeMaxMessages and
+// coerces an unrecognised event_persist mode back to the default rather
+// than silently persisting nothing.
+func applySessionDefaults(s *SessionConfig) {
+	if s.HistoryReplayMaxEvents > 0 && s.ResumeMaxMessages == 0 {
+		slog.Warn("vv: session.history_replay_max_events is deprecated, use session.resume_max_messages",
+			"value", s.HistoryReplayMaxEvents)
+		s.ResumeMaxMessages = s.HistoryReplayMaxEvents
+	}
+
+	if s.ResumeMaxMessages == 0 {
+		s.ResumeMaxMessages = DefaultResumeMaxMessages
+	}
+	// Keep the deprecated field in sync so existing readers (and the
+	// config dump) see a consistent value during the grace period.
+	s.HistoryReplayMaxEvents = s.ResumeMaxMessages
+
+	switch mode := strings.ToLower(strings.TrimSpace(s.EventPersist)); mode {
+	case "":
+		s.EventPersist = EventPersistControl
+	case EventPersistControl, EventPersistAll, EventPersistNone:
+		s.EventPersist = mode
+	default:
+		slog.Warn("vv: unknown session.event_persist, falling back to control",
+			"value", s.EventPersist, "valid", []string{EventPersistControl, EventPersistAll, EventPersistNone})
+		s.EventPersist = EventPersistControl
 	}
 }
 
