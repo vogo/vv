@@ -67,6 +67,8 @@ Primary 的系统提示明确禁止它自己改写文件 —— 它没有写工�
 3. 子代理在自己的 ReAct 循环中独立完成任务,结果以工具结果形式回到 Primary。
 4. Primary 把子代理的回答 **折叠** 进自己的最终回复 —— 而不是原样转发,这样用户始终看到一个连贯的 Primary 视角。
 
+流式请求中,`delegate_to_*` 从工具执行 `context` 取得当前 `Emitter`,优先调用专家的 `RunStream`:先发出 `SubAgentStart`,随后原样转发专家的 tool / text / usage 等事件,最后发出带聚合统计的 `SubAgentEnd`;同时从专家的 `AgentEnd.Message` 聚合工具结果供 Primary 折叠。非流式请求以及不实现 `StreamAgent` 的专家保留同步回退。工具处理器不得直接写 console,CLI / HTTP SSE 只消费同一条结构化事件流。
+
 子代理失败不会冒泡为 Run 错误,而是以 `IsError=true` 的工具结果返回。这让 Primary 能基于错误内容继续决策(例如改派另一个专家、改用直答、向用户澄清),而不是让整轮请求 abort(ORCH-R6)。
 
 ## 规划的语义

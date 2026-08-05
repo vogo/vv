@@ -3,8 +3,11 @@ package dispatches
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"time"
 
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/schema"
@@ -148,6 +151,20 @@ func newDelegateHandler(ag agent.Agent) tool.ToolHandler {
 			Task: task,
 		})
 
+		// In a streaming Primary run taskagent exposes the active stream through
+		// the context emitter.  Consume the specialist's stream here instead of
+		// hiding it behind Agent.Run, so its tool calls and progress remain
+		// visible to CLI/SSE consumers.  Sync callers have no emitter and retain
+		// the original non-streaming path.
+		if emitter := schema.EmitterFromContext(ctx); emitter != nil {
+			text, err := runDelegateStream(ctx, emitter, ag, &req, task)
+			if err != nil {
+				return schema.ErrorResult("", "delegate tool: execution failed: "+err.Error()), nil
+			}
+
+			return schema.TextResult("", text), nil
+		}
+
 		resp, err := ag.Run(ctx, &req)
 		if err != nil {
 			return schema.ErrorResult("", "delegate tool: execution failed: "+err.Error()), nil
@@ -164,6 +181,135 @@ func newDelegateHandler(ag agent.Agent) tool.ToolHandler {
 
 		return schema.TextResult("", strings.Join(parts, "\n")), nil
 	}
+}
+
+// runDelegateStream relays a delegated agent into the active parent stream
+// while retaining its final answer as the delegate tool result consumed by
+// Primary. SubAgentStart/End form the UI nesting boundary; the child's native
+// events between them are forwarded unchanged.
+func runDelegateStream(
+	ctx context.Context,
+	emit schema.Emitter,
+	ag agent.Agent,
+	req *schema.RunRequest,
+	task string,
+) (string, error) {
+	if err := emit(schema.NewEvent(schema.EventSubAgentStart, ag.ID(), req.SessionID, schema.SubAgentStartData{
+		AgentName:   ag.ID(),
+		Description: task,
+	})); err != nil {
+		return "", err
+	}
+
+	started := time.Now()
+	toolCalls := 0
+	promptTokens := 0
+	completionTokens := 0
+	finalText := ""
+	var streamedText strings.Builder
+	emitEnd := func() error {
+		return emit(schema.NewEvent(schema.EventSubAgentEnd, ag.ID(), req.SessionID, schema.SubAgentEndData{
+			AgentName:        ag.ID(),
+			Duration:         time.Since(started).Milliseconds(),
+			ToolCalls:        toolCalls,
+			TokensUsed:       promptTokens + completionTokens,
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+		}))
+	}
+
+	streamAgent, ok := ag.(agent.StreamAgent)
+	if !ok {
+		resp, err := ag.Run(ctx, req)
+		if err != nil {
+			_ = emitEnd()
+			return "", err
+		}
+
+		finalText = assistantResponseText(resp)
+		if resp != nil && resp.Usage != nil {
+			promptTokens = resp.Usage.PromptTokens
+			completionTokens = resp.Usage.CompletionTokens
+		}
+		if finalText != "" {
+			if err := emit(schema.NewEvent(schema.EventTextDelta, ag.ID(), req.SessionID, schema.TextDeltaData{Delta: finalText})); err != nil {
+				return "", err
+			}
+		}
+		if err := emitEnd(); err != nil {
+			return "", err
+		}
+
+		return finalText, nil
+	}
+
+	stream, err := streamAgent.RunStream(ctx, req)
+	if err != nil {
+		_ = emitEnd()
+		return "", err
+	}
+	defer func() { _ = stream.Close() }()
+
+	for {
+		event, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+
+			_ = emitEnd()
+			return "", recvErr
+		}
+
+		switch event.Type {
+		case schema.EventTextDelta:
+			if data, ok := event.Data.(schema.TextDeltaData); ok {
+				streamedText.WriteString(data.Delta)
+			}
+		case schema.EventToolCallStart:
+			toolCalls++
+		case schema.EventLLMCallEnd:
+			if data, ok := event.Data.(schema.LLMCallEndData); ok {
+				promptTokens += data.PromptTokens
+				completionTokens += data.CompletionTokens
+			}
+		case schema.EventAgentEnd:
+			if data, ok := event.Data.(schema.AgentEndData); ok && data.Message != "" {
+				finalText = data.Message
+			}
+		}
+
+		if err := emit(event); err != nil {
+			return "", err
+		}
+	}
+
+	if finalText == "" {
+		finalText = streamedText.String()
+	}
+
+	if err := emitEnd(); err != nil {
+		return "", err
+	}
+
+	return finalText, nil
+}
+
+func assistantResponseText(resp *schema.RunResponse) string {
+	if resp == nil {
+		return ""
+	}
+
+	var parts []string
+	for _, msg := range resp.Messages {
+		if msg.Role() == schema.RoleAssistant {
+			if text := msg.Text(); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 // planTaskArgs mirrors the unified plan_task parameters so the LLM can pass

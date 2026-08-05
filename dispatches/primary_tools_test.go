@@ -112,6 +112,60 @@ func TestRegisterDelegateTools_HandlerRunsAgent(t *testing.T) {
 	}
 }
 
+func TestRegisterDelegateTools_HandlerStreamsSubAgentEvents(t *testing.T) {
+	reg := tool.NewRegistry()
+	coder := &delegateStreamingAgent{stubAgent: stubAgent{id: "coder"}}
+
+	if err := RegisterDelegateTools(reg, map[string]agent.Agent{"coder": coder}, []string{"coder"}); err != nil {
+		t.Fatalf("RegisterDelegateTools: %v", err)
+	}
+
+	var events []schema.Event
+	ctx := schema.WithEmitter(context.Background(), func(event schema.Event) error {
+		events = append(events, event)
+		return nil
+	})
+
+	res, err := reg.Execute(ctx, "delegate_to_coder", `{"task":"edit foo.go"}`)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("handler returned IsError=true: %s", toolResultText(res))
+	}
+	if got := toolResultText(res); got != "coder finished" {
+		t.Fatalf("tool result = %q, want final agent message", got)
+	}
+	if coder.ranCount() != 0 {
+		t.Fatalf("streaming delegate called Run %d times, want 0", coder.ranCount())
+	}
+
+	wantTypes := []string{
+		schema.EventSubAgentStart,
+		schema.EventTextDelta,
+		schema.EventToolCallStart,
+		schema.EventLLMCallEnd,
+		schema.EventAgentEnd,
+		schema.EventSubAgentEnd,
+	}
+	if len(events) != len(wantTypes) {
+		t.Fatalf("event count = %d, want %d: %+v", len(events), len(wantTypes), events)
+	}
+	for i, want := range wantTypes {
+		if events[i].Type != want {
+			t.Errorf("events[%d].Type = %q, want %q", i, events[i].Type, want)
+		}
+	}
+
+	end, ok := events[len(events)-1].Data.(schema.SubAgentEndData)
+	if !ok {
+		t.Fatalf("last event data = %T, want SubAgentEndData", events[len(events)-1].Data)
+	}
+	if end.AgentName != "coder" || end.ToolCalls != 1 || end.PromptTokens != 7 || end.CompletionTokens != 3 {
+		t.Errorf("SubAgentEndData = %+v", end)
+	}
+}
+
 func TestRegisterDelegateTools_HandlerRejectsBadArgs(t *testing.T) {
 	reg := tool.NewRegistry()
 	coder := &stubAgent{id: "coder"}
@@ -309,6 +363,29 @@ func TestRegisterPlanTaskTool_HandlerIncrementsDepth(t *testing.T) {
 type depthSpyAgent struct {
 	id    string
 	onRun func(ctx context.Context)
+}
+
+type delegateStreamingAgent struct {
+	stubAgent
+}
+
+var _ agent.StreamAgent = (*delegateStreamingAgent)(nil)
+
+func (s *delegateStreamingAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*schema.RunStream, error) {
+	return schema.NewRunStream(ctx, agent.DefaultStreamBufferSize, func(_ context.Context, send func(schema.Event) error) error {
+		events := []schema.Event{
+			schema.NewEvent(schema.EventTextDelta, s.id, req.SessionID, schema.TextDeltaData{Delta: "working"}),
+			schema.NewEvent(schema.EventToolCallStart, s.id, req.SessionID, schema.ToolCallStartData{ToolName: "edit"}),
+			schema.NewEvent(schema.EventLLMCallEnd, s.id, req.SessionID, schema.LLMCallEndData{PromptTokens: 7, CompletionTokens: 3}),
+			schema.NewEvent(schema.EventAgentEnd, s.id, req.SessionID, schema.AgentEndData{Message: "coder finished"}),
+		}
+		for _, event := range events {
+			if err := send(event); err != nil {
+				return err
+			}
+		}
+		return nil
+	}), nil
 }
 
 var _ agent.Agent = (*depthSpyAgent)(nil)
