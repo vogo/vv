@@ -17,9 +17,9 @@ orchestration 是 vv 的核心领域,贯彻 **统一前门、内部分工**:每�
 | 实体 | 性质 | 说明 | 详见 |
 |------|------|------|------|
 | **Dispatcher** | 单例代理 | 对外单一 `agent.StreamAgent`;对内只"转发到 Primary 或 Fallback"。无意图分类、无总结、无策略选择。 | [models.md](models.md) |
-| **Primary Assistant** | 单例代理 | 统一前门。ReAct 循环,每轮从动作集选一(直答/执行/委派/规划)。工具能力由 execution model 决定。 | [design.md](design.md) |
+| **Primary Assistant** | 单例代理 | 统一前门。ReAct 循环,每轮从动作集选一(直答/执行/委派/规划);**默认顺序执行**,规划仅在满足 ORCH-R11 时启用。工具能力由 execution model 决定。 | [design.md](design.md) |
 | **Fallback Primary** | 单例代理 | 与 Primary 共享人格与系统提示,但 **无任何工具**、最大迭代 1。仅在递归超限时使用。 | [design.md](design.md) |
-| **Task Plan** | 聚合根(瞬态) | 一次复杂请求被拆解成的 DAG;`plan_task` 触发时构造。 | [models.md](models.md) |
+| **Task Plan** | 聚合根(瞬态) | 一次 **满足规划门槛**(ORCH-R11)的请求被拆解成的 DAG;`plan_task` 触发时构造。 | [models.md](models.md) |
 | **Plan Step** | 实体 | DAG 节点;含描述、执行者(静态专家或动态规格)、依赖、状态、结果。 | [models.md](models.md) |
 | **Dynamic Agent Spec** | 值对象(内嵌于 Plan Step) | 临时构造执行者的规格:base type + 工具子集 + 自定义系统提示。 | [models.md](models.md) |
 
@@ -39,6 +39,7 @@ orchestration 是 vv 的核心领域,贯彻 **统一前门、内部分工**:每�
 | **ORCH-R8** | 动态代理工具子集 | DAG 节点可由 Dynamic Agent Spec 临时构造执行者:base type 决定基础行为,工具访问级别(ToolProfile)决定其工具子集,自定义系统提示特化其行为。动态代理 **即用即弃**,不注册到代理注册表。 |
 | **ORCH-R9** | 写树镜像失败不阻塞 | 启用 Session Tree 且打开"分发器写树"开关时,每次 `plan_task` 把 plan 镜像为树节点(首次建 goal 根,后续追加子树)。镜像 **失败仅记告警,不阻塞 DAG 执行** —— 树是辅助视图,不是关键路径。 |
 | **ORCH-R10** | 单一 phase 信封 | 每次请求发出一对 phase 事件包住 Primary 整个执行(`unified_primary`);Fallback 路径额外发一对 `summarize` 静态 phase(零 LLM 调用),使 SSE 消费者无需分支判断走了哪条物理路径。 |
+| **ORCH-R11** | 规划门槛(显式高级能力) | 顺序执行是默认路径;`plan_task` 是显式高级能力,仅在 **四项条件同时成立** 时启用:① 至少两个真正独立的工作流(非同一修改的连续切段);② 并行有实际墙钟收益;③ 次序可用 `depends_on` 表达或分支无依赖;④ 用户明确要求并行或要求长任务后台执行。普通 bug fix、单文件/单符号修改、只需顺序检查清单的任务 **不得** 走 `plan_task`。门槛是 **提示层决策契约**(系统提示与工具描述必须一致),**不是运行时拒绝规则**:执行器对已提交的有效 DAG 照常执行,不引入前置分类器或"是否值得并行"的硬校验。 |
 
 > 规则刻意只保留 **不变量与边界**。逐步流程(哪轮选哪个动作、DAG 如何调度并行)由代码承载,不在此复述。
 
@@ -110,6 +111,7 @@ stateDiagram-v2
 - **递归突破上限**:无论委派链多深、子代理是否再次触发 Dispatcher,递归深度 **不得** 超过 `maxRecursionDepth`。达到上限必落到无工具 Fallback Primary 并在有限步骤(最大迭代 1)内回应用户;任何"绕过深度检查继续递归"的路径都违反 ORCH-R3。
 - **子代理失败 abort 整轮请求**:子代理执行失败 **不得** 表现为 Run 级错误使整轮请求崩溃 —— 必须以 `IsError=true` 工具结果回到 Primary(ORCH-R6)。
 - **写树失败阻塞业务**:Session Tree 镜像失败 **不得** 中断 DAG 执行或使请求失败(ORCH-R9)。
+- **把 DAG 当默认路径**:提示契约 **不得** 让"任务有多个步骤"或"涉及多个专家能力域"单独成为规划理由;普通 bug fix、单点修改被拆成多步 DAG 是过度规划(ORCH-R11)。反向亦禁止:**不得** 因为收窄触发条件就在执行器里加"是否值得并行"的运行时拒绝或前置分类器。
 
 ## Data dictionary
 
@@ -117,7 +119,7 @@ stateDiagram-v2
 |------|------|
 | **统一前门(unified front door)** | 对外只有一个 Dispatcher 入口的架构形态;策略由 Primary 内化。 |
 | **委派(delegate)** | Primary 经 `delegate_to_<专家>` 把一个干净映射到某专家的子任务交给该专家执行,递归深度 +1。 |
-| **规划(plan)** | Primary 经 `plan_task` 把跨多专家能力域的任务拆解为 DAG 并发执行。 |
+| **规划(plan)** | Primary 经 `plan_task` 把 **满足 ORCH-R11 四项门槛** 的任务拆解为 DAG 并发执行。属显式高级能力,非多步任务的默认路径;默认路径是 Primary 自己顺序执行(进度用 `todo_write` 呈现)。 |
 | **折叠(fold)** | 子代理/DAG 的结果作为工具结果被 Primary 并入其连贯最终回复,而非原样转发。 |
 | **递归深度(recursion depth)** | 经 `context` 携带的整数,记录当前委派/规划嵌套层数;Dispatcher 入口检查的硬阀门变量。 |
 | **动态规格(dynamic spec)** | Dynamic Agent Spec 的简称;为某个 DAG step 临时构造稍有差异执行者的配置。 |
