@@ -191,3 +191,45 @@ func TestSessionStatus(t *testing.T) {
 		seen[s] = true
 	}
 }
+
+func TestSanitizeInput_OSCLeakage(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "bare OSC 11 reply without ESC and bracket",
+			input: "11;rgb:158e/193a/1e75\\",
+			want:  "",
+		},
+		{
+			name:  "OSC 11 reply keeping the bracket",
+			input: "]11;rgb:1818/1818/1818\\",
+			want:  "",
+		},
+		{
+			name:  "full OSC 11 reply with ST terminator",
+			input: "\x1b]11;rgb:158e/193a/1e75\x1b\\",
+			want:  "",
+		},
+		{
+			name:  "leaked reply around real user text",
+			input: "hello 11;rgb:158e/193a/1e75\\ world",
+			want:  "hello  world",
+		},
+		{
+			name:  "plain text is untouched",
+			input: "run tests for 11 files; rgb is fine",
+			want:  "run tests for 11 files; rgb is fine",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeInput(tt.input); got != tt.want {
+				t.Errorf("sanitizeInput(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

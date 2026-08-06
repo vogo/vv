@@ -178,6 +178,10 @@ func (a *App) Run(ctx context.Context) error {
 		slog.SetDefault(slog.New(slog.NewTextHandler(logFile, nil)))
 	}
 
+	// Probe the terminal background while stdin is still ours; afterwards
+	// bubbletea owns it and any OSC reply would land in the input textarea.
+	initMarkdownStyle()
+
 	m := newModel(a, ctx)
 
 	// Inline mode: no WithAltScreen so output stays in terminal scrollback.
@@ -314,7 +318,19 @@ func (m *model) toolDepth() int {
 
 // escapeSeqRe matches ANSI escape sequences and OSC responses that terminals
 // may inject as input (e.g. ]11;rgb:1818/1818/1818\, CSI mouse sequences).
-var escapeSeqRe = regexp.MustCompile(`\x1b[^a-zA-Z]*[a-zA-Z]|\x1b\][^\x07\x1b\\]*(?:\x07|\x1b\\)|\][0-9]+;[^\x07\\\n]*\\?|<[0-9;]+[mMhHlL]`)
+//
+// The bare `11;rgb:...` alternative exists because bubbletea's key parser
+// swallows the leading ESC and `]` of an unconsumed OSC 11 reply, leaving
+// only the printable tail behind in the textarea.
+// Alternation is leftmost-first, so the OSC branches must precede the
+// generic ESC branch: `\x1b[^a-zA-Z]*[a-zA-Z]` would otherwise stop at the
+// `r` of `rgb:` and leave `gb:158e/...` behind.
+var escapeSeqRe = regexp.MustCompile(
+	`\x1b\][^\x07\x1b\\]*(?:\x07|\x1b\\)` +
+		`|\]?[0-9]+;rgb:[0-9a-fA-F/]*(?:\x1b)?\\?` +
+		`|\][0-9]+;[^\x07\\\n]*\\?` +
+		`|\x1b[^a-zA-Z]*[a-zA-Z]` +
+		`|<[0-9;]+[mMhHlL]`)
 
 // sanitizeInput strips terminal escape sequences from text.
 func sanitizeInput(s string) string {
