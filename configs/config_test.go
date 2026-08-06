@@ -253,16 +253,18 @@ llm:
 	}
 }
 
-// clearAnthropicEnv unsets the three ANTHROPIC_* variables (and VV_LLM_*
-// provider) for the duration of the test so that ambient values on the host —
-// exactly the environment this fallback targets — do not perturb assertions
-// that expect the non-anthropic path. t.Setenv also blocks t.Parallel, which
-// keeps these Load tests from racing on process-global env state.
+// clearAnthropicEnv unsets the three ANTHROPIC_* variables plus
+// VV_LLM_PROVIDER for the duration of the test, so that ambient values on the
+// host — exactly the environment this override targets — do not perturb the
+// assertions. VV_LLM_PROVIDER matters because it disables the ANTHROPIC_*
+// group outright. t.Setenv also blocks t.Parallel, which keeps these Load tests
+// from racing on process-global env state.
 func clearAnthropicEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("ANTHROPIC_MODEL", "")
+	t.Setenv("VV_LLM_PROVIDER", "")
 }
 
 func TestLoad_AnthropicEnvFallback_APIKeyOnly(t *testing.T) {
@@ -343,23 +345,25 @@ func TestLoad_AnthropicEnvFallback_PerFieldFill(t *testing.T) {
 	}
 }
 
-func TestLoad_AnthropicEnvFallback_DoesNotOverrideExplicitFields(t *testing.T) {
+func TestLoad_AnthropicEnv_OverridesYAMLFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	// Provider empty on purpose (so the fallback fires), but api_key/model
-	// already supplied via YAML must be preserved.
+	// Same provider on both sides, so no provider switch is involved: this
+	// isolates the field-level precedence (env beats file).
 	content := `
 llm:
+  provider: "anthropic"
   api_key: "yaml-key"
   model: "yaml-model"
+  base_url: "https://yaml.example"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	clearAnthropicEnv(t)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-fallback")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-env")
 	t.Setenv("ANTHROPIC_MODEL", "claude-anthropic-model")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://anthropic.example/v1")
 
@@ -368,22 +372,58 @@ llm:
 		t.Fatalf("Load: %v", err)
 	}
 
-	if cfg.LLM.Provider != "anthropic" {
-		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "anthropic")
+	if cfg.LLM.Provider != ProviderAnthropic {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, ProviderAnthropic)
 	}
 
-	// YAML values win over ANTHROPIC_* fallback.
-	if cfg.LLM.APIKey != "yaml-key" {
-		t.Errorf("api_key = %q, want %q (YAML wins)", cfg.LLM.APIKey, "yaml-key")
+	if cfg.LLM.APIKey != "sk-ant-env" {
+		t.Errorf("api_key = %q, want %q (env wins)", cfg.LLM.APIKey, "sk-ant-env")
+	}
+
+	if cfg.LLM.Model != "claude-anthropic-model" {
+		t.Errorf("model = %q, want %q (env wins)", cfg.LLM.Model, "claude-anthropic-model")
+	}
+
+	if cfg.LLM.BaseURL != "https://anthropic.example/v1" {
+		t.Errorf("base_url = %q, want %q (env wins)", cfg.LLM.BaseURL, "https://anthropic.example/v1")
+	}
+}
+
+// A field the ANTHROPIC_* group does not supply keeps its YAML value, as long
+// as the provider is unchanged: only non-empty env values override.
+func TestLoad_AnthropicEnv_KeepsYAMLFieldsTheEnvOmits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  provider: "anthropic"
+  model: "yaml-model"
+  base_url: "https://yaml.example"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.APIKey != "sk-ant-env" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-ant-env")
 	}
 
 	if cfg.LLM.Model != "yaml-model" {
-		t.Errorf("model = %q, want %q (YAML wins)", cfg.LLM.Model, "yaml-model")
+		t.Errorf("model = %q, want %q (YAML kept; ANTHROPIC_MODEL unset)", cfg.LLM.Model, "yaml-model")
 	}
 
-	// base_url was empty in YAML, so the fallback fills it.
-	if cfg.LLM.BaseURL != "https://anthropic.example/v1" {
-		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://anthropic.example/v1")
+	if cfg.LLM.BaseURL != "https://yaml.example" {
+		t.Errorf("base_url = %q, want %q (YAML kept; ANTHROPIC_BASE_URL unset)",
+			cfg.LLM.BaseURL, "https://yaml.example")
 	}
 }
 
@@ -420,7 +460,10 @@ func TestLoad_AnthropicEnvFallback_VVLLMTakesPriority(t *testing.T) {
 	}
 }
 
-func TestLoad_AnthropicEnvFallback_YAMLProviderTakesPriority(t *testing.T) {
+// The environment outranks the file for the provider too, and a provider
+// switch must not carry the previous provider's endpoint/model/key along —
+// they describe a different API.
+func TestLoad_AnthropicEnv_OverridesYAMLProvider(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
@@ -428,25 +471,121 @@ func TestLoad_AnthropicEnvFallback_YAMLProviderTakesPriority(t *testing.T) {
 llm:
   provider: "openai"
   model: "gpt-4o"
+  api_key: "sk-openai-yaml"
+  base_url: "https://openai.example/v1"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	clearAnthropicEnv(t)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-fallback")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
+	t.Setenv("ANTHROPIC_MODEL", "deepseek-v4-flash")
 
 	cfg, err := Load(path, true)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if cfg.LLM.Provider != "openai" {
-		t.Errorf("provider = %q, want %q (YAML provider wins)", cfg.LLM.Provider, "openai")
+	if cfg.LLM.Provider != ProviderAnthropic {
+		t.Errorf("provider = %q, want %q (env wins)", cfg.LLM.Provider, ProviderAnthropic)
 	}
 
-	if cfg.LLM.BaseURL != "https://api.openai.com/v1" {
-		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.openai.com/v1")
+	if cfg.LLM.APIKey != "sk-ant-env" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-ant-env")
+	}
+
+	if cfg.LLM.Model != "deepseek-v4-flash" {
+		t.Errorf("model = %q, want %q", cfg.LLM.Model, "deepseek-v4-flash")
+	}
+
+	if cfg.LLM.BaseURL != "https://api.deepseek.com/anthropic" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.deepseek.com/anthropic")
+	}
+}
+
+// Provider switch with a partially specified group: the dropped YAML fields
+// must not resurface, and the openai default base URL must not be applied to
+// an anthropic provider.
+func TestLoad_AnthropicEnv_ProviderSwitchDropsStaleYAMLFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "sk-openai-yaml"
+  base_url: "https://openai.example/v1"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != ProviderAnthropic {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, ProviderAnthropic)
+	}
+
+	if cfg.LLM.Model != "" {
+		t.Errorf("model = %q, want empty (openai model dropped on provider switch)", cfg.LLM.Model)
+	}
+
+	if cfg.LLM.BaseURL != "" {
+		t.Errorf("base_url = %q, want empty (openai endpoint dropped; anthropic default is Anthropic's own)",
+			cfg.LLM.BaseURL)
+	}
+
+	if cfg.LLM.APIKey != "sk-ant-env" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-ant-env")
+	}
+}
+
+// VV_LLM_PROVIDER is the escape hatch: it voids the whole ANTHROPIC_* group so
+// a globally exported ANTHROPIC_API_KEY cannot hijack an openai setup.
+func TestLoad_VVLLMProvider_DisablesAnthropicEnvGroup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "sk-openai-yaml"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clearAnthropicEnv(t)
+	t.Setenv("VV_LLM_PROVIDER", "openai")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.LLM.Provider != ProviderOpenAI {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, ProviderOpenAI)
+	}
+
+	if cfg.LLM.APIKey != "sk-openai-yaml" {
+		t.Errorf("api_key = %q, want %q (ANTHROPIC_API_KEY must not apply)",
+			cfg.LLM.APIKey, "sk-openai-yaml")
+	}
+
+	if cfg.LLM.BaseURL != defaultOpenAIBaseURL {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, defaultOpenAIBaseURL)
 	}
 }
 
@@ -531,8 +670,9 @@ func TestPrompt_AnthropicProvider(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vv.yaml")
 
-	// User types "anthropic", accepts default model, enters API key, accepts addr.
-	input := "anthropic\n\nsk-ant-key\n\n"
+	// User types "anthropic", accepts default model, enters API key, accepts
+	// the base URL default, accepts addr.
+	input := "anthropic\n\nsk-ant-key\n\n\n"
 	var out bytes.Buffer
 
 	cfg := &Config{}
@@ -540,8 +680,8 @@ func TestPrompt_AnthropicProvider(t *testing.T) {
 		t.Fatalf("Prompt: %v", err)
 	}
 
-	if cfg.LLM.Provider != "anthropic" {
-		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, "anthropic")
+	if cfg.LLM.Provider != ProviderAnthropic {
+		t.Errorf("provider = %q, want %q", cfg.LLM.Provider, ProviderAnthropic)
 	}
 
 	if cfg.LLM.Model != "claude-sonnet-4" {
@@ -552,9 +692,72 @@ func TestPrompt_AnthropicProvider(t *testing.T) {
 		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-ant-key")
 	}
 
-	// Anthropic provider should not prompt for base URL, so no base_url set.
-	if cfg.LLM.BaseURL != "" {
-		t.Errorf("base_url = %q, want empty for anthropic", cfg.LLM.BaseURL)
+	// Anthropic is prompted for a base URL too, defaulting to Anthropic's own.
+	if cfg.LLM.BaseURL != defaultAnthropicBaseURL {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, defaultAnthropicBaseURL)
+	}
+
+	if cfg.Server.Addr != ":8080" {
+		t.Errorf("addr = %q, want %q", cfg.Server.Addr, ":8080")
+	}
+}
+
+// The regression this whole change exists for: an anthropic-protocol endpoint
+// that is not Anthropic's must be reachable from the setup prompt, and must not
+// land in server.addr.
+func TestPrompt_AnthropicThirdPartyBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vv.yaml")
+
+	input := "anthropic\ndeepseek-v4-flash\nsk-ds-key\nhttps://api.deepseek.com/anthropic\n\n"
+	var out bytes.Buffer
+
+	cfg := &Config{}
+	if err := Prompt(cfg, path, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+
+	if cfg.LLM.BaseURL != "https://api.deepseek.com/anthropic" {
+		t.Errorf("base_url = %q, want %q", cfg.LLM.BaseURL, "https://api.deepseek.com/anthropic")
+	}
+
+	if cfg.Server.Addr != ":8080" {
+		t.Errorf("addr = %q, want %q (the endpoint must not leak into server.addr)",
+			cfg.Server.Addr, ":8080")
+	}
+
+	if got := cfg.LLM.EndpointLabel(); got != "api.deepseek.com" {
+		t.Errorf("EndpointLabel() = %q, want %q", got, "api.deepseek.com")
+	}
+}
+
+func TestEndpointLabel(t *testing.T) {
+	tests := []struct {
+		name string
+		llm  LLMConfig
+		want string
+	}{
+		{"anthropic empty base URL", LLMConfig{Provider: ProviderAnthropic}, "api.anthropic.com"},
+		{"openai empty base URL", LLMConfig{Provider: ProviderOpenAI}, "api.openai.com"},
+		{"empty provider", LLMConfig{}, "api.openai.com"},
+		{
+			"third-party anthropic",
+			LLMConfig{Provider: ProviderAnthropic, BaseURL: "https://api.deepseek.com/anthropic"},
+			"api.deepseek.com",
+		},
+		{
+			"unparseable base URL is shown verbatim",
+			LLMConfig{Provider: ProviderAnthropic, BaseURL: "api.deepseek.com"},
+			"api.deepseek.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.llm.EndpointLabel(); got != tt.want {
+				t.Errorf("EndpointLabel() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

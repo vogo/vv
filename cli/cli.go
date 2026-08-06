@@ -541,7 +541,8 @@ func (m *model) headerView() string {
 	}
 
 	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // dim gray
-	providerModel := fmt.Sprintf("vv · %s · %s", m.app.cfg.LLM.Provider, m.app.cfg.LLM.Model)
+	providerModel := fmt.Sprintf("vv · %s · %s · %s",
+		m.app.cfg.LLM.Provider, m.app.cfg.LLM.Model, m.app.cfg.LLM.EndpointLabel())
 	line1 := headerStyle.Render(providerModel)
 	dirStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 	line2 := "  " + dirStyle.Render(dir)

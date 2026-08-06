@@ -25,14 +25,21 @@
 
 **取舍**:统一优先级链而非逐字段定制,换取可预测性与单一加载入口(为未来远程/多 profile 配置留扩展空间)。
 
-### 1.1 Anthropic 环境约定回退
+### 1.1 Anthropic 环境约定覆盖
 
-LLM provider **未定**时(YAML 与 `VV_LLM_PROVIDER` 均未给出),Load 在 `VV_*` 覆盖之后、默认填充之前,读取标准 Anthropic 环境变量作为回退:只要 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 任一非空,即推断 `llm.provider=anthropic`,并按「对应字段仍为空才补」的规则用 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 填入 `api_key` / `base_url` / `model`。
+Load 在 `VV_*` 覆盖**之前**、默认填充之前,读取标准 Anthropic 环境变量:只要 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 任一非空,即判定 `llm.provider=anthropic`,并用各自的非空值**覆盖** `api_key` / `base_url` / `model`。
 
-- 优先级:YAML ＞ `VV_LLM_*` ＞ `ANTHROPIC_*` 回退 ＞ 程序默认值。任何显式 provider(YAML 或 `VV_LLM_PROVIDER=openai`/`anthropic`)都不被回退改写。
-- 仅在 provider 为空时触发;三组变量都不设时行为与现状一致(空 provider 走 openai 默认 `https://api.openai.com/v1`)。
-- 当 `OPENAI_API_KEY` 与 `ANTHROPIC_*` 同时存在且 provider 未定时,回退判定为 **anthropic**——遵循标准 Anthropic 约定。该判定只决定协议;`aimodel.NewClient` 自身对 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` 的 key 兜底不受影响。
-- 不引入对称的 `OPENAI_*` 回退。
+- 优先级(遵循 CONFIG-R1 的 env ＞ YAML):`VV_LLM_*` ＞ `ANTHROPIC_*` ＞ YAML ＞ 程序默认值。`VV_LLM_*` 在表驱动覆盖里无条件赋值,故排在最后执行即天然胜出。
+- **三者是一个 provider 组**,整体生效或整体不生效——任一非空即选定 anthropic 协议,故必须整组判定而非逐键绑定。
+- **逃生舱**:`VV_LLM_PROVIDER` 非空时整组失效(并记 `slog.Info`),供"机器上为其它工具导出了 `ANTHROPIC_API_KEY`,但 vv 要继续走 openai 协议端点"的场景。
+- **provider 切换清场**:该组把 provider 从 YAML 的 openai 翻转为 anthropic 时,先清掉 YAML 的 `api_key` / `base_url` / `model` 再填充——它们描述的是上一个 provider 的 API,沿用会把 anthropic 流量发往 openai 端点、或把新 key 配上旧模型。组内未提供的字段随后走 provider 默认值。
+- 三组变量都不设时行为与现状一致(空 provider 走 openai 默认 `https://api.openai.com/v1`)。
+- 当 `OPENAI_API_KEY` 与 `ANTHROPIC_*` 同时存在且 `VV_LLM_PROVIDER` 未给时,判定为 **anthropic**——遵循标准 Anthropic 约定。该判定只决定协议;`aimodel.NewClient` 自身对 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` 的 key 兜底不受影响。
+- 不引入对称的 `OPENAI_*` 覆盖。
+
+### 1.2 端点可见性
+
+anthropic provider 的 `base_url` 留空表示"用 Anthropic 官方端点"(vage 语义),故 `applyDefaults` **不**给它填默认值——否则第三方端点提示无从区分。为免空 `base_url` 静默把第三方 key 发往 `api.anthropic.com`(表现为不透明的 401 `invalid x-api-key`),实际端点在两处显式呈现:启动日志 `vv: llm configured`,以及 CLI 头部 `vv · <provider> · <model> · <endpoint host>`。两者共用 `LLMConfig.EndpointLabel()`。
 
 ## 2. 首次启动向导
 
@@ -40,6 +47,12 @@ LLM provider **未定**时(YAML 与 `VV_LLM_PROVIDER` 均未给出),Load 在 `VV
 
 - **交互式 CLI**:进入向导收集最小必要配置,写回 YAML 并把文件权限调到 600(CONFIG-R10)。
 - **非交互模式**(`-p` / HTTP / MCP / `-eval`):直接退出报错(CONFIG-R5),不阻塞等待输入。
+
+提问顺序:provider → model → api_key → **base_url** → server.addr。
+
+- `base_url` 对**所有** provider 提问:anthropic 协议端点未必是 Anthropic 自家(DeepSeek、Bedrock 网关、本地代理),默认静默指向 `api.anthropic.com` 会把第三方 key 变成首次请求的 401。默认值按 provider 给(`https://api.openai.com/v1` / `https://api.anthropic.com`)。
+- `server.addr` 是 **http 模式监听地址**(`host:port`),提示语显式声明"不是 API 端点"——它紧跟 `base_url`,措辞含糊时会被误填成端点 URL。
+- provider 与当前值不同(视空值为 openai)即为切换,先清掉 `base_url` / `model` / `api_key` 再提问,避免把上一个 provider 的值当默认值推荐。
 
 ## 3. 模式分派与互斥
 

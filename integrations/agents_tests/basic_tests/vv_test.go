@@ -89,7 +89,9 @@ func TestIntegration_VV_RunPrompt(t *testing.T) {
 
 	req := &schema.RunRequest{
 		Messages: []schema.Message{
-			schema.NewUserMessage(schema.ProtocolOpenAIChat, "Reply with exactly: hello vv"),
+			// The protocol must follow the configured provider: a hard-coded
+			// openai-chat message fails against an anthropic caller.
+			schema.NewUserMessage(initResult.LLMClient.Protocol(), "Reply with exactly: hello vv"),
 		},
 	}
 
@@ -140,7 +142,7 @@ func TestIntegration_VV_RunSubAgent(t *testing.T) {
 
 	req := &schema.RunRequest{
 		Messages: []schema.Message{
-			schema.NewUserMessage(schema.ProtocolOpenAIChat, "What is 2+3? Reply with just the number."),
+			schema.NewUserMessage(initResult.LLMClient.Protocol(), "What is 2+3? Reply with just the number."),
 		},
 	}
 

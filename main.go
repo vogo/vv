@@ -87,14 +87,18 @@ func main() {
 	}
 
 	// If required config is missing, prompt the user interactively or fail fast for -p mode.
+	// The message names every source that was consulted: the usual cause is not
+	// an unset key but a key that some other setting voided (see
+	// applyAnthropicEnvOverride).
 	if configs.NeedsSetup(cfg) {
 		if promptSet {
-			fmt.Fprintf(os.Stderr, "vv: configuration incomplete (missing API key); "+
-				"run `vv` interactively to set up, or set VV_LLM_API_KEY\n")
+			fmt.Fprintf(os.Stderr, "vv: configuration incomplete (no LLM API key in %s, "+
+				"VV_LLM_API_KEY or ANTHROPIC_API_KEY); run `vv` interactively to set up\n", *configPath)
 			os.Exit(1)
 		}
 
-		fmt.Println("No configuration found. Please provide the following values:")
+		fmt.Printf("No LLM API key found (checked %s, VV_LLM_API_KEY, ANTHROPIC_API_KEY).\n", *configPath)
+		fmt.Println("Please provide the following values:")
 		fmt.Println()
 
 		if err := configs.Prompt(cfg, *configPath, os.Stdin, os.Stdout); err != nil {
@@ -104,6 +108,11 @@ func main() {
 
 		fmt.Printf("\nConfiguration saved to %s\n\n", *configPath)
 	}
+
+	// Record the endpoint actually selected. A wrong base_url otherwise only
+	// shows up as an opaque 401/403 from the provider.
+	slog.Info("vv: llm configured",
+		"provider", cfg.LLM.Provider, "model", cfg.LLM.Model, "endpoint", cfg.LLM.EndpointLabel())
 
 	// Debug precedence: CLI > env (already in cfg.Debug from configs.Load) > YAML > false.
 	if debugSet {

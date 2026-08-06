@@ -241,28 +241,34 @@ var modelPricingEnvBindings = []envBinding{
 	{"VV_MODEL_PRICING", func(c *Config, v string) { applyModelPricingEnv(c, v) }},
 }
 
-// applyAnthropicEnvFallback infers an Anthropic provider from the standard
-// ANTHROPIC_* environment variables when neither YAML nor VV_LLM_PROVIDER has
-// pinned a provider. It runs in Load AFTER applyEnvOverrides so VV_LLM_* keeps
-// priority, and BEFORE applyDefaults so an empty provider is not yet frozen to
-// the openai default BaseURL.
+// applyAnthropicEnvOverride applies the standard ANTHROPIC_* environment
+// variables onto cfg. Environment beats file (CONFIG-R1), so every non-empty
+// ANTHROPIC_* value OVERWRITES the matching llm field instead of only filling a
+// blank one — a stale api_key or base_url in vv.yaml can never shadow the
+// environment. Only non-empty values count as "present", matching the
+// empty-string-does-not-override semantics used elsewhere.
 //
-// It is intentionally NOT an envBinding: the whole block is gated on
-// cfg.LLM.Provider == "" (an explicit openai/anthropic choice is never
-// rewritten), and each of APIKey/BaseURL/Model is filled only when its own
-// field is still empty — so YAML and VV_LLM_* values already present are
-// preserved. Only non-empty ANTHROPIC_* values count as "present", matching
-// the empty-string-does-not-override semantics used elsewhere.
+// It runs in Load BEFORE applyEnvOverrides, so the vv-native VV_LLM_* bindings
+// (which assign unconditionally) still outrank ANTHROPIC_*, and BEFORE
+// applyDefaults so an empty provider is not yet frozen to the openai default
+// BaseURL.
 //
-// Note: when OPENAI_API_KEY and ANTHROPIC_* are both set with no explicit
-// provider, this fallback selects anthropic — the standard Anthropic
-// convention wins. This block selects the protocol and fills only missing
-// fields; explicit YAML and VV_LLM_* values remain authoritative.
-func applyAnthropicEnvFallback(cfg *Config) {
-	if cfg.LLM.Provider != "" {
-		return
-	}
-
+// It is intentionally NOT an envBinding: the three variables act as one
+// provider group. Any non-empty member selects the anthropic protocol, so the
+// group must be evaluated together rather than key by key.
+//
+// Setting VV_LLM_PROVIDER disables the whole group. That is the escape hatch
+// for a machine where ANTHROPIC_API_KEY is exported for other tools while vv
+// should keep talking to an openai-protocol endpoint (and it is why the group
+// selects anthropic when OPENAI_API_KEY and ANTHROPIC_* are both set with no
+// explicit provider — the standard Anthropic convention wins by default).
+//
+// When the group flips the provider away from the one YAML pinned, the YAML
+// api_key/base_url/model are dropped first: they describe the previous
+// provider's API, and carrying them over would aim anthropic traffic at an
+// openai endpoint or pair the new key with the old model. Fields the group does
+// not supply then fall back to the provider defaults.
+func applyAnthropicEnvOverride(cfg *Config) {
 	apiKey := getenv("ANTHROPIC_API_KEY")
 	baseURL := getenv("ANTHROPIC_BASE_URL")
 	model := getenv("ANTHROPIC_MODEL")
@@ -271,17 +277,36 @@ func applyAnthropicEnvFallback(cfg *Config) {
 		return
 	}
 
-	cfg.LLM.Provider = "anthropic"
+	// Say so out loud: a leftover VV_LLM_PROVIDER in the shell silently voids
+	// all three ANTHROPIC_* variables, which otherwise surfaces much later as
+	// "missing API key" or a 401 from the wrong endpoint.
+	if v := getenv("VV_LLM_PROVIDER"); v != "" {
+		slog.Info("vv: ANTHROPIC_* environment ignored because VV_LLM_PROVIDER is set",
+			"vv_llm_provider", v)
 
-	if cfg.LLM.APIKey == "" && apiKey != "" {
+		return
+	}
+
+	if cfg.LLM.Provider != "" && cfg.LLM.Provider != ProviderAnthropic {
+		slog.Info("vv: ANTHROPIC_* environment overrides the configured llm provider",
+			"config_provider", cfg.LLM.Provider, "env_provider", ProviderAnthropic)
+
+		cfg.LLM.APIKey = ""
+		cfg.LLM.BaseURL = ""
+		cfg.LLM.Model = ""
+	}
+
+	cfg.LLM.Provider = ProviderAnthropic
+
+	if apiKey != "" {
 		cfg.LLM.APIKey = apiKey
 	}
 
-	if cfg.LLM.BaseURL == "" && baseURL != "" {
+	if baseURL != "" {
 		cfg.LLM.BaseURL = baseURL
 	}
 
-	if cfg.LLM.Model == "" && model != "" {
+	if model != "" {
 		cfg.LLM.Model = model
 	}
 }

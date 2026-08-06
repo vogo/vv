@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -403,6 +404,23 @@ type CLIConfig struct {
 	ConfirmTools   []string       `yaml:"confirm_tools,omitempty"`   // DEPRECATED: use PermissionMode
 	PermissionMode PermissionMode `yaml:"permission_mode,omitempty"` // tool permission mode
 }
+
+// Supported LLM protocol identifiers for LLMConfig.Provider. An empty
+// Provider is treated as ProviderOpenAI throughout (defaults, client
+// construction and the setup prompt).
+const (
+	ProviderOpenAI    = "openai"
+	ProviderAnthropic = "anthropic"
+)
+
+// Default endpoints per provider. The anthropic value is only used as the
+// interactive prompt's suggestion: vage treats an empty base URL as "use
+// Anthropic's own endpoint", so it is never written into the config by
+// applyDefaults.
+const (
+	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
+	defaultAnthropicBaseURL = "https://api.anthropic.com"
+)
 
 // LLMConfig holds LLM provider configuration.
 type LLMConfig struct {
@@ -909,11 +927,13 @@ func Load(path string, explicit bool) (*Config, error) {
 		warnStaleOrchestrateKeys(data)
 	}
 
-	applyEnvOverrides(cfg)
+	// ANTHROPIC_* runs before the VV_* table: both overwrite the YAML values,
+	// and applying VV_* last makes the vv-native variables win any overlap.
+	// Both run before defaults, so an empty provider is not yet frozen to
+	// openai.
+	applyAnthropicEnvOverride(cfg)
 
-	// Anthropic env fallback runs after VV_* overrides (so they keep priority)
-	// and before defaults (so an empty provider is not yet frozen to openai).
-	applyAnthropicEnvFallback(cfg)
+	applyEnvOverrides(cfg)
 
 	applyDefaults(cfg)
 
@@ -993,13 +1013,35 @@ func NeedsSetup(cfg *Config) bool {
 func Prompt(cfg *Config, path string, r io.Reader, w io.Writer) error {
 	scanner := bufio.NewScanner(r)
 
-	cfg.LLM.Provider = prompt(scanner, w,
+	provider := strings.ToLower(prompt(scanner, w,
 		"LLM provider (openai/anthropic)",
-		cfg.LLM.Provider, "openai")
+		cfg.LLM.Provider, ProviderOpenAI))
+
+	// An empty provider means openai everywhere else, so normalize before
+	// comparing — otherwise accepting the openai default would count as a
+	// switch and wipe a perfectly valid openai endpoint.
+	current := cfg.LLM.Provider
+	if current == "" {
+		current = ProviderOpenAI
+	}
+
+	// A provider switch invalidates the endpoint/model/key carried in cfg:
+	// they describe the previous provider's API. Drop them so the questions
+	// below suggest the new provider's defaults instead of stale values.
+	if provider != current {
+		cfg.LLM.BaseURL = ""
+		cfg.LLM.Model = ""
+		cfg.LLM.APIKey = ""
+	}
+
+	cfg.LLM.Provider = provider
 
 	defaultModel := "gpt-4o"
-	if cfg.LLM.Provider == "anthropic" {
+	defaultBaseURL := defaultOpenAIBaseURL
+
+	if provider == ProviderAnthropic {
 		defaultModel = "claude-sonnet-4"
+		defaultBaseURL = defaultAnthropicBaseURL
 	}
 
 	cfg.LLM.Model = prompt(scanner, w,
@@ -1010,17 +1052,16 @@ func Prompt(cfg *Config, path string, r io.Reader, w io.Writer) error {
 		"LLM API key",
 		cfg.LLM.APIKey, "")
 
-	if cfg.LLM.Provider == "openai" || cfg.LLM.Provider == "" {
-		cfg.LLM.BaseURL = prompt(scanner, w,
-			"LLM base URL",
-			cfg.LLM.BaseURL, "https://api.openai.com/v1")
-	} else {
-		// Clear any base URL default from a previous provider setting.
-		cfg.LLM.BaseURL = ""
-	}
+	// Asked for every provider: an anthropic-protocol endpoint is not
+	// necessarily Anthropic's own (DeepSeek, Bedrock gateways, local proxies),
+	// and silently defaulting to api.anthropic.com turns a third-party key into
+	// an opaque 401 at the first request.
+	cfg.LLM.BaseURL = prompt(scanner, w,
+		"LLM base URL (API endpoint)",
+		cfg.LLM.BaseURL, defaultBaseURL)
 
 	cfg.Server.Addr = prompt(scanner, w,
-		"Server listen address",
+		"HTTP mode listen address (host:port, not an API endpoint)",
 		cfg.Server.Addr, ":8080")
 
 	applyDefaults(cfg)
@@ -1079,10 +1120,13 @@ func applyDefaults(cfg *Config) {
 		cfg.Agents.MaxParallelToolCalls = 4
 	}
 
-	// Provider-specific defaults.
-	if cfg.LLM.Provider == "openai" || cfg.LLM.Provider == "" {
+	// Provider-specific defaults. anthropic is deliberately absent: vage reads
+	// an empty base URL as "use Anthropic's own endpoint", and pinning the
+	// official URL here would hide it from the startup banner's
+	// third-party-endpoint hint.
+	if cfg.LLM.Provider == ProviderOpenAI || cfg.LLM.Provider == "" {
 		if cfg.LLM.BaseURL == "" {
-			cfg.LLM.BaseURL = "https://api.openai.com/v1"
+			cfg.LLM.BaseURL = defaultOpenAIBaseURL
 		}
 	}
 
@@ -1220,14 +1264,34 @@ func ConvertPricing(entries map[string]ModelPricingEntry) map[string]costtraces.
 	return result
 }
 
+// EndpointLabel returns the host of the API endpoint this configuration will
+// actually call, for display in the CLI banner and startup log. An empty
+// anthropic base URL resolves to Anthropic's own endpoint, mirroring how vage
+// treats it; an unparseable value is returned verbatim so a typo stays visible.
+func (c LLMConfig) EndpointLabel() string {
+	raw := c.BaseURL
+	if raw == "" {
+		raw = defaultOpenAIBaseURL
+		if c.Provider == ProviderAnthropic {
+			raw = defaultAnthropicBaseURL
+		}
+	}
+
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		return u.Host
+	}
+
+	return raw
+}
+
 // NewLLMClient creates the protocol-specific vage caller selected by the LLM
 // configuration. Retries, endpoint routing and health are owned by aimodel's
 // compose pool inside these constructors.
 func NewLLMClient(cfg LLMConfig) (largemodel.Caller, error) {
 	switch cfg.Provider {
-	case "anthropic":
+	case ProviderAnthropic:
 		return largemodel.NewAnthropicMessagesCaller(cfg.APIKey, cfg.BaseURL)
-	case "openai", "":
+	case ProviderOpenAI, "":
 		return largemodel.NewOpenAIChatCaller(cfg.APIKey, cfg.BaseURL)
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %q (supported: openai, anthropic)", cfg.Provider)

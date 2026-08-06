@@ -27,7 +27,9 @@ configuration 领域负责把"外部输入(CLI 标志、环境变量、YAML 文�
 
 | ID | 规则 | 说明 |
 |----|------|------|
-| CONFIG-R1 | 来源优先级固定 | 每个配置项的最终值 = `CLI 标志 ?? 环境变量(VV_*) ?? YAML(~/.vv/vv.yaml) ?? 程序默认`。优先级链对所有字段一致,不可逐字段调换。对应 STARTUP-03 / PERM-06 / DEBUG-01。 |
+| CONFIG-R1 | 来源优先级固定 | 每个配置项的最终值 = `CLI 标志 ?? 环境变量(VV_* ?? ANTHROPIC_*) ?? YAML(~/.vv/vv.yaml) ?? 程序默认`。环境变量一律**覆盖**文件值,不存在"文件已有值就跳过 env"的字段。优先级链对所有字段一致,不可逐字段调换。对应 STARTUP-03 / PERM-06 / DEBUG-01。 |
+| CONFIG-R13 | ANTHROPIC_* 整组语义 | `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 是一个 provider 组:任一非空即选定 anthropic 协议并覆盖同名字段;`VV_LLM_PROVIDER` 非空时整组失效并记日志;该组翻转 provider 时先清掉 YAML 的 `api_key`/`base_url`/`model`(它们描述上一个 provider 的 API)。详见 design.md §1.1。 |
+| CONFIG-R14 | 端点必须可见 | 实际调用的 API 端点在启动日志与 CLI 头部显式呈现(`LLMConfig.EndpointLabel()`);anthropic 的空 `base_url` 解析为 `api.anthropic.com`。错配端点只会表现为不透明的 401/403,不可只在配置里沉默。 |
 | CONFIG-R2 | 零成本默认 | 未启用的可选子系统**不构造、不挂事件、不占内存**;运行期行为与"未编译该特性的构建"逐字节等价(对应 DEBUG-02)。空 `budget` 块 → 无 tracker、无中间件。 |
 | CONFIG-R3 | 依赖强校验 | 子系统间的硬依赖在装配阶段显式校验并报错,不沉默忽略。例:`session_tree.enabled=true` 而 `session.enabled=false` → 启动失败;Plan Workspace 跟随 session(共用会话根)。 |
 | CONFIG-R4 | 必填 LLM key | 缺 LLM API key 必须以清晰错误失败(对应 STARTUP-01)。交互式 CLI 进入首次启动向导收集;非交互模式直接退出。 |

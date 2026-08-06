@@ -10,8 +10,8 @@
 
 | 分组(YAML key) | 语义类型 | 语义 / 约束 |
 |------------------|---------|-------------|
-| `llm` | reference | LLM provider / model / api_key / base_url。api_key 必填(CONFIG-R4),env 优先(不落盘)。provider 未定时回退读取标准 `ANTHROPIC_*` 环境变量推断 anthropic(优先级 YAML ＞ `VV_LLM_*` ＞ `ANTHROPIC_*`,详见 design.md §1.1)。 |
-| `server` | text | HTTP 监听地址(默认 `:8080`)。仅 http 模式生效。 |
+| `llm` | reference | LLM provider / model / api_key / base_url。api_key 必填(CONFIG-R4),env 优先(不落盘)。标准 `ANTHROPIC_*` 环境变量作为一个 provider 组覆盖同名字段并选定 anthropic(优先级 `VV_LLM_*` ＞ `ANTHROPIC_*` ＞ YAML,`VV_LLM_PROVIDER` 可整组禁用,详见 design.md §1.1)。anthropic 的 `base_url` 留空 = Anthropic 官方端点,不填默认值。 |
+| `server` | text | HTTP 监听地址(`host:port`,默认 `:8080`)。仅 http 模式生效,**与 `llm.base_url` 无关**。 |
 | `tools` | group | 工具行为:bash 超时(默认 120s)、bash 危险命令分类器(`bash_rules`:enabled + 用户黑/红/白名单正则)、tool_output 截断等。 |
 | `agents` | number | 各代理 ReAct 上限与 token 预算。`max_iterations`(默认 10)用于专家代理与派生 worker;`primary_max_iterations`(默认 24)单独给 Primary——它在一次运行内要走完探查 → 执行/委派 → 汇报,按专家档配额会在探查中途撞顶;两者取较大值生效,故调高全局上限不会反而收窄前门。env:`VV_AGENTS_MAX_ITERATIONS` / `VV_PRIMARY_MAX_ITERATIONS`。 |
 | `mode` | enum (run mode) | cli / http / mcp,单进程单选(CONFIG-R8);默认 cli。 |
