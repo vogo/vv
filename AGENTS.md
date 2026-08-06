@@ -1,8 +1,4 @@
-# CLAUDE.md
-
-本文件为 Claude Code（claude.ai/code）在 `vv/` 模块工作时的简要指引。
-
-## 模块定位
+# VV
 
 `vv` 是基于 `vage` 框架与 `aimodel` SDK 构建的代理应用，提供 CLI / HTTP / MCP 三种运行模式。每次请求经由统一的 **Primary Assistant** 完成路由：直答、只读探查、委派专家、或 DAG 规划。
 
@@ -48,6 +44,3 @@ go test ./tools/ -run TestRegister_AllRegistered -v   # 单测示例
 - 工具/代理配置统一使用函数式选项（functional options）模式。
 - 一切跨函数边界的操作都通过 `context.Context` 传递。
 - 文档使用中文撰写，技术术语保留英文。
-- 会话存储遵循**单一 owner**：每份内容只有一个 owner 文件，其它位置只存指针（消息正文→`messages.jsonl`，上下文报告→`build_reports/`，`text_delta` 不落盘）。新增持久化前先回答"谁是 owner"；子代理每次委派写 `subagents/<agent>-<n>.jsonl` 且不进入 `--resume` 的恢复时间线。详见 `doc/domains/core/session/design.md` 与 spec 的 SESS-R10 / SESS-R11。
-- 环境变量一律**覆盖** YAML（CONFIG-R1），不存在"文件已有值就跳过 env"的字段。标准 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 是一个 provider 组：任一非空即选定 anthropic 并覆盖同名字段；`VV_LLM_PROVIDER` 非空可整组禁用；该组翻转 provider 时先清掉 YAML 的 `api_key`/`base_url`/`model`。优先级 `VV_LLM_*` ＞ `ANTHROPIC_*` ＞ YAML。详见 `doc/domains/core/configuration/design.md` §1.1。
-- anthropic 的 `llm.base_url` 留空 = Anthropic 官方端点，故不填默认值；实际端点必须在启动日志与 CLI 头部可见（`LLMConfig.EndpointLabel()`），否则端点错配只表现为不透明的 401。`server.addr` 是 http 模式监听地址，与 `llm.base_url` 无关。
