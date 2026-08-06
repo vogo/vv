@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -109,21 +110,39 @@ func initMarkdownStyle() {
 	markdownStyle = "light"
 }
 
+// The renderer is cached per width. Streaming re-renders the accumulated
+// text many times per message, and building a TermRenderer re-parses the
+// style JSON and rebuilds the chroma lexers every time — far too expensive
+// to repeat per frame. The mutex covers Render too, since a TermRenderer
+// carries its own output buffer and is not safe to share concurrently.
+var (
+	rendererMu     sync.Mutex
+	cachedRenderer *glamour.TermRenderer
+	cachedWidth    int
+)
+
 // renderMarkdown renders markdown text using glamour.
 func renderMarkdown(text string, width int) string {
 	if width <= 0 {
 		width = 80
 	}
 
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStandardStyle(markdownStyle),
-		glamour.WithWordWrap(width),
-	)
-	if err != nil {
-		return text
+	rendererMu.Lock()
+	defer rendererMu.Unlock()
+
+	if cachedRenderer == nil || cachedWidth != width {
+		renderer, err := glamour.NewTermRenderer(
+			glamour.WithStandardStyle(markdownStyle),
+			glamour.WithWordWrap(width),
+		)
+		if err != nil {
+			return text
+		}
+
+		cachedRenderer, cachedWidth = renderer, width
 	}
 
-	rendered, err := renderer.Render(text)
+	rendered, err := cachedRenderer.Render(text)
 	if err != nil {
 		return text
 	}
