@@ -433,7 +433,7 @@ func TestIntegration_Prompt_MissingConfigRejection(t *testing.T) {
 // through cli.RunPrompt with the real dispatcher.
 // Covers: design Test 1 -- basic prompt execution, Test 6 -- pipe-friendly output,
 //
-//	Test 7 -- stderr diagnostics, Test 8 -- task-complete summary.
+//	Test 8 -- task-complete summary.
 func TestIntegration_Prompt_RealLLMExecution(t *testing.T) {
 	configPath := configs.DefaultPath()
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -474,13 +474,11 @@ func TestIntegration_Prompt_RealLLMExecution(t *testing.T) {
 		t.Errorf("stdout contains ANSI escape codes: %q", stdoutStr)
 	}
 
-	// Verify stderr has phase diagnostics.
+	// Verify stderr has [done] summary. A direct answer relays the Primary
+	// stream without wrapping it in a phase, so [phase] lines only appear when
+	// the request escalates to DAG planning -- their rendering is covered by
+	// TestIntegration_Prompt_RunPromptFullEventStream.
 	stderrStr := stderr.String()
-	if !strings.Contains(stderrStr, "[phase]") {
-		t.Errorf("stderr missing [phase] diagnostics; got %q", stderrStr)
-	}
-
-	// Verify stderr has [done] summary.
 	if !strings.Contains(stderrStr, "[done]") {
 		t.Errorf("stderr missing [done] summary; got %q", stderrStr)
 	}
