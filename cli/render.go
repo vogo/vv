@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/vogo/vage/schema"
 )
 
@@ -75,6 +76,39 @@ func indentBlock(text string, depth int) string {
 	return strings.Join(lines, "\n")
 }
 
+// markdownStyle is the glamour style name resolved once, before the
+// bubbletea program takes over stdin.
+//
+// glamour.WithAutoStyle() detects the terminal background by writing an
+// OSC 11 query and reading the terminal's reply back from stdin. Once
+// bubbletea owns stdin that reply is never consumed by termenv — it is
+// delivered to the TUI as keystrokes, and the printable tail of the
+// sequence (e.g. `11;rgb:158e/193a/1e75\`) ends up sitting in the input
+// textarea. Probing once up front and pinning the style keeps every later
+// render query-free.
+var markdownStyle = "dark"
+
+// initMarkdownStyle probes the terminal background once. It must be called
+// before tea.NewProgram, while stdin can still be read by termenv.
+//
+// termenv.HasDarkBackground caches nothing — every call really writes an
+// OSC 11 query — so the result is pinned twice here: into markdownStyle for
+// glamour, and into lipgloss via SetHasDarkBackground, which marks the
+// background explicit so huh's adaptive colors never probe on their own.
+// Without the latter, lipgloss would probe lazily the first time a
+// permission or ask_user form renders, i.e. long after bubbletea owns stdin.
+func initMarkdownStyle() {
+	dark := termenv.HasDarkBackground()
+	lipgloss.SetHasDarkBackground(dark)
+
+	if dark {
+		markdownStyle = "dark"
+		return
+	}
+
+	markdownStyle = "light"
+}
+
 // renderMarkdown renders markdown text using glamour.
 func renderMarkdown(text string, width int) string {
 	if width <= 0 {
@@ -82,7 +116,7 @@ func renderMarkdown(text string, width int) string {
 	}
 
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle(markdownStyle),
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {
