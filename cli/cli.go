@@ -245,6 +245,14 @@ type model struct {
 	status sessionStatus
 	output strings.Builder
 
+	// Live markdown streaming. output holds the raw text not yet committed
+	// to scrollback; stream caches its rendered form for the live region.
+	// outputCommitted keeps whatever overflow already printed, so the
+	// DisplayMessage history can still record one entry per whole message.
+	stream          streamRenderer
+	outputCommitted strings.Builder
+	agentPrefixDone bool
+
 	// Nesting depth for indentation. 0 = top-level agent,
 	// 1 = inside a sub-agent, etc.
 	nestingDepth int
@@ -314,6 +322,83 @@ func newModel(app *App, ctx context.Context) *model {
 // toolDepth returns the indent depth for tool call output.
 func (m *model) toolDepth() int {
 	return toolRenderDepth(m.nestingDepth)
+}
+
+// streamWidth is the wrap width for agent text at the current nesting depth.
+func (m *model) streamWidth() int {
+	return m.width - 4 - (m.nestingDepth * indentUnit)
+}
+
+// maxLiveLines is how many rendered lines the live region may occupy before
+// overflow has to be committed to scrollback. The reserved rows cover the
+// status line, the status bar, the three-row textarea and some slack —
+// in inline mode a View taller than the terminal tears the display.
+func (m *model) maxLiveLines() int {
+	if avail := m.height - 8; avail > 4 {
+		return avail
+	}
+
+	return 4
+}
+
+// syncStream feeds accumulated text into the live renderer, committing a
+// leading chunk to scrollback first when the live region has outgrown the
+// screen. Returns a command for the committed chunk, or nil.
+func (m *model) syncStream() tea.Cmd {
+	var cmd tea.Cmd
+
+	if line := m.commitStreamOverflow(); line != "" {
+		cmd = tea.Println(line)
+	}
+
+	m.stream.set(m.output.String(), m.streamWidth())
+	m.stream.refresh(time.Now(), renderAgentMessage)
+
+	return cmd
+}
+
+// commitStreamOverflow moves a completed leading block out of the live
+// region and into scrollback. It returns the rendered chunk to print, or
+// "" when the live region still fits or no safe boundary exists yet.
+func (m *model) commitStreamOverflow() string {
+	// The previous render is the honest measure of live height: raw line
+	// count ignores word wrapping and would let long lines overflow unseen.
+	if strings.Count(m.stream.rendered, "\n") < m.maxLiveLines() {
+		return ""
+	}
+
+	commit, rest := splitAtSafeBoundary(m.output.String())
+	if commit == "" {
+		return ""
+	}
+
+	m.outputCommitted.WriteString(commit)
+	m.outputCommitted.WriteString("\n\n")
+	m.output.Reset()
+	m.output.WriteString(rest)
+	m.stream.reset()
+
+	return m.decorateAgentBlock(renderAgentMessage(commit, m.streamWidth()))
+}
+
+// decorateAgentBlock applies the "Agent: " prefix and nesting indent. The
+// prefix is emitted once per message — repeating it on every committed
+// chunk would read as several separate replies.
+func (m *model) decorateAgentBlock(rendered string) string {
+	line := rendered
+	if !m.agentPrefixDone {
+		line = agentStyle.Render("Agent: ") + rendered
+		m.agentPrefixDone = true
+	}
+
+	return indentBlock(line, m.nestingDepth)
+}
+
+// resetStream clears all per-message streaming state.
+func (m *model) resetStream() {
+	m.stream.reset()
+	m.outputCommitted.Reset()
+	m.agentPrefixDone = false
 }
 
 // escapeSeqRe matches ANSI escape sequences and OSC responses that terminals
@@ -444,6 +529,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.textarea.SetWidth(msg.Width)
+
+		// Re-wrap the live region at the new width. Text already in
+		// scrollback cannot be reflowed — that is inherent to inline mode.
+		m.stream.set(m.output.String(), m.streamWidth())
+		m.stream.refresh(time.Now(), renderAgentMessage)
+
 		return m, nil
 
 	case streamEventMsg:
@@ -483,6 +574,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			cmds = append(cmds, cmd)
+
+			// Pick up any render the throttle skipped between deltas, so
+			// the live region never sits on stale text.
+			m.stream.refresh(time.Now(), renderAgentMessage)
 		}
 	}
 
@@ -569,9 +664,17 @@ func (m *model) headerView() string {
 func (m *model) View() string {
 	var sb strings.Builder
 
-	// Show current streaming output above input (live, not yet committed to scrollback).
+	// Show current streaming output above input (live, not yet committed to
+	// scrollback). The body is markdown-rendered from the full accumulated
+	// text; View only reads the cache, Update drives the rendering.
 	if m.output.Len() > 0 {
-		line := agentStyle.Render("Agent: ") + m.output.String()
+		body := tailLines(m.stream.view(), m.maxLiveLines())
+
+		line := body
+		if !m.agentPrefixDone {
+			line = agentStyle.Render("Agent: ") + body
+		}
+
 		sb.WriteString(indentBlock(line, m.nestingDepth))
 		sb.WriteString("\n")
 	}
@@ -684,6 +787,7 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	// Reset output builder and task-level stats for this round.
 	m.output.Reset()
+	m.resetStream()
 	m.taskStart = time.Now()
 	m.totalPromptTokens = 0
 	m.totalCompletionTokens = 0
@@ -780,6 +884,8 @@ func (m *model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case schema.EventTextDelta:
 		if data, ok := event.Data.(schema.TextDeltaData); ok {
 			m.output.WriteString(data.Delta)
+
+			return m, m.syncStream()
 		}
 
 	case schema.EventToolCallStart:
@@ -1014,8 +1120,15 @@ func (m *model) handleStreamDone(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Add agent response to conversation history for multi-turn context.
-	if m.output.Len() > 0 {
-		agentMsg := schema.NewTextMessage(m.app.orchestrator.Protocol(), schema.RoleAssistant, m.output.String())
+	// Overflow commits move text out of output and into outputCommitted, so
+	// history must read both — output alone would drop everything already
+	// printed to scrollback and silently truncate the multi-turn context.
+	if m.output.Len() > 0 || m.outputCommitted.Len() > 0 {
+		agentMsg := schema.NewTextMessage(
+			m.app.orchestrator.Protocol(),
+			schema.RoleAssistant,
+			m.outputCommitted.String()+m.output.String(),
+		)
 		m.app.history = append(m.app.history, agentMsg)
 		m.app.estimatedTokens += memory.DefaultTokenEstimator(agentMsg)
 		cmds = append(cmds, m.flushAgentOutput())
@@ -1139,25 +1252,33 @@ func (m *model) printError(text string) tea.Cmd {
 // flushAgentOutputLine flushes accumulated agent text and returns the rendered line.
 // Returns empty string if there is nothing to flush.
 func (m *model) flushAgentOutputLine() string {
-	if m.output.Len() == 0 {
+	if m.output.Len() == 0 && m.outputCommitted.Len() == 0 {
 		return ""
 	}
 
 	text := m.output.String()
-	rendered := renderAgentMessage(text, m.width-4-(m.nestingDepth*indentUnit))
+	width := m.streamWidth()
 
+	// History keeps one entry per agent message, so it records the whole
+	// text even when overflow already printed a leading part of it.
+	full := m.outputCommitted.String() + text
 	m.app.messages = append(m.app.messages, DisplayMessage{
 		Role:      RoleAgent,
-		Content:   rendered,
+		Content:   renderAgentMessage(full, width),
 		Timestamp: time.Now(),
 		Rendered:  true,
 	})
 
 	m.output.Reset()
 
-	line := agentStyle.Render("Agent: ") + rendered
+	line := ""
+	if text != "" {
+		line = m.decorateAgentBlock(renderAgentMessage(text, width))
+	}
 
-	return indentBlock(line, m.nestingDepth)
+	m.resetStream()
+
+	return line
 }
 
 // flushAgentOutput flushes accumulated agent text as a tea.Println command.
