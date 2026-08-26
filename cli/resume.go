@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
@@ -158,8 +159,8 @@ func renderResumeResponse(stdout, stderr io.Writer, resp *schema.RunResponse) {
 // in msgs, or "" when the response has no assistant text (tool-only
 // terminus, error path, or empty).
 func lastAssistantText(msgs []schema.Message) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
+	for _, m := range slices.Backward(msgs) {
+
 		if m.Role() != schema.RoleAssistant {
 			continue
 		}

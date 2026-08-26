@@ -74,6 +74,8 @@ func (r *recordingCaller) snapshot() []recordedCall {
 	return out
 }
 
+// reset resets the recorded calls.
+// nolint:unused
 func (r *recordingCaller) reset() {
 	r.mu.Lock()
 	r.calls = nil

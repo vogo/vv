@@ -2,6 +2,7 @@ package cli
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -117,8 +118,8 @@ func splitAtSafeBoundary(text string) (commit, rest string) {
 
 	// An unclosed fence at the end does not invalidate boundaries found
 	// before it opened — those blocks are already complete.
-	for i := len(candidates) - 1; i >= 0; i-- {
-		at := candidates[i]
+	for _, at := range slices.Backward(candidates) {
+
 		if splitsList(lines, at) {
 			continue
 		}

@@ -119,7 +119,7 @@ func TestSplitAtSafeBoundary_LosesNothing(t *testing.T) {
 func stripBlank(s string) string {
 	var kept []string
 
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if strings.TrimSpace(line) != "" {
 			kept = append(kept, line)
 		}

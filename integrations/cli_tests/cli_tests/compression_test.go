@@ -3,6 +3,7 @@ package cli_tests
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -113,8 +114,8 @@ func TestIntegration_Compression_ProactiveCompactEndToEnd(t *testing.T) {
 
 	// Verify protected turns are preserved (last 2 user/assistant pairs).
 	lastUserIdx := -1
-	for i := len(compressed) - 1; i >= 0; i-- {
-		if compressed[i].Role() == schema.RoleUser {
+	for i, c := range slices.Backward(compressed) {
+		if c.Role() == schema.RoleUser {
 			lastUserIdx = i
 			break
 		}

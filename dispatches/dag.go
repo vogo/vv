@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/vogo/vage/agent"
@@ -242,8 +243,8 @@ func (h *hookedAgent) Run(ctx context.Context, req *schema.RunRequest) (*schema.
 
 	resp, err := h.inner.Run(ctx, req)
 
-	for i := len(h.hooks) - 1; i >= 0; i-- {
-		h.hooks[i].OnAfterRun(ctx, h.agentID, resp, err)
+	for _, v := range slices.Backward(h.hooks) {
+		v.OnAfterRun(ctx, h.agentID, resp, err)
 	}
 
 	return resp, err
@@ -266,8 +267,8 @@ func (h *hookedAgent) RunStream(ctx context.Context, req *schema.RunRequest) (*s
 
 	stream, err := sa.RunStream(ctx, req)
 	if err != nil {
-		for i := len(h.hooks) - 1; i >= 0; i-- {
-			h.hooks[i].OnAfterRun(ctx, h.agentID, nil, err)
+		for _, v := range slices.Backward(h.hooks) {
+			v.OnAfterRun(ctx, h.agentID, nil, err)
 		}
 
 		return nil, err

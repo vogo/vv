@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 
 	"github.com/vogo/vage/hook"
@@ -95,8 +96,8 @@ func runInstallers(cfg *configs.Config, opts *Options, installers []subsystemIns
 // dependencies they drain into (vector hook before vector store, all hooks
 // before the persistent memory store).
 func runCleanups(ctx context.Context, cleanups []cleanup) {
-	for i := len(cleanups) - 1; i >= 0; i-- {
-		cleanups[i](ctx)
+	for _, cleanup := range slices.Backward(cleanups) {
+		cleanup(ctx)
 	}
 }
 

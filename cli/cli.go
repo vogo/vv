@@ -415,7 +415,8 @@ var escapeSeqRe = regexp.MustCompile(
 		`|\]?[0-9]+;rgb:[0-9a-fA-F/]*(?:\x1b)?\\?` +
 		`|\][0-9]+;[^\x07\\\n]*\\?` +
 		`|\x1b[^a-zA-Z]*[a-zA-Z]` +
-		`|<[0-9;]+[mMhHlL]`)
+		`|<[0-9;]+[mMhHlL]`,
+)
 
 // sanitizeInput strips terminal escape sequences from text.
 func sanitizeInput(s string) string {

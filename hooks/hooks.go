@@ -3,6 +3,7 @@ package hooks
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -48,8 +49,8 @@ func (c *chainedHook) OnBeforeRun(ctx context.Context, agentID string, req *sche
 }
 
 func (c *chainedHook) OnAfterRun(ctx context.Context, agentID string, resp *schema.RunResponse, err error) {
-	for i := len(c.hooks) - 1; i >= 0; i-- {
-		c.hooks[i].OnAfterRun(ctx, agentID, resp, err)
+	for _, v := range slices.Backward(c.hooks) {
+		v.OnAfterRun(ctx, agentID, resp, err)
 	}
 }
 
