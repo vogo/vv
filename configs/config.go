@@ -1284,15 +1284,31 @@ func (c LLMConfig) EndpointLabel() string {
 	return raw
 }
 
+// defaultLLMEndpointAlias is the operational identity for a single-endpoint
+// LLM pool, matching largemodel's internal default.
+const defaultLLMEndpointAlias = "default"
+
 // NewLLMClient creates the protocol-specific vage caller selected by the LLM
-// configuration. Retries, endpoint routing and health are owned by aimodel's
-// compose pool inside these constructors.
+// configuration. Retries, endpoint routing and health are owned by
+// largemodel/router inside these constructors.
 func NewLLMClient(cfg LLMConfig) (largemodel.Caller, error) {
 	switch cfg.Provider {
 	case ProviderAnthropic:
-		return largemodel.NewAnthropicMessagesCaller(cfg.APIKey, cfg.BaseURL)
+		return largemodel.NewAnthropicMessagesCallerFromConfig(largemodel.AnthropicConfig{
+			Endpoints: []largemodel.AnthropicEndpoint{{
+				Alias:   defaultLLMEndpointAlias,
+				APIKey:  cfg.APIKey,
+				BaseURL: cfg.BaseURL,
+			}},
+		})
 	case ProviderOpenAI, "":
-		return largemodel.NewOpenAIChatCaller(cfg.APIKey, cfg.BaseURL)
+		return largemodel.NewOpenAIChatCallerFromConfig(largemodel.OpenAIConfig{
+			Endpoints: []largemodel.OpenAIEndpoint{{
+				Alias:   defaultLLMEndpointAlias,
+				APIKey:  cfg.APIKey,
+				BaseURL: cfg.BaseURL,
+			}},
+		})
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %q (supported: openai, anthropic)", cfg.Provider)
 	}
