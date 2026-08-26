@@ -157,9 +157,9 @@ func decodeRunRequest(raw json.RawMessage) (*schema.RunRequest, error) {
 		return nil, errors.New("request has no messages")
 	}
 	// v0.7 datasets used the flat {role,content} message shape. Preserve
-	// those fixtures as OpenAI-chat messages while new datasets use v0.8's
-	// protocol-tagged native wire representation.
-	if req.Messages[0].Protocol == "" {
+	// those fixtures as OpenAI-chat messages while new datasets use the
+	// protocol-tagged canonical representation.
+	if req.Messages[0].Protocol() == "" {
 		var legacy struct {
 			Messages []struct {
 				Role    schema.Role `json:"role"`
