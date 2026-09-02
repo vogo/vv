@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/largemodel/middleware"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
@@ -53,13 +54,13 @@ func (s *stubCompleter) CallStream(_ context.Context, _ *largemodel.Request) (*l
 
 // newCollectingDispatcher returns a thread-safe dispatcher that captures
 // every schema.Event it receives plus a getter for the captured slice.
-func newCollectingDispatcher() (largemodel.DispatchFunc, func() []schema.Event) {
+func newCollectingDispatcher() (middleware.DispatchFunc, func() []schema.Event) {
 	var (
 		mu     sync.Mutex
 		events []schema.Event
 	)
 
-	d := largemodel.DispatchFunc(func(_ context.Context, e schema.Event) {
+	d := middleware.DispatchFunc(func(_ context.Context, e schema.Event) {
 		mu.Lock()
 		defer mu.Unlock()
 		events = append(events, e)
@@ -84,7 +85,7 @@ func wrap(
 	t *testing.T,
 	session, daily *budgets.Tracker,
 	pricing *costtraces.Pricing,
-	dispatch largemodel.DispatchFunc,
+	dispatch middleware.DispatchFunc,
 	base largemodel.Caller,
 ) largemodel.Caller {
 	t.Helper()
@@ -100,5 +101,5 @@ func wrap(
 		return base
 	}
 
-	return largemodel.NewBudgetMiddleware(preCheck, postRecord).Wrap(base)
+	return middleware.NewBudgetMiddleware(preCheck, postRecord).Wrap(base)
 }

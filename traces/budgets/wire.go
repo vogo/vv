@@ -20,17 +20,17 @@ package budgets
 import (
 	"context"
 
-	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/largemodel/middleware"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/traces/costtraces"
 )
 
 // Dispatcher is the minimal event-emitter the wiring helpers need.
-// largemodel.DispatchFunc already matches this shape; a nil dispatcher
+// middleware.DispatchFunc already matches this shape; a nil dispatcher
 // is allowed and silently drops events.
 type Dispatcher func(ctx context.Context, event schema.Event)
 
-// Wire builds a pair of closures suitable for largemodel.NewBudgetMiddleware.
+// Wire builds a pair of closures suitable for middleware.NewBudgetMiddleware.
 // The pre-check fires session.Check then daily.Check, returning the first
 // non-nil error. The post-record converts schema.Usage → (tokens, cost USD)
 // using the supplied pricing (may be nil) and applies the result to each
@@ -39,7 +39,7 @@ type Dispatcher func(ctx context.Context, event schema.Event)
 //
 // Either tracker may be nil; when both are nil this returns (nil, nil) so the
 // caller can skip inserting the middleware entirely.
-func Wire(session, daily *Tracker, pricing *costtraces.Pricing, dispatch Dispatcher) (largemodel.BudgetPreCheckFunc, largemodel.BudgetPostRecordFunc) {
+func Wire(session, daily *Tracker, pricing *costtraces.Pricing, dispatch Dispatcher) (middleware.BudgetPreCheckFunc, middleware.BudgetPostRecordFunc) {
 	if session == nil && daily == nil {
 		return nil, nil
 	}

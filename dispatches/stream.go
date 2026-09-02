@@ -2,9 +2,7 @@ package dispatches
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/vogo/vage/agent"
@@ -31,24 +29,7 @@ func relayAgentStream(
 			return err
 		}
 
-		defer func() { _ = stream.Close() }()
-
-		for {
-			event, err := stream.Recv()
-			if err != nil {
-				if errors.Is(err, io.EOF) {
-					break
-				}
-
-				return err
-			}
-
-			if err := send(event); err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return stream.ForEach(send)
 	}
 
 	start := time.Now()

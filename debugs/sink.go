@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/largemodel/middleware"
 )
 
 // Kind identifies the type of debug record.
@@ -130,12 +130,12 @@ func DefaultFilePath() string {
 	return filepath.Join(dir, "debug-"+strconv.Itoa(os.Getpid())+".log")
 }
 
-// SinkAdapter wraps a *Sink so it satisfies largemodel.DebugSink. It
+// SinkAdapter wraps a *Sink so it satisfies middleware.DebugSink. It
 // translates the flat fields map produced by the middleware into a typed
 // Record before forwarding to the underlying Sink.
 type SinkAdapter struct{ S *Sink }
 
-// Emit implements largemodel.DebugSink.
+// Emit implements middleware.DebugSink.
 func (a SinkAdapter) Emit(ctx context.Context, kind, corr string, fields map[string]any) {
 	if a.S == nil {
 		return
@@ -160,7 +160,7 @@ func (a SinkAdapter) Emit(ctx context.Context, kind, corr string, fields map[str
 	a.S.Emit(ctx, r)
 }
 
-// NewCorrelationID implements largemodel.DebugSink.
+// NewCorrelationID implements middleware.DebugSink.
 func (a SinkAdapter) NewCorrelationID() string {
 	if a.S == nil {
 		return newID()
@@ -168,8 +168,8 @@ func (a SinkAdapter) NewCorrelationID() string {
 	return a.S.NewCorrelationID()
 }
 
-// Compile-time assertion: SinkAdapter satisfies largemodel.DebugSink.
-var _ largemodel.DebugSink = SinkAdapter{}
+// Compile-time assertion: SinkAdapter satisfies middleware.DebugSink.
+var _ middleware.DebugSink = SinkAdapter{}
 
 func newID() string {
 	var b [16]byte
