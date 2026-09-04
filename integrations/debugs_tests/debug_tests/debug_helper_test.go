@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/largemodel/middleware"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/debugs"
@@ -59,5 +60,5 @@ func (f *fakeToolRegistry) Execute(_ context.Context, name, args string) (schema
 
 // helper: build a debug-wrapped completer the same way setup.Init does.
 func wrapWithDebug(base largemodel.Caller, sink *debugs.Sink) largemodel.Caller {
-	return largemodel.Chain(base, largemodel.NewDebugMiddleware(debugs.SinkAdapter{S: sink}))
+	return largemodel.Chain(base, middleware.NewDebugMiddleware(debugs.SinkAdapter{S: sink}))
 }

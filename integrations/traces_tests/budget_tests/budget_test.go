@@ -17,7 +17,7 @@
 
 // Package budget_tests contains integration tests for the session/daily
 // budget enforcement pipeline. These tests wire a stub ChatCompleter
-// through vage/largemodel.NewBudgetMiddleware + vv/traces/budgets.Wire to
+// through vage/largemodel/middleware.NewBudgetMiddleware + vv/traces/budgets.Wire to
 // verify that the full path (pre-check → LLM call → post-record → event
 // dispatch) behaves as specified in the design doc §10.2. No real LLM is
 // required; a counting stub stands in for the network.
@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/largemodel/middleware"
 	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
@@ -443,7 +444,7 @@ func TestIntegration_DisabledAll(t *testing.T) {
 	// Defensive: even if someone wraps with nil closures, behavior must
 	// be transparent — equal call count and identical response.
 	baseline := &stubCompleter{usage: schema.Usage{PromptTokens: 10, CompletionTokens: 5}}
-	wrapped := largemodel.NewBudgetMiddleware(nil, nil).Wrap(baseline)
+	wrapped := middleware.NewBudgetMiddleware(nil, nil).Wrap(baseline)
 
 	ctx := context.Background()
 

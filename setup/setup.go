@@ -18,6 +18,7 @@ import (
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
 	"github.com/vogo/vage/largemodel"
+	"github.com/vogo/vage/largemodel/middleware"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/schema"
@@ -700,13 +701,13 @@ func wrapLLMClient(
 	wrapped := client
 
 	if cfg.Debug && opts != nil && opts.DebugSink != nil {
-		wrapped = largemodel.Chain(wrapped, largemodel.NewDebugMiddleware(debugs.SinkAdapter{S: opts.DebugSink}))
+		wrapped = largemodel.Chain(wrapped, middleware.NewDebugMiddleware(debugs.SinkAdapter{S: opts.DebugSink}))
 	}
 
 	if sessionBudget != nil || dailyBudget != nil {
 		pricing := costtraces.LookupPricing(pricingModel, configs.ConvertPricing(cfg.ModelPricing))
 		preCheck, postRecord := budgets.Wire(sessionBudget, dailyBudget, pricing, budgetEventDispatcher())
-		wrapped = largemodel.Chain(wrapped, largemodel.NewBudgetMiddleware(preCheck, postRecord))
+		wrapped = largemodel.Chain(wrapped, middleware.NewBudgetMiddleware(preCheck, postRecord))
 	}
 
 	return wrapped
