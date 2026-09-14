@@ -93,7 +93,7 @@ func TestVector_HTTPRoundTripViaServe(t *testing.T) {
 		Server: configs.ServerConfig{Addr: addr},
 	}
 
-	persistentMem := memory.NewPersistentMemoryWithStore(memory.NewMapStore())
+	persistentMem := memory.NewLongTermMemory(memory.NewMapStore())
 	srvCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -162,7 +162,7 @@ func TestVector_HTTPDisabledReturns503(t *testing.T) {
 		LLM:    configs.LLMConfig{Model: "test", APIKey: "x"},
 		Server: configs.ServerConfig{Addr: addr},
 	}
-	persistentMem := memory.NewPersistentMemoryWithStore(memory.NewMapStore())
+	persistentMem := memory.NewLongTermMemory(memory.NewMapStore())
 
 	srvCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

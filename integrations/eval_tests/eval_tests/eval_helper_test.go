@@ -96,7 +96,7 @@ func servePersistentMem(t *testing.T) memory.Memory {
 		t.Fatalf("NewFileStore: %v", err)
 	}
 
-	return memory.NewPersistentMemoryWithStore(store)
+	return memory.NewLongTermMemory(store)
 }
 
 // startServe launches httpapis.Serve in a goroutine and returns the bound

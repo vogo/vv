@@ -60,7 +60,7 @@ func httpHarness(t *testing.T, store session.SessionStore) (string, func()) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
-	persistentMem := memory.NewPersistentMemoryWithStore(memStore)
+	persistentMem := memory.NewLongTermMemory(memStore)
 
 	srvCtx, cancel := context.WithCancel(context.Background())
 	dispatcher := stubAgent{id: "orchestrator"}

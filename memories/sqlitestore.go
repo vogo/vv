@@ -101,7 +101,7 @@ func NewSQLiteStore(dir string, opts ...Option) (*SQLiteStore, error) {
 	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	// Fail-fast: surface open errors before callers construct agents that
-	// would otherwise nil-panic deep inside PersistentMemoryWithStore.
+	// would otherwise nil-panic deep inside NewLongTermMemory.
 	if err := db.PingContext(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("sqlitestore: ping %s: %w", dbPath, err)

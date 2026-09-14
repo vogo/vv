@@ -153,7 +153,7 @@ func (a *assembly) installMemory(cfg *configs.Config, _ *Options) (cleanup, erro
 		return nil, err
 	}
 
-	a.persistentMem = memory.NewPersistentMemoryWithStore(store)
+	a.persistentMem = memory.NewLongTermMemory(store)
 	a.memMgr = memory.NewManager(
 		memory.WithStore(a.persistentMem),
 		memory.WithPromoter(memory.PromoteAll()),

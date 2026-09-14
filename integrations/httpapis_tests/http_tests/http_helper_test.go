@@ -99,7 +99,7 @@ func setupMemoryTestServer(t *testing.T) *httptest.Server {
 		t.Fatalf("NewFileStore: %v", err)
 	}
 
-	persistentMem := memory.NewPersistentMemoryWithStore(fileStore)
+	persistentMem := memory.NewLongTermMemory(fileStore)
 
 	// Create a mux with memory endpoints matching main.go pattern.
 	mux := http.NewServeMux()

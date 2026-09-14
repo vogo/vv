@@ -258,6 +258,16 @@ func TestParseKey(t *testing.T) {
 		{"user:preferences", "user", "preferences"},
 		{"simplekey", "default", "simplekey"},
 		{"a:b:c", "a", "b:c"},
+		// vage prefixes every logical key with "mem:<scope>:<agentID>:
+		// <sessionID>:" before it reaches the Store. The namespace must be
+		// read from the logical key underneath, not from "mem".
+		{"mem:store:::project:conventions", "project", "conventions"},
+		{"mem:store:::simplekey", "default", "simplekey"},
+		{"mem:session:YQ:Yg:scratch:draft", "scratch", "draft"},
+		// Keys that only look like a tier prefix stay untouched.
+		{"mem:notes", "mem", "notes"},
+		{"mem:bogusscope:::project:conventions", "mem", "bogusscope:::project:conventions"},
+		{"mem:store:project", "mem", "store:project"},
 	}
 
 	for _, tt := range tests {

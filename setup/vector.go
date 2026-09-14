@@ -24,7 +24,7 @@ import (
 
 	"github.com/vogo/vage/vector"
 	"github.com/vogo/vage/vector/archivehook"
-	"github.com/vogo/vage/vector/openai"
+	"github.com/vogo/vage/vector/provider/openais"
 	"github.com/vogo/vage/vector/qdrant"
 	"github.com/vogo/vv/configs"
 )
@@ -102,19 +102,19 @@ func buildVectorEmbedder(cfg configs.VectorConfig) (vector.Embedder, error) {
 				"hint", "set VV_VECTOR_OPENAI_API_KEY or OPENAI_API_KEY, or pick embedder=hash for offline use")
 			return nil, nil
 		}
-		opts := []openai.Option{
-			openai.WithModel(cfg.EffectiveOpenAIModel()),
+		opts := []openais.Option{
+			openais.WithModel(cfg.EffectiveOpenAIModel()),
 		}
 		if cfg.OpenAI.APIKey != "" {
-			opts = append(opts, openai.WithAPIKey(cfg.OpenAI.APIKey))
+			opts = append(opts, openais.WithAPIKey(cfg.OpenAI.APIKey))
 		}
 		if cfg.OpenAI.BaseURL != "" {
-			opts = append(opts, openai.WithBaseURL(cfg.OpenAI.BaseURL))
+			opts = append(opts, openais.WithBaseURL(cfg.OpenAI.BaseURL))
 		}
 		if cfg.OpenAI.Dimensions > 0 {
-			opts = append(opts, openai.WithDimensions(cfg.OpenAI.Dimensions))
+			opts = append(opts, openais.WithDimensions(cfg.OpenAI.Dimensions))
 		}
-		emb, err := openai.New(opts...)
+		emb, err := openais.New(opts...)
 		if err != nil {
 			return nil, fmt.Errorf("openai embedder: %w", err)
 		}

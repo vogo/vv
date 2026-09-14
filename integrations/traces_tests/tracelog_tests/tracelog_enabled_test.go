@@ -31,9 +31,11 @@ import (
 // assert the full setup.Init → TaskAgent.Run → JSONL flush pipeline lands
 // a well-formed JSONL file on disk.
 //
-//   - US-1: a file exists under <tempDir>/<projectHash>/<sid>.jsonl with
-//     `agent_start` first and `agent_end` last; every envelope carries
-//     type/session_id/timestamp.
+//   - US-1: a file exists under <tempDir>/<projectHash>/<sid>.jsonl that
+//     records `agent_start` and ends on `agent_end`; every envelope carries
+//     type/session_id/timestamp. The framework may emit run-setup events
+//     such as `params_resolved` ahead of `agent_start`, so the assertion is
+//     on presence and on the terminal event, not on index 0.
 //   - US-5: agent_start + agent_end pair is the minimum event coverage the
 //     on-disk firehose must capture for downstream four-tuple rebuild.
 //   - US-6: setup.Init is the public path all three run modes (CLI / HTTP /
@@ -98,8 +100,8 @@ func TestIntegration_Enabled_EndToEnd_FullPipeline(t *testing.T) {
 		t.Fatalf("expected >= 2 events (agent_start + agent_end), got %d", len(events))
 	}
 
-	if events[0].Type != schema.EventAgentStart {
-		t.Errorf("first event type = %q, want %q", events[0].Type, schema.EventAgentStart)
+	if !hasEventType(events, schema.EventAgentStart) {
+		t.Errorf("no %q event in %v", schema.EventAgentStart, eventTypes(events))
 	}
 
 	last := events[len(events)-1]
@@ -160,8 +162,8 @@ func TestIntegration_Enabled_MultiSessionRouting(t *testing.T) {
 			}
 		}
 
-		if events[0].Type != schema.EventAgentStart {
-			t.Errorf("session %q: first event = %q, want agent_start", sid, events[0].Type)
+		if !hasEventType(events, schema.EventAgentStart) {
+			t.Errorf("session %q: no agent_start event in %v", sid, eventTypes(events))
 		}
 	}
 }

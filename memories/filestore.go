@@ -36,7 +36,7 @@ const sessionDirName = "session"
 
 // FileStore persists key-value pairs as individual JSON files in a directory.
 // Keys are sanitized to safe filenames. The store is not safe for concurrent
-// use; wrap with PersistentMemory (which uses syncMemory) for thread safety.
+// use; wrap with LongTermMemory (which uses syncMemory) for thread safety.
 type FileStore struct {
 	dir         string
 	extraShared map[string]struct{}
@@ -126,14 +126,54 @@ func encodeValue(value any) (string, error) {
 	return string(b), nil
 }
 
+// tierKeyPrefix is the literal head of the physical key prefix vage's memory
+// tiers prepend to every logical key before it reaches a Store:
+// "mem:<scope>:<agentID>:<sessionID>:", with the two IDs base64url-encoded so
+// they can never contain ':'. vv's namespace rules are defined on the logical
+// key, so the tier prefix has to come off before the namespace is read.
+const tierKeyPrefix = "mem:"
+
+// stripTierPrefix removes vage's physical tier prefix from key and returns the
+// logical key underneath. Keys that do not carry a well-formed prefix — direct
+// Store callers, and records written before vage introduced the prefix — are
+// returned unchanged, so both layouts stay readable.
+func stripTierPrefix(key string) string {
+	rest, ok := strings.CutPrefix(key, tierKeyPrefix)
+	if !ok {
+		return key
+	}
+
+	scope, rest, ok := strings.Cut(rest, ":")
+	if !ok {
+		return key
+	}
+	switch memory.Scope(scope) {
+	case memory.ScopeWorking, memory.ScopeSession, memory.ScopeStore:
+	default:
+		return key
+	}
+
+	// The agentID and sessionID segments follow; both may be empty (the
+	// long-term tier leaves them so) but both delimiters must be present.
+	for range 2 {
+		if _, rest, ok = strings.Cut(rest, ":"); !ok {
+			return key
+		}
+	}
+	return rest
+}
+
 // parseKey splits a key into namespace and name.
 // Format: "namespace:key" -> ("namespace", "key").
 // If no colon, namespace is "default".
+// Any vage tier prefix is stripped first, so the namespace is always read
+// from the logical key the caller passed to the Memory API.
 func parseKey(key string) (namespace, name string) {
-	if before, after, ok := strings.Cut(key, ":"); ok {
+	logical := stripTierPrefix(key)
+	if before, after, ok := strings.Cut(logical, ":"); ok {
 		return before, after
 	}
-	return "default", key
+	return "default", logical
 }
 
 // sanitize replaces characters that are unsafe in filenames.

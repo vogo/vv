@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -134,6 +135,25 @@ func decodeEvents(t *testing.T, path string) []decodedEvent {
 	}
 
 	return events
+}
+
+// hasEventType reports whether events contains an envelope of type want.
+// Assertions use it instead of indexing: the framework is free to emit
+// run-setup events (params_resolved, route_selected, …) around the
+// lifecycle pair, and their position is not part of vv's contract.
+func hasEventType(events []decodedEvent, want string) bool {
+	return slices.ContainsFunc(events, func(ev decodedEvent) bool {
+		return ev.Type == want
+	})
+}
+
+// eventTypes projects the envelope types, for readable failure messages.
+func eventTypes(events []decodedEvent) []string {
+	types := make([]string, len(events))
+	for i, ev := range events {
+		types[i] = ev.Type
+	}
+	return types
 }
 
 // makeTraceConfig returns a base Config with Trace enabled pointing to

@@ -90,7 +90,7 @@ func TestHTTP_Sessions_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
-	persistentMem := memory.NewPersistentMemoryWithStore(memStore)
+	persistentMem := memory.NewLongTermMemory(memStore)
 
 	dispatcher := stubAgent{id: "orchestrator"}
 	srvCtx, cancel := context.WithCancel(ctx)
@@ -224,7 +224,7 @@ func TestHTTP_Sessions_NotMounted_WhenStoreNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
-	persistentMem := memory.NewPersistentMemoryWithStore(memStore)
+	persistentMem := memory.NewLongTermMemory(memStore)
 
 	srvCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

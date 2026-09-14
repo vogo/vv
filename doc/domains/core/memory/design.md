@@ -23,6 +23,8 @@ vv 直接复用 vage 的记忆模型,把记忆划分为三层视图。代理在�
 
 **设计目的**:共享 namespace 的名字是 **约定而非自由文本**,避免"每个代理自己起名"导致碎片化;同时让 user-path 入口能 **静态判定** 一次写入是否越界(`memories.IsSharedNamespace(ns)` 在到达 store 前预校验)。判定逻辑见 `namespaces.go::isShared`(共享清单 + 可选 extra 集合)。
 
+**物理 key 前缀的剥离**:vage 的记忆分层会在 key 到达 `memory.Store` 之前加上物理前缀 `mem:<scope>:<agentID>:<sessionID>:`(两个 ID 做 base64url 编码,因此不含 `:`),用于按 tier 与身份分区同一后端。vv 的 namespace 语义定义在 **逻辑 key** 上,故 `filestore.go::parseKey` 先经 `stripTierPrefix` 去掉该前缀再取 namespace——否则所有条目的 namespace 都会被读成 `mem` 而落入会话私有分支。前缀不合法(直接调用 Store 的调用方、以及 vage 引入前缀之前写下的记录)时原样返回,两种布局都保持可读。落盘的 `key` 字段仍存物理 key,因为 `Store.List` 的返回值要由 vage 侧还原成逻辑 key。
+
 ## 访问控制实现
 
 两类入口经 context 携带不同身份标记(`session.go`):

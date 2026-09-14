@@ -24,7 +24,7 @@ func TestIntegration_Agents_PersistentMemoryInSystemPrompt(t *testing.T) {
 		t.Fatalf("NewFileStore: %v", err)
 	}
 
-	persistentMem := memory.NewPersistentMemoryWithStore(store)
+	persistentMem := memory.NewLongTermMemory(store)
 
 	ctx := context.Background()
 	if err := persistentMem.Set(ctx, "project:conventions", "Use gofumpt for formatting", 0); err != nil {
@@ -65,7 +65,7 @@ func TestIntegration_Agents_PersistentMemoryEmptyStore(t *testing.T) {
 		t.Fatalf("NewFileStore: %v", err)
 	}
 
-	persistentMem := memory.NewPersistentMemoryWithStore(store)
+	persistentMem := memory.NewLongTermMemory(store)
 	prompt := agents.NewPersistentMemoryPrompt("Base prompt only.", persistentMem)
 
 	rendered, err := prompt.Render(context.Background(), nil)
@@ -110,7 +110,7 @@ func TestIntegration_Agents_FileStoreCRUDViaPersistentMemory(t *testing.T) {
 		t.Fatalf("NewFileStore: %v", err)
 	}
 
-	mem := memory.NewPersistentMemoryWithStore(store)
+	mem := memory.NewLongTermMemory(store)
 	// Memory CRUD via the PersistentMemory wrapper is an administrative
 	// (user-side) path, so Clear and writes to shared namespaces must run
 	// under the user-path marker to pass session-binding checks.

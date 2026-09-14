@@ -81,7 +81,7 @@ func TestIntegration_SetupNew_PersistentMemory(t *testing.T) {
 		t.Fatalf("NewFileStore: %v", err)
 	}
 
-	persistentMem := memory.NewPersistentMemoryWithStore(store)
+	persistentMem := memory.NewLongTermMemory(store)
 	ctx := context.Background()
 	if err := persistentMem.Set(ctx, "project:conventions", "Use gofumpt", 0); err != nil {
 		t.Fatalf("Set: %v", err)
