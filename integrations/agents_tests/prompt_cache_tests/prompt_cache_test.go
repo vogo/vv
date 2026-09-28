@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // TestIntegration_PromptCache_NormalChat sends two independent researcher

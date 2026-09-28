@@ -3,9 +3,9 @@ package project_instructions_tests
 import (
 	"context"
 
+	largemodel "github.com/vogo/largemodel/model"
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/largemodel"
-	"github.com/vogo/vage/schema"
 )
 
 // mockChatCompleter is a simple mock for testing.

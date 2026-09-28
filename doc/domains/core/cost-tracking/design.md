@@ -16,7 +16,7 @@
 
 ## 同源中间件统计
 
-成本累加挂在 aimodel **LLM 中间件链**上，作为旁路而非主路径(ADR 0005 事件总线旁路订阅 + 零成本默认)。
+成本累加挂在 largemodel **LLM 中间件链**上，作为旁路而非主路径(ADR 0005 事件总线旁路订阅 + 零成本默认)。
 
 - 每次 LLM 调用完成，中间件 post-record 闭包回调 `(promptTokens, completionTokens, cacheReadTokens, model)`。
 - 同一份回调数据**同时**喂给 Session Cost Tracker(本领域)与 Budget Tracker(budget 领域)。两者互不读取，均由 budget 中间件的 post-record 闭包驱动。

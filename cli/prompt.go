@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/schema"
 )
 
 // RunPrompt runs a single prompt non-interactively against the given

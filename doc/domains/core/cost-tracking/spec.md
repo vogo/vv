@@ -24,7 +24,7 @@ cost-tracking 回答用户最常问的问题——"花了多少钱"。它从每�
 
 | ID | 规则 |
 |----|------|
-| **COST-R1** | **token 抽取来源**：token usage 从 LLM API 响应抽取，统一经 aimodel 规一化。`input_tokens` 对 Anthropic 含 cache-read(即 total input)；`cache_read_tokens` 来自 Anthropic `cache_read_input_tokens` 或 OpenAI `prompt_tokens_details.cached_tokens`；provider 不支持缓存时为 0。 |
+| **COST-R1** | **token 抽取来源**：token usage 从 LLM API 响应抽取，统一经 largemodel 规一化。`input_tokens` 对 Anthropic 含 cache-read(即 total input)；`cache_read_tokens` 来自 Anthropic `cache_read_input_tokens` 或 OpenAI `prompt_tokens_details.cached_tokens`；provider 不支持缓存时为 0。 |
 | **COST-R2** | **累加边界**：CLI 模式按 **session** 累加(一个 tracker 贯穿整个交互 session)；HTTP 模式按 **request** 累加(每请求一个 tracker，响应后销毁)。两种模式累加逻辑相同，只是边界不同。 |
 | **COST-R3** | **价格查找**：先**精确匹配** model name，再**最长前缀匹配**(例如 `claude-sonnet-4-20250514` 命中 `claude-sonnet-4`)；custom 价格表优先于默认价格表。算法见 [design.md](design.md)。 |
 | **COST-R4** | **成本计算口径**：为避免对 cache-read 重复计费，非缓存 input = `input_tokens − cache_read_tokens`，按 `(非缓存 input × input 费率) + (cache-read × cache 费率) + (output × output 费率)` 折算，单位百万 token。 |
@@ -39,7 +39,7 @@ cost-tracking 回答用户最常问的问题——"花了多少钱"。它从每�
 
 | 输入信号 | 来源 | 处理 |
 |---------|------|------|
-| 单次 LLM 调用完成(prompt / completion / cache-read token 数 + model) | aimodel 中间件 post-record 闭包 / HTTP `llm_call_end` SSE 事件 | 累加进对应 Session Cost Tracker，重算估算成本 |
+| 单次 LLM 调用完成(prompt / completion / cache-read token 数 + model) | largemodel 中间件 post-record 闭包 / HTTP `llm_call_end` SSE 事件 | 累加进对应 Session Cost Tracker，重算估算成本 |
 
 ## Interactions
 

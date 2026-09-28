@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/checkpoint"
-	"github.com/vogo/vage/schema"
 )
 
 // RunMeta describes one sub-agent dispatch of a session.

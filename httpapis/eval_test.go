@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent"
 	vageeval "github.com/vogo/vage/eval"
-	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
 )
 

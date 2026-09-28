@@ -18,8 +18,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/vogo/vage/largemodel"
-	"github.com/vogo/vage/schema"
+	largemodel "github.com/vogo/largemodel/model"
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/debugs"

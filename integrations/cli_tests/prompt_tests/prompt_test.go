@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 	vvcli "github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/setup"

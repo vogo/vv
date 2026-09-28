@@ -20,8 +20,8 @@ package budgets
 import (
 	"context"
 
-	"github.com/vogo/vage/largemodel/middleware"
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/model/middleware"
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vv/traces/costtraces"
 )
 

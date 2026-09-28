@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/vage/largemodel"
+	largemodel "github.com/vogo/largemodel/model"
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/memory"
-	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	vvcli "github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"

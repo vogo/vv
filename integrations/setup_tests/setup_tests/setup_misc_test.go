@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/vogo/vage/largemodel"
+	largemodel "github.com/vogo/largemodel/model"
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/memory"
-	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/hooks"

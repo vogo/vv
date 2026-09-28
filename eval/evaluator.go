@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	largemodel "github.com/vogo/largemodel/model"
 	"github.com/vogo/vage/eval"
-	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vv/configs"
 )
 

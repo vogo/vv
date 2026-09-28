@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/session"
 )
 

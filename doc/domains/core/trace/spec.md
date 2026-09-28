@@ -22,7 +22,7 @@ trace 领域回答一个问题:**代理跑过哪些事,如何在不拖慢主路�
 | 实体 | 职责 | 详见 |
 |------|------|------|
 | **Trace Config** | `trace:` 配置块的声明式投影;`enabled` 是整条管线的主开关 | [models.md](models.md) |
-| **Trace Event** | 一行 trace = 一个 `json.Marshal(schema.Event)`;全量、不改写字段 | [models.md](models.md);事件类型全清单属 vage schema(`vage/schema/event.go`) |
+| **Trace Event** | 一行 trace = 一个 `json.Marshal(schema.Event)`;全量、不改写字段 | [models.md](models.md);事件类型全清单属 vage schema(`largemodel/schema/event.go`) |
 | **Trace File** | 单会话的 JSONL 文件,append-only,支持大小轮转 | [models.md](models.md) |
 | **事件总线** | vage 的统一事件分发基础(术语见 [../../../glossary.md](../../../glossary.md));trace / session / cost 等作为旁路订阅者挂载 | [design.md](design.md) |
 | **Debug sink** | 按运行模式分流的逐次 I/O 记录目标(磁盘 / stderr / 结构化日志) | [design.md](design.md) |
@@ -66,7 +66,7 @@ stateDiagram-v2
 
 本领域**不产生**领域事件,只**订阅**事件总线上由 orchestration 发出的 `schema.Event` 全量流(`Filter()` 返回 nil = 订阅全部)。涵盖:`agent_start` / `agent_end`、`iteration_start`、`tool_call_start` / `tool_call_end`、`tool_result`、`text_delta`、`llm_call_start` / `llm_call_end` / `llm_call_error`、`guard_check`、`skill_*`、`budget_*`、`mcp_credential_detected`、`pending_interaction`、`phase_*`、`sub_agent_*`、`error` 等。
 
-完整事件类型清单属 vage schema(`vage/schema/event.go`),不在此复述。
+完整事件类型清单属 vage schema(`largemodel/schema/event.go`),不在此复述。
 
 ## Interactions
 

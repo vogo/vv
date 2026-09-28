@@ -4,7 +4,7 @@
 
 ## 中间件位置:最外层
 
-Budget Middleware 由 `vage/largemodel.NewBudgetMiddleware` 构造,经 `largemodel.Chain` 装配到 LLM 调用链的 **最外层**——位于 retry / circuit-breaker / cache / debug 等所有中间件之外。
+Budget Middleware 由 `largemodel/model.NewBudgetMiddleware` 构造,经 `largemodel.Chain` 装配到 LLM 调用链的 **最外层**——位于 retry / circuit-breaker / cache / debug 等所有中间件之外。
 
 ```mermaid
 flowchart LR

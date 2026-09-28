@@ -1,6 +1,6 @@
 # VV
 
-`vv` is an agent application built on the `vage` framework and the `aimodel` SDK, offering three run modes: CLI / HTTP / MCP. Every request is routed through a unified **Primary Assistant**, which either answers directly, performs read-only investigation, delegates to a specialist, or plans a DAG.
+`vv` is an agent application built on the `vage` framework and `github.com/vogo/largemodel` canonical model layer, offering three run modes: CLI / HTTP / MCP. Every request is routed through a unified **Primary Assistant**, which either answers directly, performs read-only investigation, delegates to a specialist, or plans a DAG.
 
 ## Docs-to-Source Map
 

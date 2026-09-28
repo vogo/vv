@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // TestIntegration_Enabled_AsyncDoesNotBlock (US-3)

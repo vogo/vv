@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 func TestDefaultPath_ContainsVaga(t *testing.T) {

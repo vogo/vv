@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/vogo/vage/largemodel"
+	largemodel "github.com/vogo/largemodel/model"
 	"github.com/vogo/vv/traces/costtraces"
 	"gopkg.in/yaml.v3"
 )

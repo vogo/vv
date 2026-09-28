@@ -22,7 +22,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // TestIntegration_Disabled_NoHookNoFiles (US-2)

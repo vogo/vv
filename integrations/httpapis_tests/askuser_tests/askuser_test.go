@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/memory"
-	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/httpapis"

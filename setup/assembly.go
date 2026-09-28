@@ -25,8 +25,8 @@ import (
 	"slices"
 	"sync"
 
+	largemodel "github.com/vogo/largemodel/model"
 	"github.com/vogo/vage/hook"
-	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/session"
 	"github.com/vogo/vage/workspace"

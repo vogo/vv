@@ -3,7 +3,7 @@ package httpapis
 import (
 	"context"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // HTTPInteractor implements askuser.UserInteractor for HTTP mode.

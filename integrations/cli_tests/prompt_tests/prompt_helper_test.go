@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/schema"
 )
 
 // stubStreamAgent implements agent.StreamAgent for testing.

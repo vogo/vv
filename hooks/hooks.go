@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // Hook defines lifecycle callbacks for agent executions.

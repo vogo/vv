@@ -22,8 +22,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/hook"
-	"github.com/vogo/vage/schema"
 )
 
 // sessionEventCounter tracks AgentEnd events per sessionID so the

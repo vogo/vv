@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // aggregateUsage merges two usage structs into a single Usage.

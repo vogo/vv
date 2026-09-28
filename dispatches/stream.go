@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/schema"
 )
 
 // relayAgentStream runs an agent and forwards its stream events unchanged.

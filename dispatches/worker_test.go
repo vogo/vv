@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent/taskagent"
-	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"

@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/schema"
 )
 
 // stubAgent is a minimal agent implementation for testing.

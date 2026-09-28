@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
+	largemodel "github.com/vogo/largemodel/model"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vage/session"

@@ -23,9 +23,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/vogo/vage/largemodel"
-	"github.com/vogo/vage/largemodel/middleware"
-	"github.com/vogo/vage/schema"
+	largemodel "github.com/vogo/largemodel/model"
+	"github.com/vogo/largemodel/model/middleware"
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
 )

@@ -13,8 +13,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/eval"
-	"github.com/vogo/vage/schema"
 )
 
 // LoadError records a JSONL line that could not be decoded. The overall

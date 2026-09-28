@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/orchestrate"
-	"github.com/vogo/vage/schema"
 )
 
 // StepInput holds all parameters needed to construct input messages for a DAG step.

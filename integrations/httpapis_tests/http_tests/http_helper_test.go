@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/memory"
-	"github.com/vogo/vage/schema"
 	"github.com/vogo/vage/service"
 	"github.com/vogo/vv/configs"
 	vvmemory "github.com/vogo/vv/memories"

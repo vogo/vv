@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // stripANSI removes ANSI color escape sequences so assertions can match the

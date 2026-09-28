@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // recordingHook records hook calls for verification.

@@ -3,7 +3,7 @@ package dispatches
 import (
 	"testing"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 func TestStepInput_BuildMessages(t *testing.T) {

@@ -23,7 +23,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // Record kinds. Every line of a transcript log is exactly one of these.

@@ -34,7 +34,7 @@ Load 在 `VV_*` 覆盖**之前**、默认填充之前,读取标准 Anthropic 环
 - **逃生舱**:`VV_LLM_PROVIDER` 非空时整组失效(并记 `slog.Info`),供"机器上为其它工具导出了 `ANTHROPIC_API_KEY`,但 vv 要继续走 openai 协议端点"的场景。
 - **provider 切换清场**:该组把 provider 从 YAML 的 openai 翻转为 anthropic 时,先清掉 YAML 的 `api_key` / `base_url` / `model` 再填充——它们描述的是上一个 provider 的 API,沿用会把 anthropic 流量发往 openai 端点、或把新 key 配上旧模型。组内未提供的字段随后走 provider 默认值。
 - 三组变量都不设时行为与现状一致(空 provider 走 openai 默认 `https://api.openai.com/v1`)。
-- 当 `OPENAI_API_KEY` 与 `ANTHROPIC_*` 同时存在且 `VV_LLM_PROVIDER` 未给时,判定为 **anthropic**——遵循标准 Anthropic 约定。该判定只决定协议;`aimodel.NewClient` 自身对 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` 的 key 兜底不受影响。
+- 当 `OPENAI_API_KEY` 与 `ANTHROPIC_*` 同时存在且 `VV_LLM_PROVIDER` 未给时,判定为 **anthropic**——遵循标准 Anthropic 约定。该判定只决定协议;`largemodel.NewClient` 自身对 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` 的 key 兜底不受影响。
 - 不引入对称的 `OPENAI_*` 覆盖。
 
 ### 1.2 端点可见性

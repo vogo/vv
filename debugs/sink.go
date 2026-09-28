@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vogo/vage/largemodel/middleware"
+	"github.com/vogo/largemodel/model/middleware"
 )
 
 // Kind identifies the type of debug record.

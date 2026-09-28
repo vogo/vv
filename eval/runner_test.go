@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vogo/largemodel/schema"
 	vageeval "github.com/vogo/vage/eval"
-	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/configs"
 )
 

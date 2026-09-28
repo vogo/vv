@@ -6,13 +6,13 @@ import (
 	"strings"
 	"sync"
 
+	largemodel "github.com/vogo/largemodel/model"
 	"github.com/vogo/vage/agent"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
 	vctx "github.com/vogo/vage/context"
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
-	"github.com/vogo/vage/largemodel"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/tool"
 )

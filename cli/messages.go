@@ -3,7 +3,7 @@ package cli
 import (
 	"time"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // compactionDoneMsg signals that context compression completed.

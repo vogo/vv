@@ -56,7 +56,7 @@ stateDiagram-v2
 | `EventBudgetWarn` | 首次越过 warn 阈值的 Add(BUDGET-R3) | scope、dimension、used / limit(token 与 cost)、percent | CLI 提示、HTTP 转发、trace 落盘 |
 | `EventBudgetExceeded` | Add 后命中硬上限(信息性);亦在 pre-call Check 拒绝时发出 | scope、dimension、used / limit | CLI、HTTP、trace |
 
-两事件经 vage 事件总线发出,订阅者旁路消费(见 [design.md](design.md));schema 字段见 `vage/schema`(`BudgetWarnData` / `BudgetExceededData`)。
+两事件经 vage 事件总线发出,订阅者旁路消费(见 [design.md](design.md));schema 字段见 `largemodel/schema`(`BudgetWarnData` / `BudgetExceededData`)。
 
 ## Interactions
 

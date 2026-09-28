@@ -24,9 +24,9 @@ import (
 	"io"
 	"slices"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/checkpoint"
-	"github.com/vogo/vage/schema"
 	"github.com/vogo/vv/setup"
 )
 

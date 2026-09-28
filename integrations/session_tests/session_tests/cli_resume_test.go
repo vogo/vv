@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/session"
 	"github.com/vogo/vv/cli"
 	"github.com/vogo/vv/configs"

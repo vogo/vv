@@ -7,7 +7,7 @@
 | 术语 | 定义 |
 |------|------|
 | **vage** | vv 所依赖的底层代理框架,提供 TaskAgent、记忆抽象、ContextBuilder、工具实体、事件总线、session/workspace/tree 持久化、DAG orchestrate 等基础能力。 |
-| **aimodel** | LLM SDK 层,把 OpenAI 与 Anthropic 等 provider 规一化为统一接口;承载 prompt caching 断点等跨 provider 能力。 |
+| **largemodel** | 大模型能力模块:provider-native client 位于 `openai`/`anthropic`,canonical contract 位于 `schema`,统一 Caller、codec、中间件、路由与健康位于 `model`。vv 只使用 canonical 层。 |
 | **Primary Assistant(Primary)** | 统一前门代理。每次请求的唯一入口,以 ReAct 循环自行选择直答 / 探查并动手 / 委派 / 规划;持 Full 工具档(read/search + write/edit + bash)。 |
 | **Fallback Primary** | 与 Primary 共享人格但 **无任何工具**、最大迭代 1 的实例;递归深度超限时切换到它,物理上消除再次递归的可能。 |
 | **Dispatcher(分发器)** | 对外是单一 `agent.StreamAgent`,对内只做"转发到 Primary 或 Fallback"。不做意图分类、不做总结。 |

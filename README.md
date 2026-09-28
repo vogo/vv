@@ -1,6 +1,6 @@
 # vv
 
-`vv` is an AI agent application built on the **vage** framework and the **aimodel** SDK — a developer-facing coding assistant and general-purpose conversational AI. Every request flows through the same **Primary Assistant**, which decides how to respond: answer directly, explore and act (read/write files, run commands), delegate to a specialist agent (coder / researcher / reviewer), or trigger multi-step DAG planning when a task spans multiple capability domains.
+`vv` is an AI agent application built on the **vage** framework and the **largemodel** model capability layer — a developer-facing coding assistant and general-purpose conversational AI. Every request flows through the same **Primary Assistant**, which decides how to respond: answer directly, explore and act (read/write files, run commands), delegate to a specialist agent (coder / researcher / reviewer), or trigger multi-step DAG planning when a task spans multiple capability domains.
 
 It offers three ways to connect:
 

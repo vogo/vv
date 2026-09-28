@@ -1,7 +1,7 @@
 package permission_tests
 
 import (
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // resultText extracts the first text content part from a ToolResult.

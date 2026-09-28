@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 func TestInteractionStore_CreateAndRespond(t *testing.T) {

@@ -24,7 +24,7 @@ Primary 同时是 **默认的主执行者**:普通编码任务由它在当前上
          Dispatcher)   工具能力)        session/tree)
                           │
                           ▼
-                   vage 框架 + aimodel SDK
+              vage 框架 + largemodel/model
 ```
 
 - **应用入口层**:只负责命令行解析与运行模式选择,不持有业务逻辑(领域 `cli` / `http-api` / `mcp`)。
@@ -68,7 +68,7 @@ trace / session / session_tree / budget / debug 都遵循同一规则:**未启�
 
 ### 5. 协议无关
 
-所有 LLM 流量经 `aimodel`,OpenAI 与 Anthropic 在 SDK 层规一化为统一接口。换 provider 不动业务代码。
+所有 LLM 流量经 `github.com/vogo/largemodel/model.Caller`,消息与事件契约来自 `github.com/vogo/largemodel/schema`;OpenAI 与 Anthropic 只在 largemodel 的 provider codec 边界转换。换 provider 不动 vv 业务代码。
 
 ## 一次请求的生命周期
 

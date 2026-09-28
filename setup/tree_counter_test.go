@@ -21,8 +21,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/hook"
-	"github.com/vogo/vage/schema"
 )
 
 // TestSessionEventCounter_OnEventCounts checks the basic increment path —

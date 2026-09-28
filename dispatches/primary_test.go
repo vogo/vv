@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent"
-	"github.com/vogo/vage/schema"
 )
 
 // TestRun_UnifiedMode_ForwardsToPrimary verifies that the dispatcher relays

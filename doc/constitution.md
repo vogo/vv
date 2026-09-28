@@ -19,8 +19,8 @@
 
 ## 2. 技术栈基线
 
-- **允许的核心栈**:Go;LLM 流量一律经 `aimodel`(OpenAI / Anthropic 在 SDK 层规一化);代理能力一律经 `vage` 框架。
-- **禁止**:在业务代码中直接调用某 provider 的原生 SDK,绕过 `aimodel`(违反"协议无关")。vv 不得向 `vage` 注入 vv 专属业务概念。
+- **允许的核心栈**:Go;LLM 流量一律经 `github.com/vogo/largemodel/model`,canonical contract 一律经 `github.com/vogo/largemodel/schema`;代理能力一律经 `vage` 框架。
+- **禁止**:在业务代码中直接调用某 provider 的 native client,绕过 `largemodel/model`(违反"协议无关")。vv 不得向 `vage` 注入 vv 专属业务概念。
 - **构建约束**:必须保持 `CGO_ENABLED=0` 可构建(故 SQLite 用纯 Go 的 `modernc.org/sqlite`)。
 - **例外流程**:引入新核心依赖或新 provider 需 ADR + 架构评审。
 

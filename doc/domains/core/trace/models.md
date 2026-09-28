@@ -43,7 +43,7 @@ erDiagram
 
 **关系**:Appears in Trace File(每个事件是一行);Governed by Trace Config(是否持久化);与 Session Memory 经 `session_id` 关联(P2-14 resume 可回放);携带与 Cost Tracker 同源的 token 维度(`llm_call_end.data`)。
 
-**有序性 / 丢失场景**及事件类型全清单不在此复述,见 `vage/schema/event.go`。
+**有序性 / 丢失场景**及事件类型全清单不在此复述,见 `largemodel/schema/event.go`。
 
 ---
 

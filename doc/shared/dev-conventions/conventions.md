@@ -4,7 +4,7 @@
 
 ## 代码组织
 
-- 模块 `vv` 基于 `vage` 框架与 `aimodel` SDK；正式依赖固定在 `go.mod` 的发布版本。联调兄弟仓库时可临时添加本地 `replace`，但不得提交。
+- 模块 `vv` 基于 `vage` 框架与 `largemodel/model` canonical 能力层；正式依赖固定在 `go.mod` 的发布版本。联调兄弟仓库时可临时添加本地 `replace`，但不得提交。
 - 单元测试与源码同目录,无外部依赖。
 - 集成测试在 `integrations/<group>_tests/<scenario>_tests/`,依赖 `VV_LLM_API_KEY`(或 `AI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`)。
 - 测试结束清理构建产物。
@@ -15,7 +15,7 @@
 |------|------|
 | 函数式选项 | 工具/代理配置统一用 functional options 模式 |
 | context 贯穿 | 一切跨函数边界操作经 `context.Context` 传递(递归深度、session id、user-path 等都走 context) |
-| 协议无关 | LLM 流量一律经 `aimodel`,不直接调 provider 原生 SDK |
+| 协议无关 | LLM 流量一律经 `largemodel/model`,消息契约经 `largemodel/schema`,不直接调 provider native client |
 | 零成本默认 | 可选子系统未启用即不构造 |
 | 构建可移植 | 保持 `CGO_ENABLED=0` 可构建 |
 

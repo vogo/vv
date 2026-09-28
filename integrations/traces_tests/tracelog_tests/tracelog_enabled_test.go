@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vogo/vage/schema"
+	"github.com/vogo/largemodel/schema"
 )
 
 // TestIntegration_Enabled_EndToEnd_FullPipeline (US-1 / US-5 / US-6)
