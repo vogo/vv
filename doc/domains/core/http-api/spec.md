@@ -38,7 +38,7 @@ http-api 是 vv `mode: http` 下的对外边界领域。它把 [orchestration](.
 | **HTTP-R6** | 子系统未启用→路由不挂 | 端点分组按依赖子系统是否激活决定是否挂载(memory 恒挂;interactions/budget/eval/sessions/workspace/tree/vector/interrupts 按需);未启用的子系统对应路由不存在,而非返回半禁用端点。维持零成本默认路径。 |
 | **HTTP-R7** | request-id 恒开 | 每个请求注入 `X-Request-ID`(客户端未带则自动生成),贯穿成本/预算/debug 链路用于追踪;成本可忽略,故不做开关。 |
 | **HTTP-R8** | debug 不改契约 | `debug=true` 时把每次 LLM/工具调用的关联记录写入 slog 服务日志(以 request id、async 任务 id 标记),但响应体(sync JSON / streaming SSE 字节流 / async 结果)与非 debug 模式对同样输入**逐字节一致**,不新增字段、不新增 SSE 事件类型、不增删端点。 |
-| **HTTP-R9** | Durable HITL 三端点 | `agents.interrupt_enabled` 开启且 InterruptStore 非 nil 时挂载:`GET /v1/sessions/{id}/interrupts`(只返回 Meta)、`POST /v1/interrupts/{id}/decisions`(vage `Decision`,批准用 `execute:true`,拒绝用 `is_error`)、`POST /v1/interrupts/{id}/resume`(`ResumeInterrupt`,空 Decisions)。未启用则不挂路由(HTTP-R6)。决策正文不进日志/trace。`DELETE /v1/sessions/{id}` 同时 List+Delete 该 session 的 interrupt 记录。 |
+| **HTTP-R9** | Durable HITL 三端点 | `agents.interrupt_enabled` 开启且 InterruptStore 非 nil 时挂载:`GET /v1/sessions/{id}/interrupts`(只返回 Meta)、`POST /v1/interrupts/{id}/decisions`(interrupt `Decision`,批准用 `execute:true`,拒绝用 `is_error`;不跟随 Supersedes)、`POST /v1/interrupts/{id}/resume`(空 Decisions)。resume 成功为 200;策略指纹漂移且建出后继时,body 的 interrupt id 是新 id。无法建后继的漂移返回 409,`code=policy_drift`。未启用则不挂路由(HTTP-R6)。决策正文不进日志/trace。`DELETE /v1/sessions/{id}` 同时 List+Delete 该 session 的 interrupt 记录。 |
 
 ## States & transitions
 

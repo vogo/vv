@@ -25,7 +25,7 @@
 /v1/sessions/{id}/tree         ← Session Tree(treeStore 存在才挂)
 /v1/sessions/{id}/interrupts   ← 列出 session 的 interrupt Meta(InterruptStore 存在才挂)
 /v1/interrupts/{id}/decisions  ← 提交 HITL 决策
-/v1/interrupts/{id}/resume     ← ResumeInterrupt
+/v1/interrupts/{id}/resume     ← ResumeInterrupt。200 时若策略指纹变了且建出后继,body 的 interrupt id 是新 id;无法建后继则 409 code=policy_drift。POST decisions 不跟随 Supersedes
 /v1/vector/...                 ← 向量检索(vectorStore + embedder 都在才挂;单缺返回 503)
 ```
 

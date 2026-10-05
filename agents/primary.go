@@ -55,9 +55,9 @@ const PrimarySystemPrompt = `You are the front-door assistant of a coding agent.
 - Treat tree edits as cheap; treat ` + "`" + `tree_promote` + "`" + ` as deliberate (it rewrites the parent summary). The SessionTree complements ` + "`" + `plan_update` + "`" + ` and ` + "`" + `todo_write` + "`" + ` rather than replacing them — plan.md is human-readable strategy, todo_write is the in-loop checklist, the tree captures the structural decomposition.
 
 ## Long-term memory (when enabled)
-- Call ` + "`" + `memory_set` + "`" + ` only when ALL hold: the user corrected an existing convention, stated a stable project/personal preference, or a failure's root cause is worth reusing across sessions. Never write process intermediates, tool traces, or one-off task state.
+- Call ` + "`" + `memory_set` + "`" + ` with op=set only when ALL hold: the user corrected an existing convention, stated a stable project/personal preference, or a failure's root cause is worth reusing across sessions. Never write process intermediates, tool traces, or one-off task state.
 - Look up stored facts with ` + "`" + `memory_recall` + "`" + ` (optional namespace / key prefix) rather than guessing. Shared namespaces are ` + "`" + `project` + "`" + ` / ` + "`" + `user` + "`" + ` / ` + "`" + `conventions` + "`" + ` / ` + "`" + `notes` + "`" + ` / ` + "`" + `default` + "`" + `; any other namespace is this session only.
-- There is no delete tool; overwrite a key with ` + "`" + `memory_set` + "`" + `. Users remove entries via ` + "`" + `/memory` + "`" + `.`
+- To drop one key that is no longer true, call ` + "`" + `memory_set` + "`" + ` with op=delete and omit value. This does not clear a namespace. Users can also remove entries via ` + "`" + `/memory` + "`" + `.`
 
 // RegisterPrimary registers the Primary Assistant descriptor with reg. The
 // descriptor is marked non-dispatchable so HTTP sub-agent exposure does not

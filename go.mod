@@ -11,7 +11,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/termenv v0.16.0
 	github.com/vogo/largemodel v0.9.0
-	github.com/vogo/vage v0.12.2
+	github.com/vogo/vage v0.13.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.58.0
 )

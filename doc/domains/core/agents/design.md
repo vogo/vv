@@ -65,11 +65,11 @@ code-review = coder runtime + Review profile + review skill + 禁写 + diff 上�
 
 ## ToolProfile 模型(五档)
 
-ToolProfile 是一个命名的能力集合 `{Name, Capabilities ⊆ {Read, Write, Execute, Search}}`。五档预设(`vv/registries/tool_access.go`):
+ToolProfile 是一个命名的能力集合 `{Name, Capabilities ⊆ {Read, Write, Execute, Search, Remember, Interrupt}}`。五档预设:
 
 | Profile | Capabilities | 含义 | 典型代理 |
 |---------|-------------|------|---------|
-| Full | Read + Write + Execute + Search | 读 + 写 + 执行 + 搜索 | Coder / Primary |
+| Full | Read + Write + Execute + Search + Remember + Interrupt | 读 + 写 + 执行 + 搜索 + 记忆 + HITL | Coder / Primary(worker 不因 Interrupt 接线) |
 | Review | Read + Search + Execute | 读 + 搜索 + 执行 | Reviewer / code-review worker |
 | Edit | Read + Search + Write | 读 + 搜索 + 写(无 shell) | 需要改文件但不需要 shell 的派生 worker |
 | ReadOnly | Read + Search | 读 + 搜索 | Researcher |
@@ -87,7 +87,8 @@ ToolProfile 是一个命名的能力集合 `{Name, Capabilities ⊆ {Read, Write
 | Write | 文件创建(write)+ 文件 patch(edit) |
 | Execute | shell 执行(bash;受超时与路径 guardian 约束) |
 | Search | 文件名 glob + 内容 grep |
-| Remember | 不在 BuildRegistry 落地;装配阶段在 persistent store 非 nil 时挂 memory_set / memory_recall |
+| Remember | 不在 BuildRegistry 落地;装配阶段在 persistent store 非 nil 时挂 memory_set / memory_recall。声明了该能力但 store 为 nil 时记 Warn,不注册 |
+| Interrupt | 不是工具,BuildRegistry 为 no-op。不是 worker 的 interrupt 开关;只给长期宿主装配 |
 
 **取舍:公网检索算"读"而非"搜索"**——把 web_fetch/web_search 归到 Read,是因为模型语义上把它当作"获取外部信息",与"在已知项目里找东西"(Search)是不同认知模式。工具实体与护栏细节归 [tools](../tools/) 领域。
 

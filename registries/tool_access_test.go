@@ -43,21 +43,26 @@ func TestToolProfile_Has(t *testing.T) {
 		{ProfileFull, CapExecute, true},
 		{ProfileFull, CapSearch, true},
 		{ProfileFull, CapRemember, true},
+		{ProfileFull, CapInterrupt, true},
 		{ProfileReadOnly, CapRead, true},
 		{ProfileReadOnly, CapSearch, true},
 		{ProfileReadOnly, CapWrite, false},
 		{ProfileReadOnly, CapExecute, false},
 		{ProfileReadOnly, CapRemember, false},
+		{ProfileReadOnly, CapInterrupt, false},
 		{ProfileReview, CapRead, true},
 		{ProfileReview, CapSearch, true},
 		{ProfileReview, CapExecute, true},
 		{ProfileReview, CapWrite, false},
 		{ProfileReview, CapRemember, false},
+		{ProfileReview, CapInterrupt, false},
 		{ProfileEdit, CapWrite, true},
 		{ProfileEdit, CapRemember, false},
+		{ProfileEdit, CapInterrupt, false},
 		{ProfileNone, CapRead, false},
 		{ProfileNone, CapWrite, false},
 		{ProfileNone, CapRemember, false},
+		{ProfileNone, CapInterrupt, false},
 	}
 
 	for _, tt := range tests {
@@ -74,7 +79,7 @@ func TestProfileByName(t *testing.T) {
 		wantOK  bool
 		wantCap int // number of capabilities in the profile
 	}{
-		{"full", true, 5},
+		{"full", true, 6},
 		{"read-only", true, 2},
 		{"review", true, 3},
 		{"edit", true, 3},

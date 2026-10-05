@@ -1,7 +1,9 @@
 package setup
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -834,5 +836,31 @@ func TestMaybeRegisterMemoryTools_SessionIsolation(t *testing.T) {
 	}
 	if strings.Contains(res.Text(), "from-A") {
 		t.Fatal("session B recalled A's private entry")
+	}
+}
+
+func TestMaybeRegisterMemoryTools_NilStoreWarnsOnlyWhenRemembered(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	reg := tool.NewRegistry()
+	if err := maybeRegisterMemoryTools(reg, registries.ProfileFull, nil); err != nil {
+		t.Fatalf("nil store: %v", err)
+	}
+	if _, ok := reg.Get(memtool.SetToolName); ok {
+		t.Fatal("nil store must not register memory_set")
+	}
+	if !strings.Contains(buf.String(), "persistent store is nil") {
+		t.Fatalf("warn log = %q", buf.String())
+	}
+
+	buf.Reset()
+	if err := maybeRegisterMemoryTools(reg, registries.ProfileReadOnly, nil); err != nil {
+		t.Fatalf("readonly: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("profile without CapRemember must not warn: %s", buf.String())
 	}
 }

@@ -35,7 +35,7 @@ tools 领域决定 **每个代理实际能调用哪些工具,以及这些调用�
 
 - **TOOLS-R3(工作区隔离不变量)** — 安全包络在 **工具构造期一次性写入** 构造选项,所有代理共享同一约束,**不随代理选择或权限模式改变**。文件类工具经 `os.Root` 边界(TOCTOU 安全);glob/grep 在 spawn 前校验目录并拒 symlink 逃逸;bash 检测 `cd`/绝对路径/`..`/命令替换逃逸,并硬阻断 `/proc`、`/sys`、`/dev`。量化见 security.md § 工作区隔离。
 
-- **TOOLS-R4(bash 风险分级处理)** — 每条 bash **子命令**(按 `;`、`&&`、`||`、`$(...)`/反引号拆解后)分四档;整体取最大档。**Blocked 在 BashTool 内部硬拒绝,不可绕过,即使 `auto` 模式**。Dangerous:CLI 逐次确认(无"永久允许");非交互(HTTP/MCP)默认硬拒绝。当 `agents.interrupt_enabled` 开启时,Primary / coder 的 Dangerous 调用在执行前被 interrupt 冻结,HTTP 经决策+resume 批准后,permission 仅对带 `interrupt.WithApprovedExecute` 的调用跳过硬拒绝,从而真正跑 handler;未冻结的路径(派生 worker 等)仍硬拒绝。Caution/Safe 放行。多规则命中取 **最高** 档——默认 Blocked 不能被用户 `safe` 覆盖。
+- **TOOLS-R4(bash 风险分级处理)** — 每条 bash **子命令**(按 `;`、`&&`、`||`、`$(...)`/反引号拆解后)分四档;整体取最大档。**Blocked 在 BashTool 内部硬拒绝,不可绕过,即使 `auto` 模式,且先于批准检查**。Dangerous:CLI 逐次确认(无"永久允许");非交互(HTTP/MCP)默认硬拒绝。当 `agents.interrupt_enabled` 开启时,声明了 Interrupt 能力的长期宿主在执行前冻结 Dangerous bash。HTTP 经决策+resume 批准后,permission 仅当当前 executing call id 落在已批准集合里才跳过硬拒绝,从而跑该次 handler;同批其他调用、空 id、未接线的 worker 仍硬拒绝。Caution/Safe 放行。多规则命中取 **最高** 档——默认 Blocked 不能被用户 `safe` 覆盖。
 
 - **TOOLS-R5(注入扫描时机与 High 升级)** — 每个工具返回在其文本 **追加到模型上下文之前** 被扫描一次(`Run` 与 `RunStream` 两条路径,**memory replay 不重扫**)。仅扫 `text` 部分;`IsError` 结果与 image/file 直接放行。配置动作 log/rewrite/block;但任一命中规则达到 `block_on_severity`(默认 high)时 **无条件升为 block**,不论配置动作。
 
@@ -68,7 +68,8 @@ bash 命令的风险档(Safe/Caution/Dangerous/Blocked)是 **分类结果而非�
 | **EventGuardCheck** | 注入扫描或凭据扫描产生 **实质结果**(log/rewrite/block/redact)时;静默放行不发 | 可观测(trace/debug)、slog.Warn |
 | **EventMCPCredentialDetected** | MCP 凭据 Scanner 命中规则时,载荷带掩码预览(无明文) | 可观测、运维告警 |
 | **EventTodoUpdate** | `todo_write` 成功后,载荷带完整快照(`version`、`items[]`) | CLI 渲染勾选清单;HTTP SSE 转 `event: todo_update` |
-| **EventCustom / memory.set** | `memory_set` 成功后,payload 含 namespace / key / shared,不含 value | trace / 审计 |
+| **EventCustom / memory.set** | `memory_set` op=set 成功后,payload 含 namespace / key / shared,不含 value | trace / 审计 |
+| **EventCustom / memory.delete** | `memory_set` op=delete 成功后,payload 含 namespace / key / shared,不含 value | trace / 审计 |
 
 > 事件作为 **旁路订阅** 挂载;未启用对应子系统 → 不构造 → 不挂事件(零成本默认路径)。
 

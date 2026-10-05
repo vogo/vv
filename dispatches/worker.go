@@ -3,6 +3,7 @@ package dispatches
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -261,8 +262,12 @@ func (d *Dispatcher) buildWorkerTools(profile registries.ToolProfile) (tool.Tool
 		return nil, fmt.Errorf("worker spec: build %s tool registry: %w", profile.Name, err)
 	}
 
-	if d.persistentMem != nil && profile.Has(registries.CapRemember) {
-		if err := memtool.Register(reg, memories.AgentToolStore(d.persistentMem)); err != nil {
+	// CapInterrupt is intentionally not read here. An ephemeral worker must
+	// not attach an interrupt store, even when tool_access is full.
+	if profile.Has(registries.CapRemember) {
+		if d.persistentMem == nil {
+			slog.Warn("vv: memory capability declared but persistent store is nil", "profile", profile.Name)
+		} else if err := memtool.Register(reg, memories.AgentToolStore(d.persistentMem)); err != nil {
 			return nil, fmt.Errorf("worker spec: register memory tools: %w", err)
 		}
 	}

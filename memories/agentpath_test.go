@@ -20,6 +20,8 @@ package memories
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/vogo/largemodel/schema"
@@ -88,6 +90,62 @@ func TestBindAgentPath_UserPathStillForbiddenOnPrivate(t *testing.T) {
 	err = inner.Set(userCtx, "scratch:x", "hijack", 0)
 	if !errors.Is(err, ErrSessionForbidden) {
 		t.Errorf("user-path Set: %v, want ErrSessionForbidden", err)
+	}
+}
+
+func TestAgentToolStore_DeleteFileStoreSessionACL(t *testing.T) {
+	dir := t.TempDir()
+	raw, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := AgentToolStore(memory.NewLongTermMemory(raw))
+	ctxA := schema.WithSessionID(context.Background(), "session-A")
+	if err := store.Set(ctxA, "scratch:note", "from-A", 0); err != nil {
+		t.Fatalf("Set A: %v", err)
+	}
+
+	// A key that exists only in A's private directory is not B's file.
+	// Delete from B is a not-found no-op and must not remove A's record.
+	ctxB := schema.WithSessionID(context.Background(), "session-B")
+	if err := store.Delete(ctxB, "scratch:note"); err != nil {
+		t.Fatalf("other-session path delete: %v", err)
+	}
+	got, err := store.Get(ctxA, "scratch:note")
+	if err != nil || got != "from-A" {
+		t.Fatalf("A's record after B delete: %v %v", got, err)
+	}
+
+	// Owner mismatch is the FileStore case that returns ErrSessionForbidden:
+	// B's slot contains a record stamped with A's session id.
+	planted := raw.privatePath("session-B", "scratch", "note")
+	if err := os.MkdirAll(filepath.Dir(planted), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(raw.privatePath("session-A", "scratch", "note"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(planted, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = store.Delete(ctxB, "scratch:note")
+	if !errors.Is(err, ErrSessionForbidden) {
+		t.Fatalf("owner mismatch delete: %v, want ErrSessionForbidden", err)
+	}
+
+	if err := store.Delete(ctxA, "scratch:note"); err != nil {
+		t.Fatalf("owner delete: %v", err)
+	}
+	got, err = store.Get(ctxA, "scratch:note")
+	if err != nil {
+		t.Fatalf("Get after delete: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("deleted key still present: %v", got)
+	}
+	if err := store.Delete(ctxA, "scratch:missing"); err != nil {
+		t.Fatalf("missing key delete: %v", err)
 	}
 }
 
