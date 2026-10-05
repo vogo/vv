@@ -19,7 +19,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 | AgentDescriptor | 单一代理类型的声明式元数据:id / 显示名 / 描述 / ToolProfile / 系统提示 / 工厂函数 / 是否 dispatchable。注册表的元素。 | [models.md](models.md) |
 | AgentType | 代理底层实现类型枚举:`task`(ReAct 循环,带可选工具)/ `orchestrator`(任务理解与分发,归 orchestration) | [models.md](models.md) |
 | ToolProfile | 命名的能力集合(Capabilities ⊆ {Read, Write, Execute, Search});五档预设 Full / Review / Edit / ReadOnly / None | [models.md](models.md)、[design.md](design.md) |
-| Skill | 命名的**专项指令片段**(id / 描述 / instructions),追加到 worker 系统提示;**不授予任何工具、不绕过权限**。内置 `review` / `research`。 | [models.md](models.md) |
+| Skill | 命名的**专项指令片段**(id / 描述 / instructions),追加到系统提示;**不授予任何工具、不绕过权限**。启动期由内置 `review` / `research` 与可选 `agents.skill_dir` 下的 `SKILL.md` 并集确定。Primary 经 `use_skill` 按 session 激活(下一轮生效);派生 worker 仍按 spec 静态拼接。 | [models.md](models.md) |
 | ContextSource | 命名的**只读上下文来源**(id / 描述 / provider),渲染为 `## Context: <id> (read-only)` 块注入 worker 输入。内置 `diff`(工作区 vs HEAD)。 | [models.md](models.md) |
 | 预制组合(coder / researcher / reviewer) | 三个具名维度组合,全部 dispatchable 的 task 代理 | 本文「预制组合表」、[models.md](models.md) |
 
@@ -61,6 +61,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 | AGENTS-R8 | 工具能力代理只读 plan/tree | 专家代理只读 Plan Workspace / Session Tree 视图;写工具只挂给 Primary。避免多写者在同一份 plan.md 上互相覆盖(写者唯一,详见 [session](../session/) 与 [orchestration](../orchestration/))。 |
 | AGENTS-R9 | ID 唯一 + 启动期校验 | 注册表 ID 冲突在启动期 panic,不允许运行期出现"半就绪"的代理表。 |
 | AGENTS-R10 | 持久记忆 prompt 仅 Coder | 持久化记忆(PersistentMemory)**全量渲染进系统提示**只发生在 coder;其余专家不读持久记忆。Primary / Full 档执行者通过 `memory_set` / `memory_recall` 按需读写(MEM-R9 / CapRemember),与本规则正交。 |
+| AGENTS-R13 | Skill 集合启动期确定 | 启动期由内置常量 ∪ `agents.skill_dir` 文件发现共同确定;ID 与内置冲突时内置优先;发现/校验失败跳过并告警,不阻断启动。**不支持运行期热插拔**。`allowed_tools` 本期不导入,工具面仍只由 ToolProfile 决定(AGENTS-R11)。 |
 
 > 注:能力 → 具体工具的映射表(Read 含公网抓取等)、ToolProfile 五档定义为可从代码恢复的细节,见 [design.md](design.md)「能力 → 工具映射」与 [tools](../tools/) 领域,此处不复述。
 
@@ -84,7 +85,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 
 ## Non-goals
 
-- **用户不能定义自定义代理类型**:代理类型集合(coder/researcher/reviewer + 内部 planner)、skill 集合与 context source 集合都是启动期内置常量,**不是运行期可配置项**。运行期"特化"只能通过 orchestration 的 worker 派生(`spawn_worker` 或 DAG 动态节点:选 base_type + 维度组合),且仍受五档 ToolProfile 与已注册 skill / context source 约束——见 orchestration 领域,不在本领域范围。
+- **用户不能定义自定义代理类型**:代理类型集合(coder/researcher/reviewer + 内部 planner)与 context source 集合都是启动期内置常量,**不是运行期可配置项**。Skill 集合是启动期内置常量 ∪ `agents.skill_dir` 发现的 `SKILL.md`,仍**不是运行期可配置项**(AGENTS-R13)。运行期"特化"只能通过 orchestration 的 worker 派生(`spawn_worker` 或 DAG 动态节点:选 base_type + 维度组合),且仍受五档 ToolProfile 与已注册 skill / context source 约束——见 orchestration 领域,不在本领域范围。
 - **不开放自定义 Profile**:Full / Review / Edit / ReadOnly / None 五档名称与能力含义固定,不支持用户新增或改写能力档。
 - 不做代理、skill、context source 的运行期热插拔/卸载(三个注册表均每次启动构造一次,启动后只读)。
 - 不实现 ReAct 循环、上下文构建、工具执行、记忆读写本身(均来自 vage 或归各自领域)。

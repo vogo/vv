@@ -58,7 +58,7 @@ code-review = coder runtime + Review profile + review skill + 禁写 + diff 上�
 
 两者都是"只影响模型看到什么",都不触碰权限:
 
-- **Skill**(`vv/registries/skill.go`):`{ID, Description, Instructions}`,构造时把 `Instructions` 追加到 base runtime 的系统提示之后。内置 `review`(评审纪律:file:line、按严重度排序、绝不改文件)与 `research`(调研纪律:结论必须带出处)。skill 未注册 → 构造期报错。
+- **Skill**(`vv/registries/skill.go`):`{ID, Description, Instructions}`,worker 构造时把 `Instructions` 追加到 base runtime 的系统提示之后。内置 `review`(评审纪律:file:line、按严重度排序、绝不改文件)与 `research`(调研纪律:结论必须带出处);`agents.skill_dir` 下每个子目录的 `SKILL.md`(Agent Skills 开放标准)在启动期并入同一注册表,ID 冲突时内置优先。skill 未注册 → 构造期报错。Primary 另经 `use_skill` 按 session 激活,instructions 从**下一轮**进入系统提示,不授予工具。
 - **ContextSource**(`vv/registries/context_source.go`):`{ID, Description, Provider}`,provider 是纯读取器,渲染为 `## Context: <id> (read-only)` 块,拼在 worker 任务输入之前。内置 `diff` = 工作区对 HEAD 的 `git diff`(带体积上限截断)。provider 失败 → **中止派生**,而不是让 worker 在"以为读到了 diff"的状态下运行。
 
 两个注册表与代理注册表同构:启动期构造一次、ID 冲突 `MustRegister` panic、启动后只读。
@@ -182,7 +182,8 @@ Primary 复用本领域的 ToolProfile 模型与描述符机制,但不走 `Dispa
 ## 演化策略
 
 - **新增任务形态(首选)**:不写代码。声明能力组合即可——`spawn_worker` 或 DAG 动态节点给出 base_type + tool_access + skills + context;组合是运行期数据,不是新类型。
-- **新增 skill / context source**:在对应默认注册表加一条(`DefaultSkills` / `DefaultContextSources`);`spawn_worker` 的 schema enum 与校验同时跟随,无需改 Primary 提示词。
+- **新增 skill**:首选在 `agents.skill_dir` 放一个 `SKILL.md` 目录(重启后 `spawn_worker` enum / DAG 校验 / Primary `use_skill` 同时看见)。内置纪律仍可改 `DefaultSkills`。`spawn_worker` 的 schema enum 与校验跟随注册表,无需改 Primary 提示词。
+- **新增 context source**:在对应默认注册表加一条(`DefaultContextSources`)。
 - **新增预制组合(仅当值得给它一个名字时)**:① 在注册表加一个 AgentDescriptor(声明 ToolProfile + 系统提示);② 装配中心自动按 profile 构造工具集、注入 Primary 的 `delegate_to_*` 家族;③ Primary 下一次 LLM 调用即看到新委派目标。判据是"这个组合值不值得一个稳定的名字与独立会话入口",而不是"我们又需要一种能力面"。
 - **新增能力**(如加 `web_search`):① 把工具归类到一个或多个 Capability;② 任何 ToolProfile 含该 Capability 的执行者自动获得新工具。
 - **第三方代理**:插件机制可在装配前追加描述符(数据结构已支持,当前未启用)。

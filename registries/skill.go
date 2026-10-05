@@ -162,8 +162,8 @@ const ResearchSkillInstructions = `## Skill: research
 - 输出先给结论,再给证据,最后给不确定项与建议的下一步。`
 
 // DefaultSkills returns the built-in skill registry. Constructed fresh on each
-// call so callers cannot mutate shared state; the set itself is a startup-time
-// constant (there is no runtime skill registration entry point).
+// call so callers cannot mutate shared state. File-backed skills are merged at
+// startup by LoadSkillStack; there is no runtime hot-plug entry point.
 func DefaultSkills() *SkillRegistry {
 	reg := NewSkills()
 

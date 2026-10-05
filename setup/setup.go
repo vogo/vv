@@ -25,6 +25,7 @@ import (
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/session"
 	"github.com/vogo/vage/session/tree"
+	"github.com/vogo/vage/skill"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vage/tool/bash"
@@ -169,6 +170,12 @@ type Options struct {
 	InterruptStore    interrupt.Store
 	InterruptPolicy   taskagent.InterruptPolicy
 	InterruptLeaseTTL time.Duration
+
+	// SkillManager + SkillRegistry are the startup-time skill stack.
+	// LoadSkillStack populates both; the Manager is injected only into
+	// the Primary Factory. nil Manager skips use_skill registration.
+	SkillManager  skill.Manager
+	SkillRegistry *registries.SkillRegistry
 }
 
 // New reads config, registers all agents, and constructs the Dispatcher.
@@ -199,6 +206,13 @@ func New(
 		return nil, err
 	}
 	opts = applyInterruptOpts(opts, interruptStore, interruptPolicy, interruptLease)
+
+	var skillDispatch skill.EventDispatcher
+	if mgr := getHookManager(opts); mgr != nil {
+		skillDispatch = mgr.Dispatch
+	}
+	skillStack := registries.LoadSkillStack(context.Background(), cfg.Agents.SkillDir, skillDispatch)
+	opts = applySkillOpts(opts, skillStack)
 
 	// 1. Create the registry and register all agents. The chat and explorer
 	// agents are gone: the unified Primary Assistant handles chat inline (no
@@ -334,7 +348,7 @@ func New(
 
 		// Capability dimensions available to derived workers (spawn_worker
 		// and DAG dynamic nodes share this configuration).
-		dispatches.WithSkills(registries.DefaultSkills()),
+		dispatches.WithSkills(getSkillRegistry(opts)),
 		dispatches.WithContextSources(registries.DefaultContextSources(cfg.Tools.BashWorkingDir)),
 
 		// A derived worker's tools go through the same enforcement as a
@@ -477,6 +491,12 @@ func buildPrimaryAssistant(
 		}
 	}
 
+	if mgr := getSkillManager(opts); mgr != nil {
+		if err := dispatches.RegisterUseSkillTool(toolReg, getSkillRegistry(opts), mgr); err != nil {
+			return nil, fmt.Errorf("primary: register use_skill: %w", err)
+		}
+	}
+
 	// plan_task — drives the dispatcher's existing DAG machinery.
 	if err := dispatches.RegisterPlanTaskTool(toolReg, planExec); err != nil {
 		return nil, fmt.Errorf("primary: register plan_task: %w", err)
@@ -559,6 +579,7 @@ func buildPrimaryAssistant(
 		InterruptStore:       getInterruptStore(opts),
 		InterruptPolicy:      getInterruptPolicy(opts),
 		InterruptLeaseTTL:    getInterruptLeaseTTL(opts),
+		SkillManager:         getSkillManager(opts),
 	})
 }
 

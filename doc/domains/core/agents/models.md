@@ -66,11 +66,11 @@
 
 | 属性 | 语义类型 | 说明 |
 |------|---------|------|
-| ID | text | 唯一标识(`review` / `research`) |
-| Description | text | 一句话描述,渲染进 `spawn_worker` 工具 schema |
-| Instructions | text | 追加到 base runtime 系统提示之后的提示片段 |
+| ID | text | 唯一标识(内置 `review` / `research`;文件 skill 取 `SKILL.md` frontmatter `name`) |
+| Description | text | 一句话描述,渲染进 `spawn_worker` / `use_skill` 工具 schema |
+| Instructions | text | 追加到系统提示的片段:worker 在派生时拼接;Primary 经 `use_skill` 激活后于下一轮以 `<skill name>` 块注入 |
 
-**关系**:由 `SkillRegistry` 持有(启动期构造一次、ID 冲突 panic、启动后只读);被 worker spec 的 `skills` 数组按 ID 引用;未注册 ID 在构造期报错。
+**关系**:由 `SkillRegistry` 持有(启动期构造一次:内置 ∪ `agents.skill_dir`,ID 冲突内置优先、启动后只读);被 worker spec 的 `skills` 数组按 ID 引用;未注册 ID 在构造期报错。Primary 另持 `use_skill`(不授予派生 worker)。`SKILL.md` 的 `allowed_tools` 本期读取并告警,不生效。
 
 ## ContextSource
 
@@ -105,6 +105,7 @@
 | HookManager | reference | 事件总线(nil=不分发,零成本) |
 | ExtraContextSources | reference 集合 | 追加到 ContextBuilder 的 Source(Plan Workspace / Session Tree 视图) |
 | IterationStore / BuildReportSink / CheckpointFailureCB | reference | checkpoint / 报告归档 / 失败计数接缝(均 nil=零成本路径) |
+| SkillManager | reference | vage `skill.Manager`;仅 Primary Factory 注入,驱动 session 级激活与下一轮 instructions 注入。nil=不激活 |
 
 **关系**:由 AgentDescriptor.Factory 消费,产出 `agent.Agent`;各接缝的注入策略见 [design.md](design.md)「Factory + profile 装配模式」。
 
