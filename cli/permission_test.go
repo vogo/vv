@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/vogo/largemodel/schema"
+	"github.com/vogo/vage/interrupt"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/bash"
 	"github.com/vogo/vv/configs"
@@ -872,5 +873,57 @@ func TestPermissionExecutor_BashClassifier_NonBashToolsIgnored(t *testing.T) {
 
 	if !confirmCalled {
 		t.Error("non-bash tool should still go through the normal confirm flow")
+	}
+}
+
+func TestPermissionExecutor_NonInteractiveDangerousHardRejects(t *testing.T) {
+	inner := setupMockRegistryWithTools()
+	ps := NewPermissionState(configs.PermissionModeDefault)
+	ps.SetClassifier(bash.NewClassifier(bash.DefaultRules()))
+	ps.SetNonInteractive(true)
+
+	wrapped := WrapRegistryWithPermission(inner, ps)
+
+	result, err := wrapped.Execute(context.Background(), "bash", bashArgs("rm -rf ./dist"))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.IsError || !strings.Contains(resultText(result), "non-interactive") {
+		t.Fatalf("want non-interactive hard-reject, got %+v", result)
+	}
+}
+
+func TestPermissionExecutor_ApprovedExecuteSkipsDangerousHardReject(t *testing.T) {
+	inner := setupMockRegistryWithTools()
+	ps := NewPermissionState(configs.PermissionModeDefault)
+	ps.SetClassifier(bash.NewClassifier(bash.DefaultRules()))
+	ps.SetNonInteractive(true)
+
+	wrapped := WrapRegistryWithPermission(inner, ps)
+
+	ctx := interrupt.WithApprovedExecute(context.Background())
+	result, err := wrapped.Execute(ctx, "bash", bashArgs("rm -rf ./dist"))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("approved execute must run the handler, got %+v", result)
+	}
+}
+
+func TestPermissionExecutor_ApprovedExecuteStillBlocksTierBlocked(t *testing.T) {
+	inner := setupMockRegistryWithTools()
+	ps := NewPermissionState(configs.PermissionModeAuto)
+	ps.SetClassifier(bash.NewClassifier(bash.DefaultRules()))
+	ps.SetNonInteractive(true)
+
+	wrapped := WrapRegistryWithPermission(inner, ps)
+
+	result, err := wrapped.Execute(interrupt.WithApprovedExecute(context.Background()), "bash", bashArgs("sudo rm -rf /"))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("TierBlocked must still hard-reject on approved execute")
 	}
 }

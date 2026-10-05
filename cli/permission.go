@@ -2,12 +2,12 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vogo/largemodel/schema"
+	"github.com/vogo/vage/interrupt"
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/bash"
 	"github.com/vogo/vv/configs"
@@ -193,7 +193,7 @@ func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (sc
 			case bash.TierSafe:
 				return p.ToolRegistry.Execute(ctx, name, args)
 			case bash.TierDangerous:
-				if p.state.IsNonInteractive() {
+				if p.state.IsNonInteractive() && !interrupt.IsApprovedExecute(ctx) {
 					return schema.ErrorResult("",
 						fmt.Sprintf("bash command classified dangerous (rule %q) in non-interactive mode: %s", cls.Rule, cls.Reason)), nil
 				}
@@ -270,35 +270,7 @@ func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (sc
 // returns the higher-Tier classification. Returns (zero, false) when neither
 // is configured or args are malformed.
 func tryClassifyBashMerged(c *bash.Classifier, g *bash.PathGuardian, args string) (bash.Classification, bool) {
-	if c == nil && g == nil {
-		return bash.Classification{}, false
-	}
-
-	var parsed struct {
-		Command string `json:"command"`
-	}
-
-	if err := json.Unmarshal([]byte(args), &parsed); err != nil || parsed.Command == "" {
-		return bash.Classification{}, false
-	}
-
-	var best bash.Classification
-
-	initialized := false
-
-	if c != nil {
-		best = c.Classify(parsed.Command)
-		initialized = true
-	}
-
-	if g != nil {
-		gCls := g.Classify(parsed.Command)
-		if !initialized || gCls.Tier > best.Tier {
-			best = gCls
-		}
-	}
-
-	return best, true
+	return configs.ClassifyBashArgs(c, g, args)
 }
 
 // WrapRegistryWithPermission wraps a tool.ToolRegistry with permission logic.

@@ -85,8 +85,12 @@ func TestPrimarySystemPrompt_MentionsTools(t *testing.T) {
 		t.Error("system prompt lost the memory_set reference")
 	}
 
-	if !contains(PrimarySystemPrompt, "memory_recall") {
-		t.Error("system prompt lost the memory_recall reference")
+	if !contains(PrimarySystemPrompt, "ask_user") {
+		t.Error("system prompt lost the ask_user reference")
+	}
+
+	if !contains(PrimarySystemPrompt, "Human approval") {
+		t.Error("system prompt lost the interrupt / human-approval clause")
 	}
 }
 

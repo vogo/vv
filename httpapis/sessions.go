@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/vogo/largemodel/schema"
+	"github.com/vogo/vage/interrupt"
 	"github.com/vogo/vage/session"
 )
 
@@ -209,7 +210,7 @@ func handleListEvents(store session.SessionStore) http.HandlerFunc {
 // both via os.RemoveAll — but we still call ws.Delete explicitly to keep
 // the contract clean for non-FileWorkspace implementations a future
 // iteration might add.
-func handleDeleteSession(store session.SessionStore, ws workspaceDeleter) http.HandlerFunc {
+func handleDeleteSession(store session.SessionStore, ws workspaceDeleter, interrupts interrupt.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
@@ -222,6 +223,7 @@ func handleDeleteSession(store session.SessionStore, ws workspaceDeleter) http.H
 			// channel of the store impl.
 			_ = ws.Delete(r.Context(), id)
 		}
+		deleteSessionInterrupts(interrupts, id, r)
 
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 	}

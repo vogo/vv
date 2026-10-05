@@ -28,9 +28,12 @@ import (
 
 // sessionRootDir returns the resolved session root directory for the
 // configured project. The path is shared by FileSessionStore,
-// FileWorkspace, FileTreeStore and FileIterationStore so that
-// SessionStore.Delete (which os.RemoveAll's <root>/<id>) wipes every
-// per-session subsystem in one call without explicit coordination.
+// FileWorkspace, FileTreeStore, FileIterationStore and the interrupt
+// FileStore (<root>/interrupts/) so that SessionStore.Delete (which
+// os.RemoveAll's <root>/<id>) wipes every per-session subdirectory in
+// one call. Interrupt records live in a sibling <root>/interrupts/
+// directory keyed by interrupt id, so DELETE also List+Deletes that
+// session's records.
 //
 // Callers must only invoke this when cfg.Session.IsEnabled() — when the
 // session subsystem is off the path has no consumers and the function

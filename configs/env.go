@@ -181,6 +181,12 @@ var agentsEnvBindings = []envBinding{
 	{"VV_AGENTS_PROMPT_CACHING", func(c *Config, v string) {
 		applyBoolPtrWarn("VV_AGENTS_PROMPT_CACHING", v, &c.Agents.PromptCaching)
 	}},
+	{"VV_AGENTS_INTERRUPT_ENABLED", func(c *Config, v string) {
+		applyBoolValWarn("VV_AGENTS_INTERRUPT_ENABLED", v, &c.Agents.InterruptEnabled)
+	}},
+	{"VV_AGENTS_INTERRUPT_LEASE_TTL", func(c *Config, v string) {
+		applyIntWarn("VV_AGENTS_INTERRUPT_LEASE_TTL", v, &c.Agents.InterruptLeaseTTL)
+	}},
 }
 
 var securityEnvBindings = []envBinding{

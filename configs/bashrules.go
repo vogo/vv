@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -27,6 +28,42 @@ func BuildBashClassifier(cfg BashRulesConfig) *bash.Classifier {
 	rules = append(rules, bash.DefaultRules()...)
 
 	return bash.NewClassifier(rules)
+}
+
+// ClassifyBashArgs evaluates classifier and path guardian against a bash
+// tool's JSON arguments (`{"command":"..."}`) and returns the higher-Tier
+// classification. Returns (zero, false) when neither is configured or args
+// are malformed. Shared by the permission executor and the interrupt policy
+// so the two gates cannot disagree on the same invocation.
+func ClassifyBashArgs(c *bash.Classifier, g *bash.PathGuardian, args string) (bash.Classification, bool) {
+	if c == nil && g == nil {
+		return bash.Classification{}, false
+	}
+
+	var parsed struct {
+		Command string `json:"command"`
+	}
+
+	if err := json.Unmarshal([]byte(args), &parsed); err != nil || parsed.Command == "" {
+		return bash.Classification{}, false
+	}
+
+	var best bash.Classification
+	initialized := false
+
+	if c != nil {
+		best = c.Classify(parsed.Command)
+		initialized = true
+	}
+
+	if g != nil {
+		gCls := g.Classify(parsed.Command)
+		if !initialized || gCls.Tier > best.Tier {
+			best = gCls
+		}
+	}
+
+	return best, true
 }
 
 func compileUserRules(patterns []string, tier bash.Tier, namePrefix string) []bash.Rule {

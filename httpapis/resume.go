@@ -42,9 +42,10 @@ type resumeResponse struct {
 	// audit, so we surface them rather than just the last text.
 	Messages []resumeMessage `json:"messages,omitempty"`
 	// Usage carries cumulative token counts for the resumed segment.
-	PromptTokens     int `json:"prompt_tokens,omitempty"`
-	CompletionTokens int `json:"completion_tokens,omitempty"`
-	TotalTokens      int `json:"total_tokens,omitempty"`
+	PromptTokens     int                         `json:"prompt_tokens,omitempty"`
+	CompletionTokens int                         `json:"completion_tokens,omitempty"`
+	TotalTokens      int                         `json:"total_tokens,omitempty"`
+	Interrupt        *schema.InterruptDescriptor `json:"interrupt,omitempty"`
 }
 
 // resumeMessage is the trimmed projection of schema.Message used in the

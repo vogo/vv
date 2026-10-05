@@ -27,4 +27,4 @@
 
 ## 源码对照
 
-- 源码:`vv/httpapis/`(`http.go` 路由装配与中间件链、`cost.go` 成本富化、`budget.go` 429 重写、`askuser.go`+`interactions.go` 异步回调、`eval.go`、`sessions*.go`、`workspace*.go`、`tree.go`)
+- 源码:`vv/httpapis/`(`http.go` 路由装配与中间件链、`cost.go` 成本富化、`budget.go` 429 重写、`askuser.go`+`interactions.go` 异步回调、`interrupt.go` Durable HITL、`eval.go`、`sessions*.go`、`workspace*.go`、`tree.go`)

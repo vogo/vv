@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	largemodel "github.com/vogo/largemodel/model"
 	"github.com/vogo/vage/agent"
@@ -13,6 +14,7 @@ import (
 	vctx "github.com/vogo/vage/context"
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
+	"github.com/vogo/vage/interrupt"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/tool"
 )
@@ -81,6 +83,26 @@ type FactoryOptions struct {
 	// CheckpointSaveFailures counter advances without dragging metrics
 	// types into vage/agent/taskagent.
 	CheckpointFailureCB taskagent.CheckpointFailureCallback
+
+	// InterruptStore + InterruptPolicy are the vage interrupt enable pair
+	// (both-or-neither). nil keeps the zero-cost path. LeaseTTL <= 0 uses
+	// the taskagent default. Only long-lived Full-profile agents and the
+	// Primary should populate these; ephemeral workers must not.
+	InterruptStore    interrupt.Store
+	InterruptPolicy   taskagent.InterruptPolicy
+	InterruptLeaseTTL time.Duration
+}
+
+// AppendInterrupt adds WithInterrupt when both store and policy are set.
+func (o FactoryOptions) AppendInterrupt(taskOpts []taskagent.Option) []taskagent.Option {
+	if o.InterruptStore == nil || o.InterruptPolicy == nil {
+		return taskOpts
+	}
+	return append(taskOpts, taskagent.WithInterrupt(taskagent.InterruptConfig{
+		Store:    o.InterruptStore,
+		Policy:   o.InterruptPolicy,
+		LeaseTTL: o.InterruptLeaseTTL,
+	}))
 }
 
 // Registry is a thread-safe agent descriptor store.
