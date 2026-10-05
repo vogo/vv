@@ -20,6 +20,7 @@ import (
 	vctx "github.com/vogo/vage/context"
 	"github.com/vogo/vage/guard"
 	"github.com/vogo/vage/hook"
+	"github.com/vogo/vage/interrupt"
 	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/session"
@@ -49,16 +50,17 @@ import (
 
 // Result holds the assembled components for the application.
 type Result struct {
-	Dispatcher   *dispatches.Dispatcher
-	PathGuard    *toolkit.PathGuard
-	PathGuardian *bash.PathGuardian
-	HookManager  *hook.Manager         // nil when no hook-based features are enabled
-	Workspace    workspace.Workspace   // nil when Plan Workspace is disabled (cfg.Session.Enabled=false)
-	TreeStore    tree.SessionTreeStore // nil when SessionTree subsystem is disabled
-	VectorStore  vector.VectorStore    // nil when vector subsystem disabled
-	VectorEmb    vector.Embedder       // nil when vector subsystem disabled
-	registry     *registries.Registry
-	subAgents    map[string]agent.Agent
+	Dispatcher     *dispatches.Dispatcher
+	PathGuard      *toolkit.PathGuard
+	PathGuardian   *bash.PathGuardian
+	HookManager    *hook.Manager         // nil when no hook-based features are enabled
+	Workspace      workspace.Workspace   // nil when Plan Workspace is disabled (cfg.Session.Enabled=false)
+	TreeStore      tree.SessionTreeStore // nil when SessionTree subsystem is disabled
+	VectorStore    vector.VectorStore    // nil when vector subsystem disabled
+	VectorEmb      vector.Embedder       // nil when vector subsystem disabled
+	InterruptStore interrupt.Store       // nil when agents.interrupt_enabled is false
+	registry       *registries.Registry
+	subAgents      map[string]agent.Agent
 }
 
 // Agents returns the dispatchable agents suitable for HTTP service registration.
@@ -160,6 +162,13 @@ type Options struct {
 	// legacy behaviour.
 	RouterLLM   largemodel.Caller
 	RouterModel string
+
+	// InterruptStore + InterruptPolicy enable durable HITL on Primary and
+	// long-lived ProfileFull agents. installInterrupt populates them when
+	// cfg.Agents.InterruptEnabled is true. nil is the zero-cost default.
+	InterruptStore    interrupt.Store
+	InterruptPolicy   taskagent.InterruptPolicy
+	InterruptLeaseTTL time.Duration
 }
 
 // New reads config, registers all agents, and constructs the Dispatcher.
@@ -184,6 +193,12 @@ func New(
 	if pathGuardian != nil {
 		regOpts = append(regOpts, registries.WithPathGuardian(pathGuardian))
 	}
+
+	interruptStore, interruptPolicy, interruptLease, err := installInterrupt(cfg, pathGuardian)
+	if err != nil {
+		return nil, err
+	}
+	opts = applyInterruptOpts(opts, interruptStore, interruptPolicy, interruptLease)
 
 	// 1. Create the registry and register all agents. The chat and explorer
 	// agents are gone: the unified Primary Assistant handles chat inline (no
@@ -251,6 +266,7 @@ func New(
 			BuildReportSink:      getBuildReportSink(opts),
 			CheckpointFailureCB:  getCheckpointFailureCB(opts),
 		}
+		applyFactoryInterrupt(&factoryOpts, opts, desc.ToolProfile.Name)
 
 		a, err := desc.Factory(factoryOpts)
 		if err != nil {
@@ -372,16 +388,17 @@ func New(
 	dispatcher.SetFallbackAgent(fallbackPrimary)
 
 	return &Result{
-		Dispatcher:   dispatcher,
-		PathGuard:    pathGuard,
-		PathGuardian: pathGuardian,
-		HookManager:  getHookManager(opts),
-		Workspace:    getWorkspace(opts),
-		TreeStore:    getTreeStore(opts),
-		VectorStore:  getVectorStore(opts),
-		VectorEmb:    getVectorEmbedder(opts),
-		registry:     reg,
-		subAgents:    subAgents,
+		Dispatcher:     dispatcher,
+		PathGuard:      pathGuard,
+		PathGuardian:   pathGuardian,
+		HookManager:    getHookManager(opts),
+		Workspace:      getWorkspace(opts),
+		TreeStore:      getTreeStore(opts),
+		VectorStore:    getVectorStore(opts),
+		VectorEmb:      getVectorEmbedder(opts),
+		InterruptStore: interruptStore,
+		registry:       reg,
+		subAgents:      subAgents,
 	}, nil
 }
 
@@ -539,6 +556,9 @@ func buildPrimaryAssistant(
 		IterationStore:       getIterationStore(opts),
 		BuildReportSink:      getBuildReportSink(opts),
 		CheckpointFailureCB:  getCheckpointFailureCB(opts),
+		InterruptStore:       getInterruptStore(opts),
+		InterruptPolicy:      getInterruptPolicy(opts),
+		InterruptLeaseTTL:    getInterruptLeaseTTL(opts),
 	})
 }
 
@@ -875,6 +895,11 @@ type InitResult struct {
 	MetricsHook     *session.SessionMetricsHook
 	BuildReportSink vctx.BuildReportSink
 
+	// InterruptStore is the durable HITL record store. nil when
+	// agents.interrupt_enabled is false. HTTP mounts interrupt routes
+	// only when this is non-nil.
+	InterruptStore interrupt.Store
+
 	// Shutdown releases process-level resources owned by Init (the
 	// hook.Manager that drives trace + session hooks, plus the persistent
 	// memory store). It is always non-nil — a no-op when there is nothing to
@@ -1038,6 +1063,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		MetricsStore:    getMetricsStore(opts),
 		MetricsHook:     getMetricsHook(opts),
 		BuildReportSink: getBuildReportSink(opts),
+		InterruptStore:  interruptStoreFrom(a.result),
 		Shutdown:        shutdownFromCleanups(cleanups),
 	}, nil
 }

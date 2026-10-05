@@ -29,7 +29,7 @@ session 领域把三个相互正交、却共享同一会话身份的 vage 子系
 
 | ID | 规则 | 说明 |
 |----|------|------|
-| SESS-R1 | 共根删除一致性 | Session / Plan Workspace / Session Tree 共用 `<session-root>/<project>/<id>/` 目录根;`DELETE` 经一次 `os.RemoveAll(<root>/<id>)` 递归删除清掉全部三套状态,幂等,不留孤儿。对应 constitution § 4。 |
+| SESS-R1 | 共根删除一致性 | Session / Plan Workspace / Session Tree 共用 `<session-root>/<project>/<id>/` 目录根;`DELETE` 经一次 `os.RemoveAll(<root>/<id>)` 递归删除清掉这三套状态,幂等。interrupt 记录在兄弟目录 `<session-root>/<project>/interrupts/`(按 interrupt id 寻址),删除会话时额外 `List`+`Delete` 该 session 的记录,避免孤儿。对应 constitution § 4。 |
 | SESS-R2 | 写者唯一 | Plan Workspace(plan.md + notes/)**只有 Primary Assistant 能写**;所有 dispatchable 专家代理通过 `WorkspaceSource` **只读**注入 prompt。专家需要 note 全文时由 Primary 调 `notes_read` 后回写到专家上下文。对应 constitution § 5。 |
 | SESS-R3 | 启用关系强校验 | Session 默认开,显式关 → 三者全关;Plan Workspace 跟随 Session 不可单独控制;Session Tree 默认关,启用需"显式开 + Session 必须开"。`session_tree.enabled=true` 而 `session.enabled=false` 在装配阶段直接报错,不沉默忽略。对应 constitution § 6、CONFIG-R3。 |
 | SESS-R4 | plan vs todo 边界 | plan 是**跨会话**的长策略(持久化到 plan.md);todo 是**仅当前 turn**的检查清单(内存级)。二者并存而非替代,不互相覆盖。 |

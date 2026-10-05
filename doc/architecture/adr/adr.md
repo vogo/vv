@@ -25,5 +25,6 @@
 | [0006](0006-pure-go-sqlite-memory-backend.md) | 纯 Go SQLite 记忆后端 | proposed |
 | [0007](0007-session-private-memory-access-control.md) | 持久记忆会话私有访问控制 | proposed |
 | [0008](0008-budget-hard-valve-soft-warn.md) | 预算硬阀门 + 软告警 | proposed |
+| [0009](0009-durable-hitl-interrupt.md) | Durable HITL:vage interrupt 接到 Primary 与 HTTP | proposed |
 
 > **下一步**:这些 ADR 描述的决策已在代码中既成事实。请逐个复核 → 确认后把对应文件的 `Status` 改为 `accepted`。若某条决策需重新讨论,在评审中提出。

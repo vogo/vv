@@ -77,6 +77,9 @@ var controlPlaneEvents = []string{
 	schema.EventGuardCheck,
 	schema.EventMCPCredentialDetected,
 	schema.EventPendingInteraction,
+	schema.EventInterruptCreated,
+	schema.EventInterruptDecisionStored,
+	schema.EventInterruptResumed,
 
 	// Progress + persistence pointers.
 	schema.EventTodoUpdate,

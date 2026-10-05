@@ -23,6 +23,9 @@
 /v1/sessions/...               ← 会话元数据 + 事件流 + resume/metrics(sessionStore 存在才挂)
 /v1/sessions/{id}/workspace/   ← Plan Workspace 视图(planWorkspace 存在才挂)
 /v1/sessions/{id}/tree         ← Session Tree(treeStore 存在才挂)
+/v1/sessions/{id}/interrupts   ← 列出 session 的 interrupt Meta(InterruptStore 存在才挂)
+/v1/interrupts/{id}/decisions  ← 提交 HITL 决策
+/v1/interrupts/{id}/resume     ← ResumeInterrupt
 /v1/vector/...                 ← 向量检索(vectorStore + embedder 都在才挂;单缺返回 503)
 ```
 

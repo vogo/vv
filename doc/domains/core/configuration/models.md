@@ -13,7 +13,7 @@
 | `llm` | reference | LLM provider / model / api_key / base_url。api_key 必填(CONFIG-R4),env 优先(不落盘)。标准 `ANTHROPIC_*` 环境变量作为一个 provider 组覆盖同名字段并选定 anthropic(优先级 `VV_LLM_*` ＞ `ANTHROPIC_*` ＞ YAML,`VV_LLM_PROVIDER` 可整组禁用,详见 design.md §1.1)。anthropic 的 `base_url` 留空 = Anthropic 官方端点,不填默认值。 |
 | `server` | text | HTTP 监听地址(`host:port`,默认 `:8080`)。仅 http 模式生效,**与 `llm.base_url` 无关**。 |
 | `tools` | group | 工具行为:bash 超时(默认 120s)、bash 危险命令分类器(`bash_rules`:enabled + 用户黑/红/白名单正则)、tool_output 截断等。 |
-| `agents` | number | 各代理 ReAct 上限与 token 预算。`max_iterations`(默认 10)用于专家代理与派生 worker;`primary_max_iterations`(默认 24)单独给 Primary——它在一次运行内要走完探查 → 执行/委派 → 汇报,按专家档配额会在探查中途撞顶;两者取较大值生效,故调高全局上限不会反而收窄前门。env:`VV_AGENTS_MAX_ITERATIONS` / `VV_PRIMARY_MAX_ITERATIONS`。 |
+| `agents` | number | 各代理 ReAct 上限与 token 预算。`max_iterations`(默认 10)用于专家代理与派生 worker;`primary_max_iterations`(默认 24)单独给 Primary。`interrupt_enabled`(默认 false)把 vage interrupt 接到 Primary 与 coder,需 `session.enabled` 且 bash 分类器未关;租约秒数 `interrupt_lease_ttl`(0 则用 `ask_user_timeout`,默认 300)。env:`VV_AGENTS_MAX_ITERATIONS` / `VV_PRIMARY_MAX_ITERATIONS` / `VV_AGENTS_INTERRUPT_ENABLED` / `VV_AGENTS_INTERRUPT_LEASE_TTL`。 |
 | `mode` | enum (run mode) | cli / http / mcp,单进程单选(CONFIG-R8);默认 cli。 |
 | `cli` | enum | CLI 专属:`permission_mode`(默认 default;取代废弃 `confirm_tools`,CONFIG-R9)。 |
 | `memory` | group | 三层记忆:持久化 backend(file/sqlite,枚举校验)、memory_dir(默认 `~/.vv/memory/`)、session_memory token 预算。默认开。 |

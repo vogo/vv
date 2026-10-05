@@ -78,3 +78,25 @@ func TestBuildBashClassifier_InvalidRegexSkipped(t *testing.T) {
 		t.Errorf("valid user pattern should load even when a neighbour is invalid, got %s", got)
 	}
 }
+
+func TestClassifyBashArgs(t *testing.T) {
+	c := bash.NewClassifier(bash.DefaultRules())
+
+	cls, ok := ClassifyBashArgs(c, nil, `{"command":"rm -rf ./dist"}`)
+	if !ok || cls.Tier != bash.TierDangerous {
+		t.Fatalf("dangerous cmd: ok=%v tier=%s", ok, cls.Tier)
+	}
+
+	if _, ok := ClassifyBashArgs(nil, nil, `{"command":"rm -rf ./dist"}`); ok {
+		t.Fatal("nil classifier+guardian must not classify")
+	}
+
+	if _, ok := ClassifyBashArgs(c, nil, `not-json`); ok {
+		t.Fatal("malformed args must not classify")
+	}
+
+	cls, ok = ClassifyBashArgs(c, nil, `{"command":"ls"}`)
+	if !ok || cls.Tier != bash.TierSafe {
+		t.Fatalf("ls: ok=%v tier=%s", ok, cls.Tier)
+	}
+}

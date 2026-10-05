@@ -103,7 +103,7 @@ bash 专用,独立于 PathGuard:检测命令中的 `cd` / 绝对路径 / `..` / 
 - **拆解**:先按 `;`、`&&`、`||`、`$(...)`/反引号拆为子命令(`|` 保留在子命令内),整体取 **最大** 档(`ls && rm -rf /` → Blocked)。
 - **规则源**:默认硬编码正则库(破坏性 FS、提权、RCE、凭据读取、git 破坏性操作)+ 用户 YAML 扩展(`tools.bash_rules.user_blocked/dangerous/safe`)。
 - **优先级**:多规则命中取 **最高** 档——默认 Blocked 不被用户 safe 覆盖。
-- Blocked 在 BashTool 内部硬拒绝(不可绕过,含 auto 模式);Dangerous 在 HTTP 拒绝、CLI 逐次确认(无 allow_always);Caution/Safe 放行(TOOLS-R4)。
+- Blocked 在 BashTool 内部硬拒绝(不可绕过,含 auto 模式);Dangerous 在 CLI 逐次确认(无 allow_always),非交互默认硬拒绝;interrupt 开启时 Primary/coder 改为执行前冻结,批准 resume 后才执行(TOOLS-R4)。Caution/Safe 放行。
 
 ### 4. 工具结果注入扫描(注入 Guard)
 

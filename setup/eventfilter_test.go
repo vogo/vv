@@ -66,6 +66,7 @@ func TestSessionHookOptions_ControlExcludesDuplicatedPayloads(t *testing.T) {
 		schema.EventToolCallStart,
 		schema.EventCheckpointWritten,
 		schema.EventSubAgentStart,
+		schema.EventInterruptCreated,
 	} {
 		if !slices.Contains(filter, want) {
 			t.Errorf("control whitelist is missing %q", want)

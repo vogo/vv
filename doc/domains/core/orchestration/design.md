@@ -203,6 +203,7 @@ Primary 与 Fallback Primary 是用户可见的入口 agent,Dispatcher 通过 `r
 - DAG 执行复用 vage 的 `orchestrate` 包,Dispatcher 只提供 step 列表(`buildNodes`)与节点的输入映射器(`BuildInputMapper`)。
 - 事件流复用 vage 的 schema 事件类型,没有 vv 私有事件。
 - 派生 worker 复用 vage `taskagent`;工具子集复用 vv `registries` 的 ToolProfile,skill / 上下文来源复用其 SkillRegistry / ContextSourceRegistry。
+- Durable HITL 复用 vage `interrupt`(独立于 checkpoint)。vv 只在 Primary / coder 上装配 `WithInterrupt` + `NewDangerousBashPolicy`;HTTP 三端点适配 store 与 `ResumeInterrupt`,不在 vv 重写状态机。派生 worker 不装配(ORCH-R15)。
 
 ## 技术取舍小结
 

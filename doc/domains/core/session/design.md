@@ -197,7 +197,7 @@ HTTP 提供完整 REST 视图:会话列表/详情/事件、子代理委派列表
 - `GET /v1/sessions/{id}/subagents/{agent}/{run}` —— 单次委派的最终消息与用量。
 - `GET /v1/sessions/{id}/children` —— **已弃用**。它按 `Session.ParentID` 过滤,而 vv 从未写入该字段,因此恒返回空列表;保留一个版本,由 `/subagents` 取代。
 
-`DELETE /v1/sessions/{id}` 因为共根设计,单一调用清掉全部子系统的状态(SESS-R1)——新增的 `subagents/`、`tool-results/` 同在根下,这条不变量比重设计前更强。HTTP 路由契约细节归 [http-api](../http-api/http-api-overview.md) 领域;CLI 命令归 [cli](../cli/cli-overview.md)。
+`DELETE /v1/sessions/{id}` 因为共根设计,单一调用清掉 Session / Workspace / Tree 状态(SESS-R1)——新增的 `subagents/`、`tool-results/` 同在根下。interrupt 记录在兄弟目录 `interrupts/`,删除时额外 List+Delete,避免孤儿。HTTP 路由契约细节归 [http-api](../http-api/http-api-overview.md) 领域;CLI 命令归 [cli](../cli/cli-overview.md)。
 
 ## 技术取舍回顾
 

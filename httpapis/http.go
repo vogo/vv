@@ -124,7 +124,7 @@ func Serve(ctx context.Context, cfg *configs.Config, llm largemodel.Caller, disp
 		mux.HandleFunc("GET /v1/sessions/{id}/children", handleListChildren(sessionStore))
 		mux.HandleFunc("GET /v1/sessions/{id}/subagents", handleListSubAgents(initResult))
 		mux.HandleFunc("GET /v1/sessions/{id}/subagents/{agent}/{run}", handleGetSubAgentRun(initResult))
-		mux.HandleFunc("DELETE /v1/sessions/{id}", handleDeleteSession(sessionStore, planWorkspace))
+		mux.HandleFunc("DELETE /v1/sessions/{id}", handleDeleteSession(sessionStore, planWorkspace, interruptStoreOf(initResult)))
 		mux.HandleFunc("PATCH /v1/sessions/{id}", handlePatchSession(sessionStore))
 		// Resume mounts unconditionally with the session subsystem so the
 		// route can return a structured 503 (rather than 404) when the
@@ -134,6 +134,12 @@ func Serve(ctx context.Context, cfg *configs.Config, llm largemodel.Caller, disp
 		// return a structured 503 when the optional sub-stores are nil.
 		mux.HandleFunc("GET /v1/sessions/{id}/metrics", handleGetMetrics(metricsStore(initResult)))
 		mux.HandleFunc("GET /v1/sessions/{id}/build-reports", handleListBuildReports(buildReportReader(initResult)))
+	}
+
+	if store := interruptStoreOf(initResult); store != nil {
+		mux.HandleFunc("GET /v1/sessions/{id}/interrupts", handleListInterrupts(store))
+		mux.HandleFunc("POST /v1/interrupts/{id}/decisions", handleSubmitInterruptDecisions(store))
+		mux.HandleFunc("POST /v1/interrupts/{id}/resume", handleResumeInterrupt(store, initResult))
 	}
 
 	if planWorkspace != nil {

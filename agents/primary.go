@@ -44,6 +44,9 @@ const PrimarySystemPrompt = `You are the front-door assistant of a coding agent.
 - When a delegated specialist returns a result, fold it into your final response for the user rather than forwarding verbatim.
 - If the user's intent is genuinely ambiguous and a wrong choice would waste significant work, call ` + "`" + `ask_user` + "`" + ` for one clarification — do not chain more than one question per turn.
 
+## Human approval (when interrupt is enabled)
+- A ` + "`" + `bash` + "`" + ` command classified Dangerous may freeze the whole tool batch until a human approves or rejects it. Tell the user the run is waiting for approval. Do not retry the same command via another tool or a rewritten command to bypass the gate.
+
 ## Session Tree (when enabled)
 - The SessionTree is an optional, persistent task structure injected into your prompt as "## Session Tree". When the section is absent, ignore this paragraph — the tools below simply will not be available either.
 - For multi-step tasks, sketch a goal + sub-tasks via ` + "`" + `tree_add` + "`" + `; mark progress with ` + "`" + `tree_update` + "`" + ` (status=done) and the focus with ` + "`" + `tree_cursor` + "`" + `.
@@ -116,6 +119,8 @@ func RegisterPrimary(reg *registries.Registry) {
 			if opts.CheckpointFailureCB != nil {
 				taskOpts = append(taskOpts, taskagent.WithCheckpointFailureCallback(opts.CheckpointFailureCB))
 			}
+
+			taskOpts = opts.AppendInterrupt(taskOpts)
 
 			return taskagent.New(
 				agent.Config{

@@ -532,6 +532,14 @@ type AgentsConfig struct {
 
 	RunTokenBudget int `yaml:"run_token_budget"` // default 0 (unlimited)
 	AskUserTimeout int `yaml:"ask_user_timeout"` // seconds, default 300 (5 minutes)
+	// InterruptEnabled wires vage interrupt onto Primary and long-lived
+	// Full-profile agents. Default false (zero-cost). Requires session.enabled
+	// and bash_rules not disabled; see setup.installInterrupt.
+	InterruptEnabled bool `yaml:"interrupt_enabled,omitempty"`
+	// InterruptLeaseTTL is the ResumeInterrupt lease in seconds. 0 falls
+	// back to AskUserTimeout so the two HITL waits stay the same order of
+	// magnitude. Env: VV_AGENTS_INTERRUPT_LEASE_TTL.
+	InterruptLeaseTTL int `yaml:"interrupt_lease_ttl,omitempty"`
 	// MaxParallelToolCalls caps concurrent tool dispatch within a single
 	// assistant message. 0 uses the framework default (4); <=1 serializes.
 	MaxParallelToolCalls int `yaml:"max_parallel_tool_calls"`
@@ -575,6 +583,21 @@ func (c *AgentsConfig) EffectivePromptCaching() bool {
 		return true
 	}
 	return *c.PromptCaching
+}
+
+// EffectiveInterruptLeaseTTL is the resume lease in seconds: an explicit
+// interrupt_lease_ttl wins, otherwise AskUserTimeout (already defaulted).
+func (c *AgentsConfig) EffectiveInterruptLeaseTTL() int {
+	if c == nil {
+		return 300
+	}
+	if c.InterruptLeaseTTL > 0 {
+		return c.InterruptLeaseTTL
+	}
+	if c.AskUserTimeout > 0 {
+		return c.AskUserTimeout
+	}
+	return 300
 }
 
 // BudgetConfig holds session- and daily-level token/cost enforcement limits.
