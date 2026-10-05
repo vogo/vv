@@ -14,6 +14,7 @@ vv 不自实现工具实体——全部来自 vage 的 `tool/<name>` 子包(`bas
 | 执行工具 | bash | 仅 Full / Review profile |
 | 网络工具 | web_fetch、可选 web_search | ReadOnly 及以上(归 Read 能力) |
 | 协作工具 | ask_user、todo_write | 几乎所有非 None 代理 |
+| 持久记忆工具 | memory_set、memory_recall | 仅 Full profile(`CapRemember`);store 未注入时不注册 |
 | 路由 / 持久化工具 | `delegate_to_*` / `plan_task` / `plan_update` / `tree_*` | 仅 Primary(属 agents/orchestration 领域) |
 
 路由与持久化工具是 Primary 区别于专家的关键标志:**写权集中于 Primary,专家只能读对应子系统视图**(写者唯一模式,详见 agents 领域)。
@@ -26,7 +27,7 @@ vv 不自实现工具实体——全部来自 vage 的 `tool/<name>` 子包(`bas
 
 | Profile | Capabilities | 典型代理 |
 |---------|-------------|---------|
-| Full | read + write + execute + search | Coder / Primary |
+| Full | read + write + execute + search + memory | Coder / Primary / Full 档 worker |
 | Review | read + search + execute | Reviewer |
 | Edit | read + search + write | 需要改文件但不需要 shell 的派生 worker |
 | ReadOnly | read + search | Researcher |
@@ -42,6 +43,7 @@ vv 不自实现工具实体——全部来自 vage 的 `tool/<name>` 子包(`bas
 | Write | write + edit |
 | Execute | bash(受超时、路径黑名单约束) |
 | Search | glob + grep |
+| Remember | 不在 BuildRegistry 内注册;装配阶段在 persistent store 就绪后挂 `memory_set` / `memory_recall` |
 
 设计取舍:**公网检索归 Read 而非 Search**——模型语义上把它当"获取外部信息",与"在已知项目里找东西"是不同认知模式。
 
@@ -152,6 +154,16 @@ flowchart LR
 - 成功发 `EventTodoUpdate`(全快照);工具结果文本极简(`ok (v3, 4 items)`)省 token。
 - 校验失败返回 `IsError=true` + 描述,**不改快照**,Go `error` 恒 nil(可下轮重试)。
 - 运维开关:`VV_DISABLE_TODO=true` 在每个带工具的可分发代理上跳过注册(无 YAML 旋钮)。
+
+## memory_set / memory_recall 工具设计
+
+持久记忆的 agent-path 写/召回面,来自 vage `tool/memory`,由装配中心在 persistent store 非 nil 且 profile 含 `CapRemember` 时注册:
+
+- **不挂 CapWrite**:记忆写入不是工作区文件写入;Review / Edit 档不能改长期事实。
+- **ReadOnly=true**:与 `todo_write` 同属非文件系统副作用,plan 模式可调用,CLI 不额外弹确认(不引入新授权旋钮)。
+- **ACL**:`memories.AgentToolStore` 适配 `memory.Memory` 并绑定 agent-path,复用 MEM-R3/R4;无 delete 工具(MEM-R5)。
+- **可观测**:每次 `memory_set` 成功 `EmitCustomData("memory.set")`,payload 仅 namespace / key / shared,不含 value。
+- **零成本**:store 未注入则不构造、不注册。
 
 ## web_search 工具设计
 

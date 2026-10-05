@@ -36,7 +36,7 @@
 | 属性 | 语义类型 | 说明 |
 |------|---------|------|
 | Name | text | profile 名(full / review / read-only / none) |
-| Capabilities | enum 集合(ToolCapability) | {Read, Write, Execute, Search} 的子集 |
+| Capabilities | enum 集合(ToolCapability) | {Read, Write, Execute, Search, Remember} 的子集 |
 
 **ToolCapability 取值**:
 
@@ -46,12 +46,13 @@
 | Write | write + edit |
 | Execute | bash(受超时 / 路径 guardian 约束) |
 | Search | glob + grep |
+| Remember | memory_set + memory_recall(store 未注入时不注册) |
 
 **五档预设**:
 
 | Profile | Capabilities | 典型代理 |
 |---------|-------------|---------|
-| Full | Read + Write + Execute + Search | Coder / Primary |
+| Full | Read + Write + Execute + Search + Remember | Coder / Primary |
 | Review | Read + Search + Execute | Reviewer |
 | Edit | Read + Search + Write | 需要改文件但不需要 shell 的派生 worker |
 | ReadOnly | Read + Search | Researcher |
@@ -97,7 +98,7 @@
 | RunTokenBudget | number | 单次 Run token 预算(0 = 不限) |
 | MaxParallelToolCalls | number | 单条 assistant 消息内并发工具上限(0=默认,≤1=串行) |
 | PromptCaching | enum(bool) | 是否发 prompt-cache 断点提示 |
-| Memory / PersistentMemory | reference | 会话记忆;持久记忆**仅 Coder** 注入(AGENTS-R10) |
+| Memory / PersistentMemory | reference | 会话记忆;持久记忆 **prompt 全量渲染仅 Coder**(AGENTS-R10);记忆工具由 CapRemember 授予 |
 | Environment | text | 运行时事实块(工作目录、平台、日期、git、项目提示文件名、迭代预算),经 `AppendEnvironment` 插入基础提示与项目级提示之间 |
 | ProjectInstructions | text | 项目级提示文件内容(`VV.md`/`AGENTS.md`/`CLAUDE.md` 首个命中),经 `AppendProjectInstructions` 附加到系统提示尾 |
 | ToolResultGuards | reference 集合 | 工具结果注入扫描器(nil=未启用) |

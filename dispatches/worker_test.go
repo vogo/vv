@@ -8,9 +8,12 @@ import (
 
 	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/tool"
+	memtool "github.com/vogo/vage/tool/memory"
 	"github.com/vogo/vv/agents"
 	"github.com/vogo/vv/configs"
+	"github.com/vogo/vv/memories"
 	"github.com/vogo/vv/registries"
 )
 
@@ -614,5 +617,35 @@ func TestBuildWorkerPrompt_NoneProfileAnnouncesToolFree(t *testing.T) {
 
 	if !strings.Contains(got, "不提供任何工具") {
 		t.Errorf("none-profile worker prompt does not announce the empty tool set:\n%s", got)
+	}
+}
+
+func TestBuildWorker_FullProfileGetsMemoryTools(t *testing.T) {
+	fs, err := memories.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := newWorkerDispatcher(t, WithPersistentMemory(memory.NewLongTermMemory(fs)))
+
+	full, err := d.buildWorker("w-full", &WorkerSpec{BaseType: "coder", ToolAccess: "full"})
+	if err != nil {
+		t.Fatalf("full worker: %v", err)
+	}
+	got := toolNames(full)
+	for _, want := range []string{memtool.SetToolName, memtool.RecallToolName} {
+		if !slices.Contains(got, want) {
+			t.Errorf("full worker missing %q; got %v", want, got)
+		}
+	}
+
+	review, err := d.buildWorker("w-review", &WorkerSpec{BaseType: "coder", ToolAccess: "review"})
+	if err != nil {
+		t.Fatalf("review worker: %v", err)
+	}
+	rev := toolNames(review)
+	for _, forbidden := range []string{memtool.SetToolName, memtool.RecallToolName} {
+		if slices.Contains(rev, forbidden) {
+			t.Errorf("review worker must not have %q; got %v", forbidden, rev)
+		}
 	}
 }

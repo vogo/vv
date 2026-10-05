@@ -40,10 +40,11 @@ func WithPathGuardian(g *bash.PathGuardian) RegistryOption {
 type ToolCapability string
 
 const (
-	CapRead    ToolCapability = "read"    // read files
-	CapWrite   ToolCapability = "write"   // write, edit files
-	CapExecute ToolCapability = "execute" // bash commands
-	CapSearch  ToolCapability = "search"  // glob, grep
+	CapRead     ToolCapability = "read"    // read files
+	CapWrite    ToolCapability = "write"   // write, edit files
+	CapExecute  ToolCapability = "execute" // bash commands
+	CapSearch   ToolCapability = "search"  // glob, grep
+	CapRemember ToolCapability = "memory"  // persistent memory_set / memory_recall
 )
 
 // ToolProfile defines a named set of tool capabilities.
@@ -54,7 +55,7 @@ type ToolProfile struct {
 
 // Predefined profiles matching current access patterns.
 var (
-	ProfileFull     = ToolProfile{"full", []ToolCapability{CapRead, CapWrite, CapExecute, CapSearch}}
+	ProfileFull     = ToolProfile{"full", []ToolCapability{CapRead, CapWrite, CapExecute, CapSearch, CapRemember}}
 	ProfileReadOnly = ToolProfile{"read-only", []ToolCapability{CapRead, CapSearch}}
 	ProfileReview   = ToolProfile{"review", []ToolCapability{CapRead, CapSearch, CapExecute}}
 	// ProfileEdit is "full minus shell": file inspection, search, and
@@ -194,6 +195,12 @@ func registerCapabilityTools(reg *tool.Registry, cap ToolCapability, cfg configs
 		}
 
 		return grep.Register(reg, grepOpts...)
+	case CapRemember:
+		// Memory tools need a persistent store injected at assembly time
+		// (same pattern as vectorsearch). Declaring the capability here
+		// keeps Has(CapRemember) true for ProfileFull without coupling
+		// BuildRegistry to a store that may be nil.
+		return nil
 	default:
 		return fmt.Errorf("unknown capability: %s", cap)
 	}

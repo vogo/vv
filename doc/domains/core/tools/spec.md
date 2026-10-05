@@ -19,7 +19,7 @@ tools 领域决定 **每个代理实际能调用哪些工具,以及这些调用�
 | 实体 | 业务定位 |
 |------|---------|
 | **Tool / ToolDef** | 注册到工具注册表的一个可调用能力,带 `name`、`description`、JSON Schema `parameters`、`source`、`read_only`。`read_only` 决定其在 plan 模式下是否可用。 |
-| **ToolProfile** | 一组具名能力(Capabilities ⊆ {read, write, execute, search})。五档预设:Full / Review / Edit / ReadOnly / None。代理通过持有一个 profile 间接获得工具集。 |
+| **ToolProfile** | 一组具名能力(Capabilities ⊆ {read, write, execute, search, memory})。五档预设:Full / Review / Edit / ReadOnly / None。代理通过持有一个 profile 间接获得工具集。 |
 | **PathGuard / PathGuardian** | 工作区隔离的两个执行件:`PathGuard` 约束文件类工具(read/write/edit/glob/grep);`PathGuardian` 约束 bash 路径参数并做硬阻断。 |
 | **注入 Guard(ToolResultGuard)** | 间接提示注入防御件,扫描工具返回文本,产出注入扫描结果(命中规则 + 严重度 + 动作)。 |
 | **凭据 Scanner(credscrub)** | MCP I/O 边界的凭据/敏感字段扫描件,产出凭据扫描结果(掩码预览 + 类型 + 动作)。 |
@@ -29,9 +29,9 @@ tools 领域决定 **每个代理实际能调用哪些工具,以及这些调用�
 
 > 规则用稳定 ID,供 feature spec 与测试引用。具体规则全清单(20 条注入规则、bash 分类正则、凭据规则)由 `../../../non-functional/security.md` 与代码承载,此处只立 **不变量与意图**。
 
-- **TOOLS-R1(read_only 语义)** — 每个工具声明 `read_only` 布尔属性。`read_only=true` 的工具(read/glob/grep/web_fetch/web_search/ask_user/todo_write)在 **plan 权限模式** 下放行;`read_only=false` 的工具(bash/write/edit)在 plan 模式下 **全部拒绝**。这是 plan 模式"只探查不改动"语义的唯一判据。
+- **TOOLS-R1(read_only 语义)** — 每个工具声明 `read_only` 布尔属性。`read_only=true` 的工具(read/glob/grep/web_fetch/web_search/ask_user/todo_write/memory_set/memory_recall)在 **plan 权限模式** 下放行;`read_only=false` 的工具(bash/write/edit)在 plan 模式下 **全部拒绝**。`memory_set` 与 `todo_write` 同属"非工作区文件写入",不触发 CLI 额外授权。
 
-- **TOOLS-R2(能力 → 工具映射的声明式不变量)** — 代理工具集 **仅由其 ToolProfile 的 Capabilities 决定**,代理代码不直接列举工具名。新增工具归入 read/write/execute/search 之一后,所有包含该 Capability 的 profile 自动获得它,无需改代理代码。web_fetch / web_search 归 **Read**(语义上是"获取外部信息"),不归 Search。
+- **TOOLS-R2(能力 → 工具映射的声明式不变量)** — 代理工具集 **仅由其 ToolProfile 的 Capabilities 决定**,代理代码不直接列举工具名。新增工具归入 read/write/execute/search/memory 之一后,所有包含该 Capability 的 profile 自动获得它,无需改代理代码。web_fetch / web_search 归 **Read**;`memory_set` / `memory_recall` 归独立的 **Remember**,不挂 Write(记忆写入不是文件写入)。
 
 - **TOOLS-R3(工作区隔离不变量)** — 安全包络在 **工具构造期一次性写入** 构造选项,所有代理共享同一约束,**不随代理选择或权限模式改变**。文件类工具经 `os.Root` 边界(TOCTOU 安全);glob/grep 在 spawn 前校验目录并拒 symlink 逃逸;bash 检测 `cd`/绝对路径/`..`/命令替换逃逸,并硬阻断 `/proc`、`/sys`、`/dev`。量化见 security.md § 工作区隔离。
 
@@ -68,6 +68,7 @@ bash 命令的风险档(Safe/Caution/Dangerous/Blocked)是 **分类结果而非�
 | **EventGuardCheck** | 注入扫描或凭据扫描产生 **实质结果**(log/rewrite/block/redact)时;静默放行不发 | 可观测(trace/debug)、slog.Warn |
 | **EventMCPCredentialDetected** | MCP 凭据 Scanner 命中规则时,载荷带掩码预览(无明文) | 可观测、运维告警 |
 | **EventTodoUpdate** | `todo_write` 成功后,载荷带完整快照(`version`、`items[]`) | CLI 渲染勾选清单;HTTP SSE 转 `event: todo_update` |
+| **EventCustom / memory.set** | `memory_set` 成功后,payload 含 namespace / key / shared,不含 value | trace / 审计 |
 
 > 事件作为 **旁路订阅** 挂载;未启用对应子系统 → 不构造 → 不挂事件(零成本默认路径)。
 

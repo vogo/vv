@@ -11,9 +11,13 @@ import (
 	largemodel "github.com/vogo/largemodel/model"
 	"github.com/vogo/largemodel/schema"
 	"github.com/vogo/vage/agent/taskagent"
+	"github.com/vogo/vage/memory"
 	"github.com/vogo/vage/tool"
+	memtool "github.com/vogo/vage/tool/memory"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/dispatches"
+	"github.com/vogo/vv/memories"
+	"github.com/vogo/vv/registries"
 )
 
 // mockChatCompleter is a simple mock for testing.
@@ -710,5 +714,125 @@ func TestBuildHookManagerAndSession_TraceAloneStillWritesTraceFiles(t *testing.T
 
 	if len(entries) == 0 {
 		t.Error("trace-only mode must still create its project bucket")
+	}
+}
+
+func persistentMemForTest(t *testing.T) memory.Memory {
+	t.Helper()
+	fs, err := memories.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return memory.NewLongTermMemory(fs)
+}
+
+func toolNameSet(t *testing.T, a *taskagent.Agent) map[string]bool {
+	t.Helper()
+	names := make(map[string]bool)
+	for _, def := range a.Tools() {
+		names[def.Name] = true
+	}
+	return names
+}
+
+func TestNew_MemoryTools_ZeroCostWhenStoreNil(t *testing.T) {
+	cfg := &configs.Config{
+		LLM:         configs.LLMConfig{Model: "test-model"},
+		Agents:      configs.AgentsConfig{MaxIterations: 10},
+		Tools:       configs.ToolsConfig{BashTimeout: 10},
+		Orchestrate: configs.OrchestrateConfig{Mode: configs.OrchestrateModeUnified},
+	}
+	result, err := New(cfg, &mockChatCompleter{}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	primary := result.Dispatcher.Primary().(*taskagent.Agent)
+	names := toolNameSet(t, primary)
+	if names[memtool.SetToolName] || names[memtool.RecallToolName] {
+		t.Fatal("memory tools must not register when persistentMem is nil")
+	}
+}
+
+func TestNew_MemoryTools_PrimaryAndCoderOnly(t *testing.T) {
+	cfg := &configs.Config{
+		LLM:         configs.LLMConfig{Model: "test-model"},
+		Agents:      configs.AgentsConfig{MaxIterations: 10},
+		Tools:       configs.ToolsConfig{BashTimeout: 10},
+		Orchestrate: configs.OrchestrateConfig{Mode: configs.OrchestrateModeUnified},
+	}
+	result, err := New(cfg, &mockChatCompleter{}, nil, persistentMemForTest(t), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	primary := result.Dispatcher.Primary().(*taskagent.Agent)
+	if names := toolNameSet(t, primary); !names[memtool.SetToolName] || !names[memtool.RecallToolName] {
+		t.Errorf("Primary missing memory tools: %v", names)
+	}
+
+	coder := result.Agent("coder").(*taskagent.Agent)
+	if names := toolNameSet(t, coder); !names[memtool.SetToolName] || !names[memtool.RecallToolName] {
+		t.Errorf("coder missing memory tools: %v", names)
+	}
+
+	for _, id := range []string{"researcher", "reviewer"} {
+		a := result.Agent(id).(*taskagent.Agent)
+		names := toolNameSet(t, a)
+		if names[memtool.SetToolName] || names[memtool.RecallToolName] {
+			t.Errorf("%s must not have memory tools: %v", id, names)
+		}
+	}
+}
+
+func TestBuildFallbackPrimary_HasNoMemoryTools(t *testing.T) {
+	cfg := &configs.Config{
+		LLM:    configs.LLMConfig{Model: "test-model"},
+		Agents: configs.AgentsConfig{MaxIterations: 10},
+	}
+	a, err := buildFallbackPrimary(cfg, &mockChatCompleter{}, nil, nil)
+	if err != nil {
+		t.Fatalf("buildFallbackPrimary: %v", err)
+	}
+	fa, ok := a.(*taskagent.Agent)
+	if !ok {
+		t.Fatalf("fallback is %T", a)
+	}
+	names := toolNameSet(t, fa)
+	if names[memtool.SetToolName] || names[memtool.RecallToolName] {
+		t.Errorf("fallback Primary must not have memory tools: %v", names)
+	}
+}
+
+func TestMaybeRegisterMemoryTools_SessionIsolation(t *testing.T) {
+	reg := tool.NewRegistry()
+	mem := persistentMemForTest(t)
+	if err := maybeRegisterMemoryTools(reg, registries.ProfileFull, mem); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	ctxA := schema.WithSessionID(context.Background(), "sess-A")
+	_, err := reg.Execute(ctxA, memtool.SetToolName, `{"namespace":"scratch","key":"n","value":"from-A"}`)
+	if err != nil {
+		t.Fatalf("set A: %v", err)
+	}
+
+	res, err := reg.Execute(ctxA, memtool.RecallToolName, `{"namespace":"scratch"}`)
+	if err != nil {
+		t.Fatalf("recall A: %v", err)
+	}
+	if res.IsError || !strings.Contains(res.Text(), "from-A") {
+		t.Fatalf("session A should see its private entry: %+v %q", res.IsError, res.Text())
+	}
+
+	ctxB := schema.WithSessionID(context.Background(), "sess-B")
+	res, err = reg.Execute(ctxB, memtool.RecallToolName, `{"namespace":"scratch"}`)
+	if err != nil {
+		t.Fatalf("recall B: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("recall B error result: %s", res.Text())
+	}
+	if strings.Contains(res.Text(), "from-A") {
+		t.Fatal("session B recalled A's private entry")
 	}
 }

@@ -60,7 +60,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 | AGENTS-R7 | 描述符声明一次、多处消费 | 一个新代理只需写一个 AgentDescriptor + 一个 Factory,即被工厂装配、Primary 提示拼接、委派工具家族、HTTP 子路由、MCP 暴露五条路径自动看见(具体下游见 design.md)。 |
 | AGENTS-R8 | 工具能力代理只读 plan/tree | 专家代理只读 Plan Workspace / Session Tree 视图;写工具只挂给 Primary。避免多写者在同一份 plan.md 上互相覆盖(写者唯一,详见 [session](../session/) 与 [orchestration](../orchestration/))。 |
 | AGENTS-R9 | ID 唯一 + 启动期校验 | 注册表 ID 冲突在启动期 panic,不允许运行期出现"半就绪"的代理表。 |
-| AGENTS-R10 | 持久记忆仅 Coder | 持久化记忆(PersistentMemory)只注入 coder 的系统提示;其余专家不读持久记忆(对应代码中仅 coder 使用 `NewPersistentMemoryPrompt`)。 |
+| AGENTS-R10 | 持久记忆 prompt 仅 Coder | 持久化记忆(PersistentMemory)**全量渲染进系统提示**只发生在 coder;其余专家不读持久记忆。Primary / Full 档执行者通过 `memory_set` / `memory_recall` 按需读写(MEM-R9 / CapRemember),与本规则正交。 |
 
 > 注:能力 → 具体工具的映射表(Read 含公网抓取等)、ToolProfile 五档定义为可从代码恢复的细节,见 [design.md](design.md)「能力 → 工具映射」与 [tools](../tools/) 领域,此处不复述。
 
@@ -110,7 +110,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 | ContextSource | 概念 | 命名的只读上下文来源;provider 渲染为显式标注的只读块注入 worker 输入 |
 | AgentType | enum | 代理底层实现类型:task / orchestrator,见 dictionary-agent-type |
 | ToolProfile | enum/概念 | 命名能力集合;四档预设 Full / Review / ReadOnly / None,见 dictionary-tool-access-level |
-| ToolCapability | enum | 能力原子:Read / Write / Execute / Search,装配阶段翻译为具体工具 |
+| ToolCapability | enum | 能力原子:Read / Write / Execute / Search / Remember,装配阶段翻译为具体工具 |
 | 能力鸿沟 | 概念 | 有意制造的能力缺口:ReadOnly/Review 档不能写,迫使一次 mutation 永远经过持 Full 的执行者 |
 | AgentDescriptor | 概念 | 代理类型的声明式元数据 + 工厂;注册表元素;"声明一次,多处消费" |
 | Dispatchable | enum(bool) | 描述符标志位:是否可作为委派目标 / HTTP 子端点 / MCP 工具暴露 |
