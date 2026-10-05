@@ -280,7 +280,7 @@ func New(
 			BuildReportSink:      getBuildReportSink(opts),
 			CheckpointFailureCB:  getCheckpointFailureCB(opts),
 		}
-		applyFactoryInterrupt(&factoryOpts, opts, desc.ToolProfile.Name)
+		opts.ApplyInterrupt(&factoryOpts, desc.ToolProfile)
 
 		a, err := desc.Factory(factoryOpts)
 		if err != nil {
@@ -559,7 +559,7 @@ func buildPrimaryAssistant(
 
 	primaryMaxIterations := cfg.Agents.EffectivePrimaryMaxIterations()
 
-	return desc.Factory(registries.FactoryOptions{
+	fo := registries.FactoryOptions{
 		LLM:                  llm,
 		Model:                cfg.LLM.Model,
 		ToolRegistry:         finalToolReg,
@@ -576,11 +576,10 @@ func buildPrimaryAssistant(
 		IterationStore:       getIterationStore(opts),
 		BuildReportSink:      getBuildReportSink(opts),
 		CheckpointFailureCB:  getCheckpointFailureCB(opts),
-		InterruptStore:       getInterruptStore(opts),
-		InterruptPolicy:      getInterruptPolicy(opts),
-		InterruptLeaseTTL:    getInterruptLeaseTTL(opts),
 		SkillManager:         getSkillManager(opts),
-	})
+	}
+	opts.ApplyInterrupt(&fo, primaryToolProfile(cfg))
+	return desc.Factory(fo)
 }
 
 // buildExtraContextSources turns the (optional) Plan Workspace,
@@ -634,7 +633,11 @@ func getIterationStore(opts *Options) checkpoint.IterationStore {
 // profile grants CapRemember and a persistent store is wired. Nil store is
 // the zero-cost path (fail-open, matching vectorsearch).
 func maybeRegisterMemoryTools(reg *tool.Registry, profile registries.ToolProfile, persistentMem memory.Memory) error {
-	if persistentMem == nil || !profile.Has(registries.CapRemember) {
+	if !profile.Has(registries.CapRemember) {
+		return nil
+	}
+	if persistentMem == nil {
+		slog.Warn("vv: memory capability declared but persistent store is nil", "profile", profile.Name)
 		return nil
 	}
 	return memtool.Register(reg, memories.AgentToolStore(persistentMem))

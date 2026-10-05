@@ -1,7 +1,9 @@
 package dispatches
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -647,5 +649,32 @@ func TestBuildWorker_FullProfileGetsMemoryTools(t *testing.T) {
 		if slices.Contains(rev, forbidden) {
 			t.Errorf("review worker must not have %q; got %v", forbidden, rev)
 		}
+	}
+}
+
+func TestBuildWorkerTools_NilMemoryStoreWarns(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	d := newWorkerDispatcher(t)
+	reg, err := d.buildWorkerTools(registries.ProfileFull)
+	if err != nil {
+		t.Fatalf("buildWorkerTools: %v", err)
+	}
+	if _, ok := reg.Get(memtool.SetToolName); ok {
+		t.Fatal("nil persistent memory must not register memory_set")
+	}
+	if !strings.Contains(buf.String(), "persistent store is nil") {
+		t.Fatalf("warn log = %q", buf.String())
+	}
+
+	buf.Reset()
+	if _, err := d.buildWorkerTools(registries.ProfileReadOnly); err != nil {
+		t.Fatalf("readonly: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("profile without CapRemember must not warn: %s", buf.String())
 	}
 }

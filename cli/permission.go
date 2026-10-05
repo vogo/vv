@@ -193,7 +193,7 @@ func (p *permissionExecutor) Execute(ctx context.Context, name, args string) (sc
 			case bash.TierSafe:
 				return p.ToolRegistry.Execute(ctx, name, args)
 			case bash.TierDangerous:
-				if p.state.IsNonInteractive() && !interrupt.IsApprovedExecute(ctx) {
+				if p.state.IsNonInteractive() && !interrupt.IsApprovedCall(ctx, interrupt.ExecutingCallID(ctx)) {
 					return schema.ErrorResult("",
 						fmt.Sprintf("bash command classified dangerous (rule %q) in non-interactive mode: %s", cls.Rule, cls.Reason)), nil
 				}

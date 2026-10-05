@@ -1,10 +1,14 @@
 package configs
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/vogo/vage/tool/bash"
 )
@@ -14,6 +18,29 @@ import (
 // regex patterns are logged and skipped. Returns nil when the feature is
 // disabled in config.
 func BuildBashClassifier(cfg BashRulesConfig) *bash.Classifier {
+	c, _ := BuildBashClassifierWithFingerprint(cfg, nil, "", false)
+	return c
+}
+
+// BuildBashClassifierWithFingerprint assembles rules once and returns both
+// the classifier and the fingerprint of that same slice. Callers outside
+// this package cannot see assembleBashRules, so this is the way to keep
+// the two from drifting. A disabled config returns a nil classifier and
+// an empty fingerprint. allowedDirs and workingDir are ignored when
+// guardianOn is false.
+func BuildBashClassifierWithFingerprint(cfg BashRulesConfig, allowedDirs []string, workingDir string, guardianOn bool) (*bash.Classifier, string) {
+	if !cfg.IsEnabled() {
+		return nil, ""
+	}
+	rules := assembleBashRules(cfg)
+	return bash.NewClassifier(rules), BashPolicyFingerprint(rules, allowedDirs, workingDir, guardianOn)
+}
+
+// assembleBashRules is the single assembly of user rules plus DefaultRules.
+// BuildBashClassifier and BashPolicyFingerprint must share this result so
+// the frozen fingerprint describes the classifier that will actually run.
+// Disabled config yields nil. Invalid user patterns are skipped.
+func assembleBashRules(cfg BashRulesConfig) []bash.Rule {
 	if !cfg.IsEnabled() {
 		return nil
 	}
@@ -27,7 +54,40 @@ func BuildBashClassifier(cfg BashRulesConfig) *bash.Classifier {
 	rules = append(rules, compileUserRules(cfg.UserSafe, bash.TierSafe, "user-safe")...)
 	rules = append(rules, bash.DefaultRules()...)
 
-	return bash.NewClassifier(rules)
+	return rules
+}
+
+// BashPolicyFingerprint is the opaque SHA-256 hex of the bash rules and,
+// when guardianOn is true, the sorted allow-list plus working directory.
+// When guardianOn is false the directory arguments are ignored and the
+// material records guardian=off, because a nil guardian does not consult
+// them. Command text and secrets are not part of the material.
+func BashPolicyFingerprint(rules []bash.Rule, allowedDirs []string, workingDir string, guardianOn bool) string {
+	sum := sha256.Sum256([]byte(bashPolicyMaterial(rules, allowedDirs, workingDir, guardianOn)))
+	return hex.EncodeToString(sum[:])
+}
+
+func bashPolicyMaterial(rules []bash.Rule, allowedDirs []string, workingDir string, guardianOn bool) string {
+	var b strings.Builder
+	for _, r := range rules {
+		pattern := ""
+		if r.Pattern != nil {
+			pattern = r.Pattern.String()
+		}
+		fmt.Fprintf(&b, "rule\t%s\t%s\t%s\t%s\n", r.Name, r.Tier.String(), pattern, r.Reason)
+	}
+	if !guardianOn {
+		b.WriteString("guardian=off\n")
+		return b.String()
+	}
+	dirs := append([]string(nil), allowedDirs...)
+	sort.Strings(dirs)
+	b.WriteString("guardian=on\n")
+	for _, d := range dirs {
+		fmt.Fprintf(&b, "dir\t%s\n", d)
+	}
+	fmt.Fprintf(&b, "workdir\t%s\n", workingDir)
+	return b.String()
 }
 
 // ClassifyBashArgs evaluates classifier and path guardian against a bash

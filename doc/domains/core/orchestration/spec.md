@@ -43,7 +43,7 @@ orchestration 是 vv 的核心领域,贯彻 **统一前门、内部分工**:每�
 | **ORCH-R12** | 规格校验前置且全量 | Worker Spec 的 base type(必填且已注册)、`tool_access`(合法 ProfileByName)、skills、context source、isolation 全部在构造前校验;任一不合法 → **不产生 worker**,以可诊断的工具错误回到 Primary。context source provider 失败同样中止派生,绝不让 worker 在缺少既定上下文的情况下运行。 |
 | **ORCH-R14** | 预算耗尽必须收尾 | Primary 运行以 `max_iterations_exceeded` 或 `token_budget_exhausted` 结束时,ReAct 循环在模型"话说到一半"处返回,用户拿不到任何回复。Dispatcher **必须** 在两条入口(流式与同步)追加一次 **无工具** 收尾调用(复用 Fallback Primary),产出"已查明什么 / 还差什么 / 建议的下一步",并**保留原 stop reason**——收尾是补一份交代,不是把失败改写成成功。收尾自身失败只记日志、不把已有输出变成错误;未装配 Fallback Primary 时静默跳过。 |
 | **ORCH-R13** | 预制组合是快捷方式而非特权 | `delegate_to_coder/researcher/reviewer` 是预制组合的适配器:它们与等价 Worker Spec 的工具面相同,并共享同一执行路径(递归 +1、会话标记、流式 SubAgentStart/End、错误折叠)。差别只在"由启动期实例执行"(因而保留 memory / checkpoint / 上下文源装配),不在能力表达力。 |
-| **ORCH-R15** | Durable HITL 只接可恢复宿主 | `agents.interrupt_enabled`(默认 false)开启时,vage interrupt 只注入 Primary 与长期存活的 ProfileFull(coder)。派生 worker **不得**接线:实例 ID 即用即弃,`ResumeInterrupt` 会 AgentID mismatch,且 nested HITL 不受支持(vage AC-16)。闸门只拦 bash + `TierDangerous`;`TierBlocked` 仍硬拒绝。HTTP 以 list / decisions / resume 三端点完成跨进程批准。 |
+| **ORCH-R15** | Durable HITL 只接可恢复宿主 | `agents.interrupt_enabled`(默认 false)开启时,interrupt 只注入声明了 `CapInterrupt` 的长期宿主:Primary(按其 tool profile,不看描述符上的 ReadOnly)与 ProfileFull。派生 worker **不得**接线,即使 tool_access 为 full:实例 ID 即用即弃,且 nested HITL 不受支持。Fallback Primary 也不接。闸门只拦 bash + `TierDangerous`;`TierBlocked` 仍硬拒绝。指纹不一致时不执行旧决策:能建后继则返回新 interrupt,不能确认则失败关闭。HTTP 以 list / decisions / resume 三端点完成跨进程批准。 |
 
 > 规则刻意只保留 **不变量与边界**。逐步流程(哪轮选哪个动作、DAG 如何调度并行)由代码承载,不在此复述。
 

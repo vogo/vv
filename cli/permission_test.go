@@ -893,25 +893,52 @@ func TestPermissionExecutor_NonInteractiveDangerousHardRejects(t *testing.T) {
 	}
 }
 
-func TestPermissionExecutor_ApprovedExecuteSkipsDangerousHardReject(t *testing.T) {
+func dangerousCtx(executing string, approved ...string) context.Context {
+	return interrupt.WithExecutingCall(interrupt.WithApprovedCalls(context.Background(), approved), executing)
+}
+
+func TestPermissionExecutor_ApprovedCallRunsOnlyThatID(t *testing.T) {
 	inner := setupMockRegistryWithTools()
 	ps := NewPermissionState(configs.PermissionModeDefault)
 	ps.SetClassifier(bash.NewClassifier(bash.DefaultRules()))
 	ps.SetNonInteractive(true)
-
 	wrapped := WrapRegistryWithPermission(inner, ps)
+	args := bashArgs("rm -rf ./dist")
 
-	ctx := interrupt.WithApprovedExecute(context.Background())
-	result, err := wrapped.Execute(ctx, "bash", bashArgs("rm -rf ./dist"))
+	result, err := wrapped.Execute(dangerousCtx("call-a", "call-a"), "bash", args)
 	if err != nil {
-		t.Fatalf("Execute: %v", err)
+		t.Fatalf("Execute A: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("approved execute must run the handler, got %+v", result)
+		t.Fatalf("approved call A must run the handler, got %+v", result)
+	}
+
+	result, err = wrapped.Execute(dangerousCtx("call-b", "call-a"), "bash", args)
+	if err != nil {
+		t.Fatalf("Execute B: %v", err)
+	}
+	if !result.IsError || !strings.Contains(resultText(result), "non-interactive") {
+		t.Fatalf("unapproved sibling must hard-reject, got %+v", result)
+	}
+
+	result, err = wrapped.Execute(interrupt.WithExecutingCall(context.Background(), "call-a"), "bash", args)
+	if err != nil {
+		t.Fatalf("Execute empty set: %v", err)
+	}
+	if !result.IsError || !strings.Contains(resultText(result), "non-interactive") {
+		t.Fatalf("executing id with an empty approved set must hard-reject, got %+v", result)
+	}
+
+	result, err = wrapped.Execute(context.Background(), "bash", args)
+	if err != nil {
+		t.Fatalf("Execute no id: %v", err)
+	}
+	if !result.IsError || !strings.Contains(resultText(result), "non-interactive") {
+		t.Fatalf("missing executing id must hard-reject, got %+v", result)
 	}
 }
 
-func TestPermissionExecutor_ApprovedExecuteStillBlocksTierBlocked(t *testing.T) {
+func TestPermissionExecutor_ApprovedCallStillBlocksTierBlocked(t *testing.T) {
 	inner := setupMockRegistryWithTools()
 	ps := NewPermissionState(configs.PermissionModeAuto)
 	ps.SetClassifier(bash.NewClassifier(bash.DefaultRules()))
@@ -919,11 +946,11 @@ func TestPermissionExecutor_ApprovedExecuteStillBlocksTierBlocked(t *testing.T) 
 
 	wrapped := WrapRegistryWithPermission(inner, ps)
 
-	result, err := wrapped.Execute(interrupt.WithApprovedExecute(context.Background()), "bash", bashArgs("sudo rm -rf /"))
+	result, err := wrapped.Execute(dangerousCtx("call-a", "call-a"), "bash", bashArgs("sudo rm -rf /"))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	if !result.IsError {
-		t.Fatal("TierBlocked must still hard-reject on approved execute")
+		t.Fatal("TierBlocked must still hard-reject when the call id is approved")
 	}
 }

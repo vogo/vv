@@ -177,6 +177,10 @@ func writeInterruptErr(w http.ResponseWriter, err error) bool {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"code": "bad_request", "message": err.Error(),
 		})
+	case errors.Is(err, taskagent.ErrInterruptPolicyDrift):
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"code": "policy_drift", "message": err.Error(),
+		})
 	case errors.Is(err, interrupt.ErrDecisionConflict),
 		errors.Is(err, interrupt.ErrAlreadyCompleted),
 		errors.Is(err, interrupt.ErrLeaseHeld),

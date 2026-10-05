@@ -20,6 +20,7 @@ var memoryWriteGateMarkers = []struct {
 	{"failure root cause reused across sessions", "root cause is worth reusing across sessions"},
 	{"never write process intermediates", "Never write process intermediates"},
 	{"recall tool named", "memory_recall"},
+	{"single key delete", "op=delete"},
 }
 
 func TestMemoryWriteGate_PromptAndToolContractsAgree(t *testing.T) {

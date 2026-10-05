@@ -17,10 +17,11 @@ vage 已有跨进程可恢复的 interrupt 状态机(`Pending → Ready → Resu
 
 ## Decision
 
-1. vage 增加通用 `interrupt.Decision.Execute`(不注入 vv 概念)。`IsError` 优先。Resume 时 Execute 走原 handler,否则注入 Content。流式经 `EmitterFromContext` 发出已有的 `interrupt_created`。批准执行时 context 带 `interrupt.WithApprovedExecute`,permission 仅在此标记下跳过非交互 Dangerous 硬拒绝——worker 等未冻结的路径仍硬拒绝。
-2. vv 默认关闭(`agents.interrupt_enabled=false`)。开启时要求 `session.enabled` 且 `bash_rules` 未关;FileStore 根为 `<session-root>/interrupts/`(与 ADR-0004 共项目根,记录按 interrupt id 而非 session id)。策略 `dispatches.NewDangerousBashPolicy` 只拦 bash + `TierDangerous`。接线对象:**Primary + 长期存活的 ProfileFull(coder)**。派生 worker **不接**(实例 ID 即用即弃,`ResumeInterrupt` 会 AgentID mismatch;nested HITL 仍是 vage TOOL-6b / AC-16)。
-3. HTTP:`GET /v1/sessions/{id}/interrupts`、`POST /v1/interrupts/{id}/decisions`、`POST /v1/interrupts/{id}/resume`。决策走 vage `Decision`(含 `execute`);resume 带空 `schema` Decisions。未启用则不挂路由。删除 session 时 List+Delete 该 session 的 interrupt 记录。
-4. CLI 默认路径不变。`TierBlocked` 始终硬拒绝。
+1. 批准按 call id 生效,不是整批开关。Resume 只把本批里 pending、Execute 且非 IsError 的 id 放进已批准集合;每个工具调用在进入 handler 前带上自己的 executing id。permission 仅当 `IsApprovedCall` 命中当前 executing id 时,才跳过非交互 Dangerous 硬拒绝。同批其他调用、空 id、未接线路径仍硬拒绝。`TierBlocked` 在批准检查之前返回。
+2. 冻结记录带策略指纹。指纹由 vv 从 bash 规则组装结果计算(guardian 开启时含排序后的允许目录与工作目录),vage 只存不解析。resume 时指纹不一致且仍有 flagged 调用:不执行旧决策,返回新的 Pending interrupt(HTTP 200,body 里是新的 interrupt id)。无法确认指纹且不能建后继(没有 Witness、flagged 为空、评估不一致)返回 policy drift,不拿租约。version 2 记录没有指纹,仍按 call 批准后执行,不改写成 version 3。
+3. vv 默认关闭(`agents.interrupt_enabled=false`)。开启时要求 `session.enabled` 且 `bash_rules` 未关;FileStore 根为 `<session-root>/interrupts/`(与 ADR-0004 共项目根,记录按 interrupt id 而非 session id)。策略只拦 bash + `TierDangerous`,并实现 Witness。接线闸门是 `CapInterrupt`:只有 ProfileFull 声明它,Primary 用自己的 tool profile 装配,不看描述符上的 ReadOnly。派生 worker 与 Fallback Primary **不接**(实例 ID 即用即弃;nested HITL 仍不受支持)。
+4. HTTP:`GET /v1/sessions/{id}/interrupts`、`POST /v1/interrupts/{id}/decisions`、`POST /v1/interrupts/{id}/resume`。决策走 interrupt `Decision`(含 `execute`);resume 带空 schema Decisions。指纹无法建后继时 resume 返回 409 `policy_drift`;建了后继则 200,且 body 的 interrupt id 是新 id。`POST .../decisions` 不跟随 Supersedes。未启用则不挂路由。删除 session 时 List+Delete 该 session 的 interrupt 记录。
+5. CLI 默认路径不变。`TierBlocked` 始终硬拒绝。启动时审计 interrupt 目录:不可读版本只记错误日志,不删文件,不因此启动失败。`.lock` 与临时文件不计入。
 
 ## Consequences
 
@@ -32,7 +33,7 @@ vage 已有跨进程可恢复的 interrupt 状态机(`Pending → Ready → Resu
 
 ## Compliance
 
-- 代码:store 与 policy both-or-neither;`AppendInterrupt` 仅 Full 档与 Primary;permission 用 `IsApprovedExecute` 而非进程级开关。
+- 代码:store 与 policy both-or-neither;只有声明 `CapInterrupt` 的长期宿主(ProfileFull 与 Primary)装配 interrupt;worker 不读该能力。permission 用已批准 call id 与当前 executing id,不是整批开关。指纹在 vv 计算,vage 只存储。
 - 测试:策略只拦 Dangerous;非交互硬拒绝 vs 批准 resume 放行;Blocked 仍拒绝;HTTP list/decisions/delete;装配失败条件(无 session / 无 classifier)。
 
 ## References

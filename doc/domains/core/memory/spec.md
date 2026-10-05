@@ -37,7 +37,7 @@ memory 领域把 vage 的记忆抽象组合为 **三层记忆**,并叠加 vv 特
 | **MEM-R5** | **Clear 仅 user-path**:`Clear` 清空整个记忆目录,仅 user-path 可调;agent-path 调用返回 `ErrSessionForbidden`。 | 破坏性全量删除不能被代理触发 |
 | **MEM-R6** | **legacy 记录保护**:会话私有 namespace 下存在的旧式无 `session_id` 记录(legacy shared),允许被任一会话与 user-path 读取,但 **不可被某会话的写入覆盖**(返回 forbidden)。 | 向后兼容旧布局,同时不让新会话静默吞掉历史记录 |
 | **MEM-R7** | **后端不自动迁移**:`memory.backend` 在 `file`(默认)与 `sqlite` 间切换不触发数据迁移;切换后旧后端的数据对新后端不可见。两后端 session/namespace 语义一致,切换是配置变更而非行为变更。 | 自动迁移的失败面/数据丢失风险高于其价值;迁移留给显式工具 |
-| **MEM-R9** | **agent-path 工具写入口**:持 `CapRemember` 的代理通过 `memory_set` / `memory_recall` 读写 persistent 记忆。写入必须走 agent-path(`WithSessionID`);工具面 **不含** delete / clear(MEM-R5)。记忆写入不是文件写入,不挂 `CapWrite`。空 namespace 的 recall 只返回共享枚举,会话私有须显式点名。 | 闭合长期记忆回路;ACL 与破坏性删除不变量保持不变,且避免"每轮吞全量"之外没有按需召回 |
+| **MEM-R9** | **agent-path 工具写入口**:持 `CapRemember` 的代理通过 `memory_set` / `memory_recall` 读写 persistent 记忆。写入必须走 agent-path(`WithSessionID`)。`memory_set` 可用 `op=delete` 删除单个 key(省略 value);工具面 **不含** Clear,也没有单独的 delete 工具(MEM-R5)。记忆写入不是文件写入,不挂 `CapWrite`。空 namespace 的 recall 只返回共享枚举,会话私有须显式点名。 | 闭合长期记忆回路;单 key 删除仍受会话 ACL 约束,全量 Clear 仍只在 user-path |
 
 ### 上下文组装优先级
 
@@ -77,7 +77,8 @@ memory 领域 **不** 自有事件总线主题;其状态变更通过宿主子系
 
 | 触发 | 体现位置 |
 |------|----------|
-| 持久记忆写(agent-path,`memory_set` 成功) | `schema.EmitCustomData("memory.set")`,字段 namespace / key / shared,**不含 value**;经 hook 旁路落到 trace |
+| 持久记忆写(agent-path,`memory_set` op=set 成功) | `memory.set`,字段 namespace / key / shared,**不含 value**;经 hook 旁路落到 trace |
+| 持久记忆单 key 删除(agent-path,`memory_set` op=delete 成功) | `memory.delete`,字段 namespace / key / shared,**不含 value** |
 | session 摘要触发 | 反映在 session 事件流与 token 统计 |
 
 ## Interactions

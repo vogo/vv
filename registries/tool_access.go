@@ -40,11 +40,12 @@ func WithPathGuardian(g *bash.PathGuardian) RegistryOption {
 type ToolCapability string
 
 const (
-	CapRead     ToolCapability = "read"    // read files
-	CapWrite    ToolCapability = "write"   // write, edit files
-	CapExecute  ToolCapability = "execute" // bash commands
-	CapSearch   ToolCapability = "search"  // glob, grep
-	CapRemember ToolCapability = "memory"  // persistent memory_set / memory_recall
+	CapRead      ToolCapability = "read"      // read files
+	CapWrite     ToolCapability = "write"     // write, edit files
+	CapExecute   ToolCapability = "execute"   // bash commands
+	CapSearch    ToolCapability = "search"    // glob, grep
+	CapRemember  ToolCapability = "memory"    // persistent memory_set / memory_recall
+	CapInterrupt ToolCapability = "interrupt" // durable HITL; not a tool, not a worker switch
 )
 
 // ToolProfile defines a named set of tool capabilities.
@@ -55,7 +56,7 @@ type ToolProfile struct {
 
 // Predefined profiles matching current access patterns.
 var (
-	ProfileFull     = ToolProfile{"full", []ToolCapability{CapRead, CapWrite, CapExecute, CapSearch, CapRemember}}
+	ProfileFull     = ToolProfile{"full", []ToolCapability{CapRead, CapWrite, CapExecute, CapSearch, CapRemember, CapInterrupt}}
 	ProfileReadOnly = ToolProfile{"read-only", []ToolCapability{CapRead, CapSearch}}
 	ProfileReview   = ToolProfile{"review", []ToolCapability{CapRead, CapSearch, CapExecute}}
 	// ProfileEdit is "full minus shell": file inspection, search, and
@@ -200,6 +201,11 @@ func registerCapabilityTools(reg *tool.Registry, cap ToolCapability, cfg configs
 		// (same pattern as vectorsearch). Declaring the capability here
 		// keeps Has(CapRemember) true for ProfileFull without coupling
 		// BuildRegistry to a store that may be nil.
+		return nil
+	case CapInterrupt:
+		// Not a tool registration. The interrupt store may not exist when
+		// BuildRegistry runs; long-lived factories wire it via ApplyInterrupt.
+		// Worker assembly must not read this capability to attach interrupt.
 		return nil
 	default:
 		return fmt.Errorf("unknown capability: %s", cap)

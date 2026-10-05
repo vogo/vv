@@ -36,7 +36,7 @@
 | 属性 | 语义类型 | 说明 |
 |------|---------|------|
 | Name | text | profile 名(full / review / read-only / none) |
-| Capabilities | enum 集合(ToolCapability) | {Read, Write, Execute, Search, Remember} 的子集 |
+| Capabilities | enum 集合(ToolCapability) | {Read, Write, Execute, Search, Remember, Interrupt} 的子集 |
 
 **ToolCapability 取值**:
 
@@ -46,13 +46,14 @@
 | Write | write + edit |
 | Execute | bash(受超时 / 路径 guardian 约束) |
 | Search | glob + grep |
-| Remember | memory_set + memory_recall(store 未注入时不注册) |
+| Remember | memory_set + memory_recall(store 未注入时不注册,并记 Warn) |
+| Interrupt | 不是工具。BuildRegistry 为 no-op;不作为 worker 的 interrupt 开关 |
 
 **五档预设**:
 
 | Profile | Capabilities | 典型代理 |
 |---------|-------------|---------|
-| Full | Read + Write + Execute + Search + Remember | Coder / Primary |
+| Full | Read + Write + Execute + Search + Remember + Interrupt | Coder / Primary |
 | Review | Read + Search + Execute | Reviewer |
 | Edit | Read + Search + Write | 需要改文件但不需要 shell 的派生 worker |
 | ReadOnly | Read + Search | Researcher |

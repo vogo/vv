@@ -8,8 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	largemodel "github.com/vogo/largemodel/model"
 	"github.com/vogo/largemodel/schema"
+	"github.com/vogo/vage/agent"
+	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/interrupt"
+	"github.com/vogo/vv/agents"
+	"github.com/vogo/vv/dispatches"
 	"github.com/vogo/vv/setup"
 )
 
@@ -152,5 +157,119 @@ func TestHandleDeleteSession_AlsoDeletesInterrupts(t *testing.T) {
 
 	if _, err := istore.Get(context.Background(), rec.ID); err == nil {
 		t.Fatal("interrupt record should be deleted with the session")
+	}
+}
+
+type fingerprintPolicy struct {
+	fp   string
+	flag bool
+}
+
+func (p fingerprintPolicy) Intercept(_ context.Context, _ string, calls []schema.ToolCall) []string {
+	if !p.flag {
+		return nil
+	}
+	ids := make([]string, 0, len(calls))
+	for _, c := range calls {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
+
+func (p fingerprintPolicy) Witness(ctx context.Context, sessionID string, calls []schema.ToolCall) interrupt.PolicySnapshot {
+	pending := p.Intercept(ctx, sessionID, calls)
+	flagged := make(map[string]struct{}, len(pending))
+	for _, id := range pending {
+		flagged[id] = struct{}{}
+	}
+	snap := interrupt.PolicySnapshot{Fingerprint: p.fp, Calls: make([]interrupt.CallAssessment, 0, len(calls))}
+	for _, c := range calls {
+		_, ok := flagged[c.ID]
+		snap.Calls = append(snap.Calls, interrupt.CallAssessment{ToolCallID: c.ID, Flagged: ok})
+	}
+	return snap
+}
+
+func readyInterrupt(t *testing.T, store interrupt.Store, fingerprint string) *interrupt.Record {
+	t.Helper()
+	rec := &interrupt.Record{
+		SessionID: "sess-a",
+		AgentID:   agents.PrimaryAgentID,
+		Protocol:  schema.ProtocolOpenAIChat,
+		ToolCalls: []schema.ToolCall{
+			{ID: "call-1", Name: "bash", Arguments: `{"command":"rm -rf ./dist"}`},
+		},
+		Pending: []string{"call-1"},
+		Messages: []schema.Message{
+			schema.NewTextMessage(schema.ProtocolOpenAIChat, schema.RoleUser, "clean dist"),
+		},
+		Params: interrupt.EffectiveParams{Model: "test", MaxIterations: 4},
+		Policy: interrupt.PolicySnapshot{Fingerprint: fingerprint},
+	}
+	if err := store.Create(context.Background(), rec); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	updated, _, err := store.SubmitDecisions(context.Background(), rec.ID, []interrupt.Decision{{
+		ToolCallID: "call-1",
+		Execute:    true,
+	}})
+	if err != nil {
+		t.Fatalf("SubmitDecisions: %v", err)
+	}
+	return updated
+}
+
+func primaryInit(store interrupt.Store, policy taskagent.InterruptPolicy) *setup.InitResult {
+	a := taskagent.New(
+		agent.Config{ID: agents.PrimaryAgentID},
+		taskagent.WithCaller(&largemodel.FakeCaller{}),
+		taskagent.WithInterruptStore(store),
+		taskagent.WithInterruptPolicy(policy),
+	)
+	d := dispatches.New(nil, nil, nil, dispatches.WithPrimaryAssistant(a))
+	return &setup.InitResult{SetupResult: &setup.Result{Dispatcher: d}, InterruptStore: store}
+}
+
+func TestHandleResumeInterrupt_PolicyDrift409(t *testing.T) {
+	store := interrupt.NewMapStore()
+	rec := readyInterrupt(t, store, "frozen-v1")
+	init := primaryInit(store, fingerprintPolicy{fp: "now-v2", flag: false})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/interrupts/"+rec.ID+"/resume", nil)
+	req.SetPathValue("id", rec.ID)
+	handleResumeInterrupt(store, init)(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409, body=%s", rr.Code, rr.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["code"] != "policy_drift" {
+		t.Fatalf("code = %q, body=%s", body["code"], rr.Body.String())
+	}
+}
+
+func TestHandleResumeInterrupt_Successor200(t *testing.T) {
+	store := interrupt.NewMapStore()
+	rec := readyInterrupt(t, store, "frozen-v1")
+	init := primaryInit(store, fingerprintPolicy{fp: "now-v2", flag: true})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/interrupts/"+rec.ID+"/resume", nil)
+	req.SetPathValue("id", rec.ID)
+	handleResumeInterrupt(store, init)(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rr.Code, rr.Body.String())
+	}
+	var body resumeResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Interrupt == nil || body.Interrupt.InterruptID == "" || body.Interrupt.InterruptID == rec.ID {
+		t.Fatalf("interrupt = %+v, want a new id", body.Interrupt)
 	}
 }

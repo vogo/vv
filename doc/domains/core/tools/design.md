@@ -14,7 +14,7 @@ vv 不自实现工具实体——全部来自 vage 的 `tool/<name>` 子包(`bas
 | 执行工具 | bash | 仅 Full / Review profile |
 | 网络工具 | web_fetch、可选 web_search | ReadOnly 及以上(归 Read 能力) |
 | 协作工具 | ask_user、todo_write | 几乎所有非 None 代理 |
-| 持久记忆工具 | memory_set、memory_recall | 仅 Full profile(`CapRemember`);store 未注入时不注册 |
+| 持久记忆工具 | memory_set、memory_recall | 仅 Full profile(`CapRemember`);store 未注入时不注册,并记一条 Warn |
 | 路由 / 持久化工具 | `delegate_to_*` / `plan_task` / `plan_update` / `tree_*` | 仅 Primary(属 agents/orchestration 领域) |
 
 路由与持久化工具是 Primary 区别于专家的关键标志:**写权集中于 Primary,专家只能读对应子系统视图**(写者唯一模式,详见 agents 领域)。
@@ -27,7 +27,7 @@ vv 不自实现工具实体——全部来自 vage 的 `tool/<name>` 子包(`bas
 
 | Profile | Capabilities | 典型代理 |
 |---------|-------------|---------|
-| Full | read + write + execute + search + memory | Coder / Primary / Full 档 worker |
+| Full | read + write + execute + search + memory + interrupt | Coder / Primary / Full 档 worker(interrupt 不因此接到 worker) |
 | Review | read + search + execute | Reviewer |
 | Edit | read + search + write | 需要改文件但不需要 shell 的派生 worker |
 | ReadOnly | read + search | Researcher |
@@ -43,7 +43,8 @@ vv 不自实现工具实体——全部来自 vage 的 `tool/<name>` 子包(`bas
 | Write | write + edit |
 | Execute | bash(受超时、路径黑名单约束) |
 | Search | glob + grep |
-| Remember | 不在 BuildRegistry 内注册;装配阶段在 persistent store 就绪后挂 `memory_set` / `memory_recall` |
+| Remember | 不在 BuildRegistry 内注册;装配阶段在 persistent store 就绪后挂 `memory_set` / `memory_recall`。声明了该能力但 store 为 nil 时记 Warn,不注册,不因此启动失败 |
+| Interrupt | 不是工具。BuildRegistry 为 no-op。只给声明了该能力的长期宿主装配 interrupt store;worker 不读它 |
 
 设计取舍:**公网检索归 Read 而非 Search**——模型语义上把它当"获取外部信息",与"在已知项目里找东西"是不同认知模式。
 
@@ -161,9 +162,9 @@ flowchart LR
 
 - **不挂 CapWrite**:记忆写入不是工作区文件写入;Review / Edit 档不能改长期事实。
 - **ReadOnly=true**:与 `todo_write` 同属非文件系统副作用,plan 模式可调用,CLI 不额外弹确认(不引入新授权旋钮)。
-- **ACL**:`memories.AgentToolStore` 适配 `memory.Memory` 并绑定 agent-path,复用 MEM-R3/R4;无 delete 工具(MEM-R5)。
-- **可观测**:每次 `memory_set` 成功 `EmitCustomData("memory.set")`,payload 仅 namespace / key / shared,不含 value。
-- **零成本**:store 未注入则不构造、不注册。
+- **ACL**:`memories.AgentToolStore` 适配 `memory.Memory` 并绑定 agent-path,复用 MEM-R3/R4。单 key 删除走 `memory_set` 的 `op=delete`(省略 value);没有单独的 delete 工具,也不能 Clear(MEM-R5)。可选 `ttl`(秒)只作用于 set;0 或省略表示不过期。
+- **可观测**:`op=set` 成功发 `memory.set`;`op=delete` 成功发 `memory.delete`。payload 仅 namespace / key / shared,不含 value。
+- **store 缺失**:profile 声明了 Remember 但 persistent store 为 nil 时记一条 Warn,不注册工具,进程继续。未声明 Remember 则不记这条 Warn。
 
 ## web_search 工具设计
 

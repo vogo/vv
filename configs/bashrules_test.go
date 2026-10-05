@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/vogo/vage/tool/bash"
@@ -98,5 +99,33 @@ func TestClassifyBashArgs(t *testing.T) {
 	cls, ok = ClassifyBashArgs(c, nil, `{"command":"ls"}`)
 	if !ok || cls.Tier != bash.TierSafe {
 		t.Fatalf("ls: ok=%v tier=%s", ok, cls.Tier)
+	}
+}
+
+func TestBashPolicyFingerprint_SharesAssemblyAndIgnoresDirsWhenGuardianOff(t *testing.T) {
+	cfg := BashRulesConfig{}
+	rules := assembleBashRules(cfg)
+	material := bashPolicyMaterial(rules, []string{"/tmp/secret"}, "/work", false)
+	if !strings.Contains(material, "recursive-rm") {
+		t.Fatal("fingerprint material must include a default rule name")
+	}
+	if strings.Contains(material, "/tmp/secret") || strings.Contains(material, "guardian=on") {
+		t.Fatalf("guardian off must ignore directories: %s", material)
+	}
+	if !strings.Contains(material, "guardian=off") {
+		t.Fatal("guardian off material missing guardian=off")
+	}
+
+	_, fp := BuildBashClassifierWithFingerprint(cfg, []string{"/b", "/a"}, "/work", true)
+	if fp != BashPolicyFingerprint(rules, []string{"/a", "/b"}, "/work", true) {
+		t.Fatal("classifier fingerprint must match the same assembled rules, directory order ignored")
+	}
+	if fp == BashPolicyFingerprint(rules, nil, "", false) {
+		t.Fatal("turning the guardian on must change the fingerprint")
+	}
+
+	user := BashRulesConfig{UserDangerous: []string{`\beval\b`}}
+	if BashPolicyFingerprint(assembleBashRules(user), nil, "", false) == BashPolicyFingerprint(rules, nil, "", false) {
+		t.Fatal("a user dangerous rule must change the fingerprint")
 	}
 }

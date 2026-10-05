@@ -105,6 +105,10 @@ func (s agentToolStore) Set(ctx context.Context, key string, value any, ttl int6
 	return s.inner.Set(ctx, key, value, ttl)
 }
 
+func (s agentToolStore) Delete(ctx context.Context, key string) error {
+	return s.inner.Delete(ctx, key)
+}
+
 func (s agentToolStore) List(ctx context.Context, prefix string) ([]memtool.Entry, error) {
 	raw, err := s.inner.List(ctx, prefix)
 	if err != nil {

@@ -38,7 +38,7 @@ vv 直接复用 vage 的记忆模型,把记忆划分为三层视图。代理在�
 - `WithSessionID` 对空 `sessionID` 是 no-op(不污染 context)。
 - 违反统一 surface 为 `memories.ErrSessionForbidden`(`errors.Is` 可程序化判定),映射到宪法 § 4 的"记忆访问控制不变量"。
 - **legacy 保护**:会话私有布局下 `session_id == ""` 的旧记录视为 legacy shared——任一会话与 user-path 可读,但某会话的 `Set` 不可覆盖它(`filestore.go` Set 显式 guard,返回 forbidden),防止新会话静默吞掉历史。
-- **agent 工具接线**:vage `tool/memory` 只依赖本包 `Store` 接口(不 import `vage/memory`,守 tool→memory 红线)。vv 经 `memories.AgentToolStore` 适配 `memory.Memory`,并把 schema 会话身份转成 `WithSessionID`。`CapRemember` 只进 `ProfileFull`;`BuildRegistry` 对 Remember 为 no-op,真正注册发生在 store 就绪之后(与 `vectorsearch` 同款 fail-open:store 为 nil 则不注册)。
+- **agent 工具接线**:vage `tool/memory` 只依赖本包 `Store` 接口(不 import `vage/memory`,守 tool→memory 红线)。vv 经 `memories.AgentToolStore` 适配 `memory.Memory`,并把 schema 会话身份转成 `WithSessionID`。`CapRemember` 只进 `ProfileFull`;`BuildRegistry` 对 Remember 为 no-op,真正注册发生在 store 就绪之后。store 为 nil 且 profile 声明了 Remember 时记 Warn,不注册,不因此进程失败。`memory_set` 的 `op=delete` 删单个 key;Clear 仍只在 user-path。file 后端在读到的记录 owner 与调用者不匹配时返回 `ErrSessionForbidden`;对方会话目录里的私有 key 对本次调用是找不到,不删对方的记录。SQLite 对他会话行是静默 no-op。
 
 ## 磁盘布局(file 后端)
 
@@ -89,7 +89,7 @@ session 层有 token 上限,组合视图交给模型前经多种压缩(spec MEM-
 
 ## 上下文组装
 
-组装代理上下文优先级:**persistent → session 摘要 → 近期 facts**。仅 **Coder** 默认在系统提示中渲染当前全部 persistent 条目(让模型写代码时看到项目级约定);Researcher / Reviewer 默认不读 persistent,避免每轮无谓 prompt 膨胀。Primary 与 Full 档执行者通过 `memory_set` / `memory_recall` 按需写/读(MEM-R9);Coder 的全量渲染路径本次保持不变。
+组装代理上下文优先级:**persistent → session 摘要 → 近期 facts**。仅 **Coder** 默认在系统提示中渲染当前全部 persistent 条目(让模型写代码时看到项目级约定);Researcher / Reviewer 默认不读 persistent,避免每轮无谓 prompt 膨胀。Primary 与 Full 档执行者通过 `memory_set` / `memory_recall` 按需写/读,并用 `op=delete` 删单个已失效的 key(MEM-R9);Coder 的全量渲染路径保持不变。
 
 ## 生命周期与装配
 

@@ -18,7 +18,7 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 |------|------|------|
 | AgentDescriptor | 单一代理类型的声明式元数据:id / 显示名 / 描述 / ToolProfile / 系统提示 / 工厂函数 / 是否 dispatchable。注册表的元素。 | [models.md](models.md) |
 | AgentType | 代理底层实现类型枚举:`task`(ReAct 循环,带可选工具)/ `orchestrator`(任务理解与分发,归 orchestration) | [models.md](models.md) |
-| ToolProfile | 命名的能力集合(Capabilities ⊆ {Read, Write, Execute, Search});五档预设 Full / Review / Edit / ReadOnly / None | [models.md](models.md)、[design.md](design.md) |
+| ToolProfile | 命名的能力集合(Capabilities ⊆ {Read, Write, Execute, Search, Remember, Interrupt});五档预设 Full / Review / Edit / ReadOnly / None | [models.md](models.md)、[design.md](design.md) |
 | Skill | 命名的**专项指令片段**(id / 描述 / instructions),追加到系统提示;**不授予任何工具、不绕过权限**。启动期由内置 `review` / `research` 与可选 `agents.skill_dir` 下的 `SKILL.md` 并集确定。Primary 经 `use_skill` 按 session 激活(下一轮生效);派生 worker 仍按 spec 静态拼接。 | [models.md](models.md) |
 | ContextSource | 命名的**只读上下文来源**(id / 描述 / provider),渲染为 `## Context: <id> (read-only)` 块注入 worker 输入。内置 `diff`(工作区 vs HEAD)。 | [models.md](models.md) |
 | 预制组合(coder / researcher / reviewer) | 三个具名维度组合,全部 dispatchable 的 task 代理 | 本文「预制组合表」、[models.md](models.md) |
@@ -110,8 +110,8 @@ coder / researcher / reviewer 是三个**具名预制组合**(descriptor + 默�
 | Skill | 概念 | 命名的专项指令片段,追加到系统提示;不授予工具、不放宽权限 |
 | ContextSource | 概念 | 命名的只读上下文来源;provider 渲染为显式标注的只读块注入 worker 输入 |
 | AgentType | enum | 代理底层实现类型:task / orchestrator,见 dictionary-agent-type |
-| ToolProfile | enum/概念 | 命名能力集合;四档预设 Full / Review / ReadOnly / None,见 dictionary-tool-access-level |
-| ToolCapability | enum | 能力原子:Read / Write / Execute / Search / Remember,装配阶段翻译为具体工具 |
+| ToolProfile | enum/概念 | 命名能力集合;五档预设 Full / Review / Edit / ReadOnly / None,见 dictionary-tool-access-level |
+| ToolCapability | enum | 能力原子:Read / Write / Execute / Search / Remember / Interrupt。Interrupt 不是工具,装配阶段不注册工具,也不给派生 worker 接 interrupt |
 | 能力鸿沟 | 概念 | 有意制造的能力缺口:ReadOnly/Review 档不能写,迫使一次 mutation 永远经过持 Full 的执行者 |
 | AgentDescriptor | 概念 | 代理类型的声明式元数据 + 工厂;注册表元素;"声明一次,多处消费" |
 | Dispatchable | enum(bool) | 描述符标志位:是否可作为委派目标 / HTTP 子端点 / MCP 工具暴露 |
