@@ -11,6 +11,7 @@
 
 - vv **不自实现工具实体**:bash / read / write / edit / glob / grep / web_fetch / web_search 全部来自 vage 的 `tool/<name>` 子包。本领域负责的是 **挑选、分级、装饰、加护栏**,而非工具内部逻辑。
 - `ask_user` / `todo_write` 由 vv 在装配阶段注入到工具集。
+- `memory_set` / `memory_recall` 来自 vage `tool/memory`,仅在 persistent store 注入且 profile 含 Remember 时注册。
 - 委派工具(`delegate_to_*`)、规划工具(`plan_task`)、Plan Workspace / Session Tree 持久化工具属于 [agents](../agents/) 与 [orchestration](../orchestration/) 领域,本领域只声明它们在能力分级中的归属约束。
 
 ## 关联候选 ADR

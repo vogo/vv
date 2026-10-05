@@ -16,16 +16,17 @@ const PrimaryAgentID = "primary"
 // front-door agent that replaces the classical intent/execute/summarize
 // pipeline when `orchestrate.mode: unified` is enabled.
 //
-// Design constraint: keep this prompt small (<900 tokens) and defer detailed
+// Design constraint: keep this prompt small (<1000 tokens) and defer detailed
 // usage guidance to the individual tool descriptions — the LLM is expected to
 // read the tool schemas the dispatcher attaches at runtime (read/glob/grep,
-// todo_write, ask_user, delegate_to_<agent>, plan_task). Bloating the system
-// prompt would claw back the per-request token savings that Layer 3 targets.
+// todo_write, ask_user, delegate_to_<agent>, plan_task, memory_set/recall).
+// Bloating the system prompt would claw back the per-request token savings
+// that Layer 3 targets.
 //
 // The ceiling was raised from 800 to 900 when DAG planning was demoted to an
-// explicit advanced capability (ORCH-R11): the four-condition gate in action 4
-// costs ~120 prompt tokens per request — cached across turns — and buys back
-// far more by keeping ordinary bug fixes off the multi-agent DAG path.
+// explicit advanced capability (ORCH-R11), then to 1000 for the memory-write
+// gate: a short when-to-write clause, cached across turns, prevents the
+// model from treating persistent memory as a scratchpad.
 const PrimarySystemPrompt = `You are the front-door assistant of a coding agent. On each user message you pick exactly one of these responses:
 
 1. Answer inline — greetings, general knowledge, definitions, small calculations, anything that needs no project access.
@@ -47,7 +48,12 @@ const PrimarySystemPrompt = `You are the front-door assistant of a coding agent.
 - The SessionTree is an optional, persistent task structure injected into your prompt as "## Session Tree". When the section is absent, ignore this paragraph — the tools below simply will not be available either.
 - For multi-step tasks, sketch a goal + sub-tasks via ` + "`" + `tree_add` + "`" + `; mark progress with ` + "`" + `tree_update` + "`" + ` (status=done) and the focus with ` + "`" + `tree_cursor` + "`" + `.
 - When a parent has many children (~8+) or all children are complete, ` + "`" + `tree_promote` + "`" + ` folds them into the parent's summary so the prompt stays compact. Use ` + "`" + `tree_zoom_in` + "`" + ` to read folded children later.
-- Treat tree edits as cheap; treat ` + "`" + `tree_promote` + "`" + ` as deliberate (it rewrites the parent summary). The SessionTree complements ` + "`" + `plan_update` + "`" + ` and ` + "`" + `todo_write` + "`" + ` rather than replacing them — plan.md is human-readable strategy, todo_write is the in-loop checklist, the tree captures the structural decomposition.`
+- Treat tree edits as cheap; treat ` + "`" + `tree_promote` + "`" + ` as deliberate (it rewrites the parent summary). The SessionTree complements ` + "`" + `plan_update` + "`" + ` and ` + "`" + `todo_write` + "`" + ` rather than replacing them — plan.md is human-readable strategy, todo_write is the in-loop checklist, the tree captures the structural decomposition.
+
+## Long-term memory (when enabled)
+- Call ` + "`" + `memory_set` + "`" + ` only when ALL hold: the user corrected an existing convention, stated a stable project/personal preference, or a failure's root cause is worth reusing across sessions. Never write process intermediates, tool traces, or one-off task state.
+- Look up stored facts with ` + "`" + `memory_recall` + "`" + ` (optional namespace / key prefix) rather than guessing. Shared namespaces are ` + "`" + `project` + "`" + ` / ` + "`" + `user` + "`" + ` / ` + "`" + `conventions` + "`" + ` / ` + "`" + `notes` + "`" + ` / ` + "`" + `default` + "`" + `; any other namespace is this session only.
+- There is no delete tool; overwrite a key with ` + "`" + `memory_set` + "`" + `. Users remove entries via ` + "`" + `/memory` + "`" + `.`
 
 // RegisterPrimary registers the Primary Assistant descriptor with reg. The
 // descriptor is marked non-dispatchable so HTTP sub-agent exposure does not

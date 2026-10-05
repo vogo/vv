@@ -37,11 +37,11 @@ memory 领域把 vage 的记忆抽象组合为 **三层记忆**,并叠加 vv 特
 | **MEM-R5** | **Clear 仅 user-path**:`Clear` 清空整个记忆目录,仅 user-path 可调;agent-path 调用返回 `ErrSessionForbidden`。 | 破坏性全量删除不能被代理触发 |
 | **MEM-R6** | **legacy 记录保护**:会话私有 namespace 下存在的旧式无 `session_id` 记录(legacy shared),允许被任一会话与 user-path 读取,但 **不可被某会话的写入覆盖**(返回 forbidden)。 | 向后兼容旧布局,同时不让新会话静默吞掉历史记录 |
 | **MEM-R7** | **后端不自动迁移**:`memory.backend` 在 `file`(默认)与 `sqlite` 间切换不触发数据迁移;切换后旧后端的数据对新后端不可见。两后端 session/namespace 语义一致,切换是配置变更而非行为变更。 | 自动迁移的失败面/数据丢失风险高于其价值;迁移留给显式工具 |
-| **MEM-R8** | **压缩时机与受保护轮次**:session 层超过 token budget 的 80% 时,滑动窗口压缩器把早期对话摘要为紧凑文本;最新 N 个 turn(protected turns)不动。working/session 视图组装还含主动 auto-compact(逼近模型上限)、反应式 emergency compact(溢出错误)与工具输出截断。压缩输入限制在模型上下文的 80% 以内。 | 保留对当前推理最重要的最新轮次;避免摘要请求自身溢出 |
+| **MEM-R9** | **agent-path 工具写入口**:持 `CapRemember` 的代理通过 `memory_set` / `memory_recall` 读写 persistent 记忆。写入必须走 agent-path(`WithSessionID`);工具面 **不含** delete / clear(MEM-R5)。记忆写入不是文件写入,不挂 `CapWrite`。空 namespace 的 recall 只返回共享枚举,会话私有须显式点名。 | 闭合长期记忆回路;ACL 与破坏性删除不变量保持不变,且避免"每轮吞全量"之外没有按需召回 |
 
 ### 上下文组装优先级
 
-组装交给代理的上下文时:**persistent 记忆 → session 摘要 → 近期 facts**。仅 Coder 默认渲染 persistent 条目(项目级约定),其他代理默认不读以避免 prompt 膨胀(实现见 design.md)。
+组装交给代理的上下文时:**persistent 记忆 → session 摘要 → 近期 facts**。仅 Coder 默认渲染 persistent 条目(项目级约定),其他代理默认不读以避免 prompt 膨胀(实现见 design.md)。持 `CapRemember` 的代理(Primary 与 Full 档 worker / Coder)另可通过 `memory_recall` 按需拉取,通过 `memory_set` 写入(MEM-R9);这不改变 Coder 的全量渲染路径。
 
 ## States & transitions
 
@@ -77,7 +77,7 @@ memory 领域 **不** 自有事件总线主题;其状态变更通过宿主子系
 
 | 触发 | 体现位置 |
 |------|----------|
-| 持久记忆写/删(user-path,破坏性) | 经 session/事件总线发出可观测事件(宪法 § 3「特权操作可审计」) |
+| 持久记忆写(agent-path,`memory_set` 成功) | `schema.EmitCustomData("memory.set")`,字段 namespace / key / shared,**不含 value**;经 hook 旁路落到 trace |
 | session 摘要触发 | 反映在 session 事件流与 token 统计 |
 
 ## Interactions
@@ -86,14 +86,14 @@ memory 领域 **不** 自有事件总线主题;其状态变更通过宿主子系
 flowchart LR
     cli[cli /memory] -->|WithUserPath, 仅共享| store
     http[http-api /v1/memory/*] -->|WithUserPath, 仅共享| store
-    agents[agents 工具/技能写] -->|WithSessionID, 当前会话| store
+    tools[memory_set / memory_recall] -->|BindAgentPath + WithSessionID| store
     config[configuration 装配] -->|构造后端与三层 manager| store
     store[(memory.Store)]
     coder[Coder agent] -->|读 persistent 渲染系统提示| store
 ```
 
 - **被 cli / http-api 管理**:经 user-path,仅共享 namespace,Clear 仅此路径。
-- **被 agents 读写**:经 agent-path(`WithSessionID`),可写当前会话私有 + 共享。
+- **被 agents 读写**:经 agent-path 工具(`memory_set` / `memory_recall`),可写当前会话私有 + 共享;仅 `CapRemember`(ProfileFull)持有。
 - **依赖 configuration**:后端选择(`memory.backend`)、目录、三层 manager 均由装配中心构造,DB 句柄经 `setup.Init` 持有、`Shutdown` 关闭(见 design.md)。
 
 ## Non-goals

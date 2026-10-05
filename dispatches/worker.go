@@ -10,6 +10,8 @@ import (
 	"github.com/vogo/vage/agent/taskagent"
 	"github.com/vogo/vage/prompt"
 	"github.com/vogo/vage/tool"
+	memtool "github.com/vogo/vage/tool/memory"
+	"github.com/vogo/vv/memories"
 	"github.com/vogo/vv/registries"
 )
 
@@ -257,6 +259,12 @@ func (d *Dispatcher) buildWorkerTools(profile registries.ToolProfile) (tool.Tool
 	reg, err := profile.BuildRegistry(d.toolsCfg, d.regOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("worker spec: build %s tool registry: %w", profile.Name, err)
+	}
+
+	if d.persistentMem != nil && profile.Has(registries.CapRemember) {
+		if err := memtool.Register(reg, memories.AgentToolStore(d.persistentMem)); err != nil {
+			return nil, fmt.Errorf("worker spec: register memory tools: %w", err)
+		}
 	}
 
 	if d.wrapToolRegistry != nil {

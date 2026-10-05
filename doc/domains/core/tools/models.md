@@ -8,7 +8,7 @@
 
 | 属性 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| name | text | 是 | 唯一工具名(bash/read/write/edit/glob/grep/web_fetch/web_search/ask_user/todo_write) |
+| name | text | 是 | 唯一工具名(bash/read/write/edit/glob/grep/web_fetch/web_search/ask_user/todo_write/memory_set/memory_recall) |
 | description | text | 是 | 给 LLM 看的能力描述,用于工具选择 |
 | parameters | structured | 是 | JSON Schema 入参定义,每个工具不同 |
 | source | enum(tool-source) | 是 | local(内建)/ mcp / agent;MVP 全为 local |
@@ -23,7 +23,7 @@
 | 属性 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | name | text | 是 | full / review / read-only / none |
-| capabilities | enum 集合 | 是 | {read, write, execute, search} 的子集 |
+| capabilities | enum 集合 | 是 | {read, write, execute, search, memory} 的子集 |
 
 五档预设及能力→工具映射见 [design.md](design.md) § 能力分级。
 

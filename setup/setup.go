@@ -27,6 +27,7 @@ import (
 	"github.com/vogo/vage/tool"
 	"github.com/vogo/vage/tool/askuser"
 	"github.com/vogo/vage/tool/bash"
+	memtool "github.com/vogo/vage/tool/memory"
 	sessiontreetool "github.com/vogo/vage/tool/sessiontree"
 	"github.com/vogo/vage/tool/todo"
 	"github.com/vogo/vage/tool/toolkit"
@@ -224,6 +225,10 @@ func New(
 			}
 		}
 
+		if err := maybeRegisterMemoryTools(toolReg, desc.ToolProfile, persistentMem); err != nil {
+			return nil, fmt.Errorf("register memory tools for %q: %w", desc.ID, err)
+		}
+
 		// Apply the shared wrapping chain (permission → truncation → debug).
 		finalToolReg := toolRegistryWrapper(cfg, opts)(toolReg)
 
@@ -323,6 +328,7 @@ func New(
 		dispatches.WithToolRegistryWrapper(toolRegistryWrapper(cfg, opts)),
 		dispatches.WithHookManager(getHookManager(opts)),
 		dispatches.WithMemory(memMgr),
+		dispatches.WithPersistentMemory(persistentMem),
 		dispatches.WithAgentRuntimeDefaults(cfg.Agents.MaxParallelToolCalls, cfg.Agents.EffectivePromptCaching()),
 	}
 
@@ -347,7 +353,7 @@ func New(
 	// Primary carries needs a PlanExecutor handle on the dispatcher, and
 	// SetPrimaryAssistant is the post-construction setter that closes the
 	// cycle.
-	primary, err := buildPrimaryAssistant(cfg, llm, memMgr, regOpts, subAgents, dispatcher, todoStore, todoDisabled, opts)
+	primary, err := buildPrimaryAssistant(cfg, llm, memMgr, persistentMem, regOpts, subAgents, dispatcher, todoStore, todoDisabled, opts)
 	if err != nil {
 		return nil, fmt.Errorf("build primary assistant: %w", err)
 	}
@@ -406,6 +412,7 @@ func buildPrimaryAssistant(
 	cfg *configs.Config,
 	llm largemodel.Caller,
 	memMgr *memory.Manager,
+	persistentMem memory.Memory,
 	regOpts []registries.RegistryOption,
 	subAgents map[string]agent.Agent,
 	planExec dispatches.PlanExecutor,
@@ -493,6 +500,10 @@ func buildPrimaryAssistant(
 		}
 	}
 
+	if err := maybeRegisterMemoryTools(toolReg, profile, persistentMem); err != nil {
+		return nil, fmt.Errorf("primary: register memory tools: %w", err)
+	}
+
 	// Apply the same wrapping chain sub-agents get: permission wrap →
 	// truncation → debug (outermost).
 	finalToolReg := toolRegistryWrapper(cfg, opts)(toolReg)
@@ -576,6 +587,16 @@ func getIterationStore(opts *Options) checkpoint.IterationStore {
 		return nil
 	}
 	return opts.IterationStore
+}
+
+// maybeRegisterMemoryTools installs memory_set / memory_recall when the
+// profile grants CapRemember and a persistent store is wired. Nil store is
+// the zero-cost path (fail-open, matching vectorsearch).
+func maybeRegisterMemoryTools(reg *tool.Registry, profile registries.ToolProfile, persistentMem memory.Memory) error {
+	if persistentMem == nil || !profile.Has(registries.CapRemember) {
+		return nil
+	}
+	return memtool.Register(reg, memories.AgentToolStore(persistentMem))
 }
 
 // toolRegistryWrapper returns the single wrapping chain every agent's tool

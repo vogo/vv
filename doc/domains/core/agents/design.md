@@ -13,7 +13,7 @@ vv 的代理体系由"一前门 Primary + 若干能力组合"构成。Primary(�
 | 维度 | 由什么决定 | 归属 |
 |------|-----------|------|
 | **Agent runtime** | `base_type` → 已注册 AgentDescriptor 的 Factory 与基础行为 | agents |
-| **ToolProfile** | 五档预设之一;决定 read/write/execute/search 翻译出的工具子集 | agents |
+| **ToolProfile** | 五档预设之一;决定 read/write/execute/search/memory 翻译出的工具子集 | agents |
 | **PermissionPolicy** | 统一 permission / path guard / sandbox;**只减不增** | tools |
 | **ContextSources** | 已注册的只读上下文来源(如 `diff`) | agents |
 | **Skills** | 已注册的专项指令(如 `review`);**不授予工具** | agents |
@@ -87,6 +87,7 @@ ToolProfile 是一个命名的能力集合 `{Name, Capabilities ⊆ {Read, Write
 | Write | 文件创建(write)+ 文件 patch(edit) |
 | Execute | shell 执行(bash;受超时与路径 guardian 约束) |
 | Search | 文件名 glob + 内容 grep |
+| Remember | 不在 BuildRegistry 落地;装配阶段在 persistent store 非 nil 时挂 memory_set / memory_recall |
 
 **取舍:公网检索算"读"而非"搜索"**——把 web_fetch/web_search 归到 Read,是因为模型语义上把它当作"获取外部信息",与"在已知项目里找东西"(Search)是不同认知模式。工具实体与护栏细节归 [tools](../tools/) 领域。
 
@@ -167,7 +168,7 @@ flowchart TD
 
 ```
 代理基础系统提示（+ Environment 运行时事实块 + 项目级提示，经 ComposeSystemPrompt 依次附加）
-  + 持久化记忆（仅 Coder，见 AGENTS-R10）
+  + 持久化记忆（仅 Coder 全量渲染进系统提示，见 AGENTS-R10；Primary/Full 另有 memory_recall）
   + Plan Workspace 视图（启用时，经 ExtraContextSources）
   + Session Tree 视图（启用时；可被 auto-enable 门控延后激活）
 ```
@@ -176,7 +177,7 @@ flowchart TD
 
 ## Primary 的特殊装配路径
 
-Primary 复用本领域的 ToolProfile 模型与描述符机制,但不走 `Dispatchable()` 自动循环——装配中心单独处理(`Dispatchable=false`,故不出现在 HTTP 子端点 / `delegate_to_*`,只能经 Dispatcher 进入)。其 profile 在所有执行模型下固定为 Full(read/search + write/edit + bash;`primary_allow_bash` 已降为惰性兼容键),并在常规工具集上额外挂载委派工具家族、规划工具、Plan Workspace / Session Tree 工具、ask_user、todo_write。构造细节与递归阀门 / Fallback Primary 见 [orchestration](../orchestration/)。
+Primary 复用本领域的 ToolProfile 模型与描述符机制,但不走 `Dispatchable()` 自动循环——装配中心单独处理(`Dispatchable=false`,故不出现在 HTTP 子端点 / `delegate_to_*`,只能经 Dispatcher 进入)。其 profile 在所有执行模型下固定为 Full(read/search + write/edit + bash + memory;`primary_allow_bash` 已降为惰性兼容键),并在常规工具集上额外挂载委派工具家族、规划工具、Plan Workspace / Session Tree 工具、ask_user、todo_write。构造细节与递归阀门 / Fallback Primary 见 [orchestration](../orchestration/)。
 
 ## 演化策略
 
@@ -195,6 +196,6 @@ Primary 复用本领域的 ToolProfile 模型与描述符机制,但不走 `Dispa
 | **正交组合而非枚举角色** | 枚举模型下 runtime × 权限 × 上下文 × skill 的组合数会持续膨胀,且每个新角色都要在五条下游(装配、提示、委派工具、HTTP、MCP)留痕;组合模型把扩展代价压成一次声明,代价是集中一处的规格校验。 |
 | **skill 不授权、context source 只读** | 若允许 skill 带工具,"某执行者有什么权限"就要同时读 profile 与全部 skill 才能回答;保持 skill 纯提示,则权限永远是 profile ∩ guard 一句话。 |
 | **公网检索归 Read 而非 Search** | 贴合模型对"外部信息获取"与"项目内查找"的不同认知模式。 |
-| **持久记忆仅注入 Coder** | 只有写代码的角色需要长期项目记忆;其余专家是短任务,注入只增成本。 |
+| **持久记忆 prompt 仅注入 Coder** | 只有写代码的预制组合需要每轮看到长期项目记忆;Primary 用按需 `memory_recall`,其余专家是短任务。 |
 | **todo_write 共享进程级 Store** | 多代理 dispatcher 计划需看到单一单调待办列表,而非各自割裂的副本。 |
 | **注册表每启动构造一次(非单例)** | 进程/测试隔离;ID 冲突启动期 panic 而非运行期半就绪。 |

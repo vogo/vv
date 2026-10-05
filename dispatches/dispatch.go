@@ -59,6 +59,10 @@ type Dispatcher struct {
 	// spawned with isolation="shared".
 	memory *memory.Manager
 
+	// persistentMem is the cross-session store used to register memory_set
+	// / memory_recall on Full-profile workers. nil skips registration.
+	persistentMem memory.Memory
+
 	// maxParallelToolCalls / promptCaching mirror the agents.* config onto
 	// derived workers so a user who tuned (or disabled) them does not get
 	// different behaviour depending on who executes the task. Zero /
@@ -234,6 +238,14 @@ func WithHookManager(mgr *hook.Manager) Option {
 func WithMemory(m *memory.Manager) Option {
 	return func(d *Dispatcher) {
 		d.memory = m
+	}
+}
+
+// WithPersistentMemory installs the cross-session store so Full-profile
+// workers receive memory_set / memory_recall. nil keeps the zero-cost path.
+func WithPersistentMemory(m memory.Memory) Option {
+	return func(d *Dispatcher) {
+		d.persistentMem = m
 	}
 }
 

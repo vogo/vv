@@ -80,6 +80,14 @@ func TestPrimarySystemPrompt_MentionsTools(t *testing.T) {
 	if !contains(PrimarySystemPrompt, "todo_write") {
 		t.Error("system prompt lost the todo_write reference")
 	}
+
+	if !contains(PrimarySystemPrompt, "memory_set") {
+		t.Error("system prompt lost the memory_set reference")
+	}
+
+	if !contains(PrimarySystemPrompt, "memory_recall") {
+		t.Error("system prompt lost the memory_recall reference")
+	}
 }
 
 // TestPrimarySystemPrompt_DAGGate pins the decision contract that demotes DAG
