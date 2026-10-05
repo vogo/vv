@@ -540,6 +540,11 @@ type AgentsConfig struct {
 	// back to AskUserTimeout so the two HITL waits stay the same order of
 	// magnitude. Env: VV_AGENTS_INTERRUPT_LEASE_TTL.
 	InterruptLeaseTTL int `yaml:"interrupt_lease_ttl,omitempty"`
+	// SkillDir is a directory of Agent Skills (each subdirectory contains
+	// a SKILL.md). Empty keeps the two built-in skills only. Discovery /
+	// validation failures are skipped with a warning and never block
+	// startup. Env: VV_AGENTS_SKILL_DIR.
+	SkillDir string `yaml:"skill_dir,omitempty"`
 	// MaxParallelToolCalls caps concurrent tool dispatch within a single
 	// assistant message. 0 uses the framework default (4); <=1 serializes.
 	MaxParallelToolCalls int `yaml:"max_parallel_tool_calls"`

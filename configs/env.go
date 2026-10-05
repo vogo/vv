@@ -187,6 +187,7 @@ var agentsEnvBindings = []envBinding{
 	{"VV_AGENTS_INTERRUPT_LEASE_TTL", func(c *Config, v string) {
 		applyIntWarn("VV_AGENTS_INTERRUPT_LEASE_TTL", v, &c.Agents.InterruptLeaseTTL)
 	}},
+	{"VV_AGENTS_SKILL_DIR", func(c *Config, v string) { c.Agents.SkillDir = v }},
 }
 
 var securityEnvBindings = []envBinding{

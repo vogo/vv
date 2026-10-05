@@ -89,6 +89,10 @@ func TestPrimarySystemPrompt_MentionsTools(t *testing.T) {
 		t.Error("system prompt lost the ask_user reference")
 	}
 
+	if !contains(PrimarySystemPrompt, "use_skill") {
+		t.Error("system prompt lost the use_skill clause")
+	}
+
 	if !contains(PrimarySystemPrompt, "Human approval") {
 		t.Error("system prompt lost the interrupt / human-approval clause")
 	}

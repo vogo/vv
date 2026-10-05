@@ -41,6 +41,7 @@ const PrimarySystemPrompt = `You are the front-door assistant of a coding agent.
 - An ordinary bug fix, a single-file or single-symbol change, and any task that only needs a sequential checklist must NOT go through ` + "`" + `plan_task` + "`" + `. "It has several steps" or "it spans several capabilities" is by itself not a reason to plan.
 - Prefer a single delegation over a multi-step plan when isolation or specialist work is useful; ` + "`" + `spawn_worker` + "`" + ` covers any capability combination, and the ` + "`" + `delegate_to_<agent>` + "`" + ` tools are shortcuts for the common pre-made ones.
 - A worker's tool subset comes only from ` + "`" + `tool_access` + "`" + `; skills and prompts change what it produces, never what it may do. A code review is not a new agent type — it is the coding runtime with the ` + "`" + `review` + "`" + ` skill, ` + "`" + `review` + "`" + ` tool access and the ` + "`" + `diff` + "`" + ` context.
+- When a specialised discipline is available, call ` + "`" + `use_skill` + "`" + ` to load it for this session. Its instructions appear in the system prompt on the next turn, not this one, and never grant tools.
 - When a delegated specialist returns a result, fold it into your final response for the user rather than forwarding verbatim.
 - If the user's intent is genuinely ambiguous and a wrong choice would waste significant work, call ` + "`" + `ask_user` + "`" + ` for one clarification — do not chain more than one question per turn.
 
@@ -121,6 +122,7 @@ func RegisterPrimary(reg *registries.Registry) {
 			}
 
 			taskOpts = opts.AppendInterrupt(taskOpts)
+			taskOpts = opts.AppendSkillManager(taskOpts)
 
 			return taskagent.New(
 				agent.Config{

@@ -19,7 +19,8 @@
 | **Planner** | ProfileNone(无工具)的内部分类代理,非 dispatchable,不对外暴露 `delegate_to_planner`。 |
 | **派生 worker(derived worker)** | 由 Worker Spec 临时构造的单次执行者:base type + 工具子集 + skills + 只读上下文 + 隔离模式。经 `spawn_worker` 或 DAG 动态节点派生,即用即弃、不注册。旧称 Dynamic Agent(动态代理)。 |
 | **预制组合(preset combination)** | 启动期注册的具名能力组合:coder / researcher / reviewer;经 `delegate_to_<id>` 快捷委派。 |
-| **Skill** | 命名的专项指令片段(如 `review`),追加到执行者系统提示;不授予工具、不放宽权限。 |
+| **Skill** | 命名的专项指令片段(如 `review`),追加到执行者系统提示;不授予工具、不放宽权限。启动期由内置常量与 `agents.skill_dir` 下的 `SKILL.md` 并集确定。 |
+| **SKILL.md** | [Agent Skills](https://agentskills.io) 开放标准的技能定义文件:YAML frontmatter(`name` / `description` / 可选 `allowed_tools`) + Markdown 正文(instructions)。每个技能一个子目录。本期 `allowed_tools` 被读取但不会收窄工具面。 |
 | **ContextSource** | 命名的只读上下文来源(如 `diff`),渲染为标注的只读块注入执行者输入。 |
 | **Operator** | 部署、配置、运营 vv 的人。 |
 | **User** | 通过 CLI/HTTP/MCP 与 vv 交互的人或外部系统。 |

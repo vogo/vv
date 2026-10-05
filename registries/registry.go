@@ -16,6 +16,7 @@ import (
 	"github.com/vogo/vage/hook"
 	"github.com/vogo/vage/interrupt"
 	"github.com/vogo/vage/memory"
+	"github.com/vogo/vage/skill"
 	"github.com/vogo/vage/tool"
 )
 
@@ -91,6 +92,12 @@ type FactoryOptions struct {
 	InterruptStore    interrupt.Store
 	InterruptPolicy   taskagent.InterruptPolicy
 	InterruptLeaseTTL time.Duration
+
+	// SkillManager injects session-activated skill instructions on the
+	// next Run. nil keeps the zero-cost path. Only the Primary Factory
+	// should populate this; ephemeral workers use SkillRegistry.Instructions
+	// at spawn time instead.
+	SkillManager skill.Manager
 }
 
 // AppendInterrupt adds WithInterrupt when both store and policy are set.
@@ -103,6 +110,14 @@ func (o FactoryOptions) AppendInterrupt(taskOpts []taskagent.Option) []taskagent
 		Policy:   o.InterruptPolicy,
 		LeaseTTL: o.InterruptLeaseTTL,
 	}))
+}
+
+// AppendSkillManager adds WithSkillManager when a manager is set.
+func (o FactoryOptions) AppendSkillManager(taskOpts []taskagent.Option) []taskagent.Option {
+	if o.SkillManager == nil {
+		return taskOpts
+	}
+	return append(taskOpts, taskagent.WithSkillManager(o.SkillManager))
 }
 
 // Registry is a thread-safe agent descriptor store.

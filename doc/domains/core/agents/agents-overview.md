@@ -13,7 +13,7 @@
 
 - **不含编排**:Primary / Fallback Primary 的构造、Dispatcher 转发、递归阀门、worker 派生入口(`spawn_worker`)、DAG 规划与执行均属 [orchestration](../orchestration/) 领域。本领域只提供编排所消费的**能力维度、预制组合描述符与工厂**。Planner 描述符虽登记在注册表内,但它的提示词消费与规划语义归 orchestration。
 - **不自实现工具与代理循环**:TaskAgent(ReAct 循环)、ContextBuilder、记忆抽象、工具实体全部来自 vage;本领域负责的是"声明能力维度 + 按 profile 选工具 + 用 functional options 装配 TaskAgent"。
-- **用户不能定义代理类型 / skill / context source**:三者集合都是启动期内置常量,非运行期可配置项(见 spec.md Non-goals)。
+- **用户不能定义代理类型 / context source**:二者集合都是启动期内置常量,非运行期可配置项。Skill 集合是启动期内置 ∪ `agents.skill_dir`,同样无运行期热插拔(见 spec.md Non-goals / AGENTS-R13)。
 
 ## 关联候选 ADR
 
