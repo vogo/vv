@@ -27,6 +27,7 @@ import (
 	"github.com/vogo/vage/session"
 	"github.com/vogo/vv/configs"
 	"github.com/vogo/vv/sessionlogs"
+	"github.com/vogo/vv/skillevolve"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
 )
@@ -54,6 +55,7 @@ type App struct {
 	sessionStore       session.SessionStore
 	requestedSessionID string // user-supplied --session id; "" = mint new
 	transcripts        *sessionlogs.Store
+	skillEvolve        *skillevolve.Engine
 
 	// Set by Run() once a session id is bound, recording how the resume was
 	// resolved so the welcome banner can describe it.
@@ -100,6 +102,15 @@ func WithSessionResume(store session.SessionStore, requestedID string) func(*App
 func WithTranscriptStore(store *sessionlogs.Store) func(*App) {
 	return func(a *App) {
 		a.transcripts = store
+	}
+}
+
+// WithSkillEvolve supplies the opt-in skill-evolution engine. nil prints
+// "Skill evolution is not configured." for /skill-* commands and still
+// intercepts the slash (CLI-R8).
+func WithSkillEvolve(eng *skillevolve.Engine) func(*App) {
+	return func(a *App) {
+		a.skillEvolve = eng
 	}
 }
 

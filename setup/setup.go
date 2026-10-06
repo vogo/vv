@@ -44,6 +44,7 @@ import (
 	"github.com/vogo/vv/hooks"
 	"github.com/vogo/vv/memories"
 	"github.com/vogo/vv/registries"
+	"github.com/vogo/vv/skillevolve"
 	"github.com/vogo/vv/traces/budgets"
 	"github.com/vogo/vv/traces/costtraces"
 	"github.com/vogo/vv/traces/tracelog"
@@ -60,6 +61,7 @@ type Result struct {
 	VectorStore    vector.VectorStore    // nil when vector subsystem disabled
 	VectorEmb      vector.Embedder       // nil when vector subsystem disabled
 	InterruptStore interrupt.Store       // nil when agents.interrupt_enabled is false
+	SkillEvolve    *skillevolve.Engine   // nil when skill_evolution.enabled is false
 	registry       *registries.Registry
 	subAgents      map[string]agent.Agent
 }
@@ -176,6 +178,18 @@ type Options struct {
 	// the Primary Factory. nil Manager skips use_skill registration.
 	SkillManager  skill.Manager
 	SkillRegistry *registries.SkillRegistry
+
+	// SkillVageRegistry is the same vage skill.Registry pointer the Manager
+	// holds. Runtime RegisterFileSkill must write here.
+	SkillVageRegistry skill.Registry
+
+	// SkillSchemaRefresher overlays use_skill / spawn_worker enums after a
+	// file skill is registered. Set by buildPrimaryAssistant.
+	SkillSchemaRefresher skillevolve.SchemaRefresher
+
+	// SkillEvolve is the opt-in skill-from-session engine. nil when
+	// skill_evolution.enabled is false.
+	SkillEvolve *skillevolve.Engine
 }
 
 // New reads config, registers all agents, and constructs the Dispatcher.
@@ -401,6 +415,17 @@ func New(
 
 	dispatcher.SetFallbackAgent(fallbackPrimary)
 
+	ev, err := installSkillEvolution(cfg, opts, skillStack, llm)
+	if err != nil {
+		return nil, err
+	}
+	if ev != nil {
+		if opts == nil {
+			opts = &Options{}
+		}
+		opts.SkillEvolve = ev
+	}
+
 	return &Result{
 		Dispatcher:     dispatcher,
 		PathGuard:      pathGuard,
@@ -411,6 +436,7 @@ func New(
 		VectorStore:    getVectorStore(opts),
 		VectorEmb:      getVectorEmbedder(opts),
 		InterruptStore: interruptStore,
+		SkillEvolve:    ev,
 		registry:       reg,
 		subAgents:      subAgents,
 	}, nil
@@ -485,14 +511,20 @@ func buildPrimaryAssistant(
 	// combination it needs (runtime + tool profile + skills + context +
 	// isolation) and gets a single-use worker. delegate_to_* stay
 	// registered above as the named pre-made combinations.
+	var spawnTool *dispatches.SpawnWorkerTool
 	if spawner, ok := planExec.(dispatches.WorkerSpawner); ok {
-		if err := dispatches.RegisterSpawnWorkerTool(toolReg, spawner); err != nil {
+		var err error
+		spawnTool, err = dispatches.RegisterSpawnWorkerTool(toolReg, spawner)
+		if err != nil {
 			return nil, fmt.Errorf("primary: register spawn_worker: %w", err)
 		}
 	}
 
+	var useTool *dispatches.UseSkillTool
 	if mgr := getSkillManager(opts); mgr != nil {
-		if err := dispatches.RegisterUseSkillTool(toolReg, getSkillRegistry(opts), mgr); err != nil {
+		var err error
+		useTool, err = dispatches.RegisterUseSkillTool(toolReg, getSkillRegistry(opts), mgr)
+		if err != nil {
 			return nil, fmt.Errorf("primary: register use_skill: %w", err)
 		}
 	}
@@ -544,6 +576,9 @@ func buildPrimaryAssistant(
 	// Apply the same wrapping chain sub-agents get: permission wrap →
 	// truncation → debug (outermost).
 	finalToolReg := toolRegistryWrapper(cfg, opts)(toolReg)
+	if opts != nil {
+		opts.SkillSchemaRefresher = &skillSchemaRefresher{reg: finalToolReg, use: useTool, spawn: spawnTool}
+	}
 
 	// Register the Primary descriptor lazily so callers that pre-populated
 	// reg earlier in setup.New do not see a duplicate ID error on re-init.
@@ -924,6 +959,11 @@ type InitResult struct {
 	// only when this is non-nil.
 	InterruptStore interrupt.Store
 
+	// SkillEvolve is the opt-in skill-from-session engine. nil when
+	// skill_evolution.enabled is false. HTTP mounts skill-evolution
+	// routes only when this is non-nil.
+	SkillEvolve *skillevolve.Engine
+
 	// Shutdown releases process-level resources owned by Init (the
 	// hook.Manager that drives trace + session hooks, plus the persistent
 	// memory store). It is always non-nil — a no-op when there is nothing to
@@ -1088,6 +1128,7 @@ func Init(cfg *configs.Config, opts *Options) (*InitResult, error) {
 		MetricsHook:     getMetricsHook(opts),
 		BuildReportSink: getBuildReportSink(opts),
 		InterruptStore:  interruptStoreFrom(a.result),
+		SkillEvolve:     skillEvolveFrom(a.result),
 		Shutdown:        shutdownFromCleanups(cleanups),
 	}, nil
 }

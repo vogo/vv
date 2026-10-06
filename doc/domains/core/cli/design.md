@@ -101,7 +101,7 @@ flowchart TD
 
 ## 6. 斜杠命令(控制平面)
 
-斜杠命令是 TUI 的「控制平面」,让用户不离开会话即做元操作。它们**故意做得轻**——不属于代理能力,而是用户对 vv 进程的元操作,这种分离让代理提示词无需处理 UI 控制(spec CLI-R8)。实现入口 `vv/cli/memory.go: handleCommand`(在路由到代理前拦截)。
+斜杠命令是 TUI 的「控制平面」,让用户不离开会话即做元操作。它们**故意做得轻**——不属于代理能力,而是用户对 vv 进程的元操作,这种分离让代理提示词无需处理 UI 控制(spec CLI-R8)。实现入口 `vv/cli/memory.go: handleCommand`(在路由到代理前拦截)。`/skill-*` 分流在 `/memory` early-return **之前**,避免斜杠被当下发给 LLM。
 
 | 命令 | 作用 | 实现 |
 |------|------|------|
@@ -110,6 +110,10 @@ flowchart TD
 | `/compact` | 手动触发上下文压缩 | memory.go: handleCompactCommand |
 | `/permission [mode]` | 显示 / 切换权限模式,切换清空允许集 | permission.go: handlePermissionCommand |
 | `/memory list\|show\|set\|delete` | 管理共享 namespace 记忆(user-path) | memory.go |
+| `/skill-extract [session_id]` | 从已落盘会话提取 Skill 提案;缺省当前会话。未配置时提示未配置且拦截斜杠 | skillevolve.go |
+| `/skill-proposals` | 列出磁盘提案队列 | skillevolve.go |
+| `/skill-approve <id>` | 批准 pending 提案:写 SKILL.md、热注册、刷新 schema | skillevolve.go |
+| `/skill-reject <id>` | 拒绝 pending 提案 | skillevolve.go |
 | `/budget` | 显示 session/daily 预算用量 | budget.go: renderBudgetReport |
 
 > `--tree <id>`、`--session` 为启动 flag 而非斜杠命令(`tree.go` / `resume.go`)。

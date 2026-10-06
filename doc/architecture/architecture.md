@@ -52,7 +52,7 @@ Primary 同时是 **默认的主执行者**:普通编码任务由它在当前上
 | ReadOnly | 读 + 搜索 |
 | None | 无工具 |
 
-完整维度表:**Agent runtime**(base type,决定 Factory 与基础行为)、**ToolProfile**(工具子集)、**PermissionPolicy**(permission / path guard / sandbox,只减不增)、**ContextSources**(allow-list 的只读上下文,如 diff)、**Skills**(启动期已注册的专项指令,来自内置常量 ∪ `SKILL.md` 目录;不授予工具;Primary 可 `use_skill` 按会话激活,下一轮进入系统提示)、**ModelPolicy**、**IsolationMode**(与 Primary 共享任务背景或隔离子上下文)。
+完整维度表:**Agent runtime**(base type,决定 Factory 与基础行为)、**ToolProfile**(工具子集)、**PermissionPolicy**(permission / path guard / sandbox,只减不增)、**ContextSources**(allow-list 的只读上下文,如 diff)、**Skills**(启动期已注册的专项指令,来自内置常量 ∪ `SKILL.md` 目录;不授予工具;Primary 可 `use_skill` 按会话激活,下一轮进入系统提示;确认后的文件 skill 可在运行期进入注册表)、**ModelPolicy**、**IsolationMode**(与 Primary 共享任务背景或隔离子上下文)。
 
 收益是组合而非枚举:新任务形态只需声明组合。**code-review 不是新角色**,而是"同一 coding runtime + review skill + Review profile + 禁止写入 + diff 上下文"。coder / researcher / reviewer 退化为**具名预制组合**,不再是扩展能力所必需的类型模板。
 

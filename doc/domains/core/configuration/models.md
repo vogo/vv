@@ -28,6 +28,7 @@
 | `session` | boolean+ | Session 子系统;默认开,`session.enabled`。Plan Workspace 跟随之(共会话根)。 |
 | `session_tree` | boolean+ | Session Tree;默认关,需 `session.enabled=true`(CONFIG-R3),否则启动报错。 |
 | `vector` | group | 向量召回子系统;默认关,失败可软降级(soft-fail)。 |
+| `skill_evolution` | boolean+ | 从会话 transcript 显式提取 Skill 提案;默认关。开启时强制 `session.enabled` 且 `agents.skill_dir` 非空。env:`VV_SKILL_EVOLUTION_ENABLED` 覆盖 YAML `enabled`。`auto_approve` 本发行版未实现,true 则 Validate 失败。 |
 | `debug` | boolean | 详细 LLM/工具 I/O 调试记录;默认 false。CLI > VV_DEBUG > YAML(DEBUG-01)。false 时零行为副作用(DEBUG-02)。 |
 | `project_instructions_files` | list(text) | 覆盖项目级提示的候选文件名与顺序;空则用默认链 `VV.md` → `AGENTS.md` → `CLAUDE.md`。 |
 | `ProjectInstructions` | text(运行时) | 从首个命中的候选文件读入,附加到各代理系统提示尾;`yaml:"-"`,不序列化。 |
@@ -50,6 +51,7 @@
 | SessionBudget / DailyBudget | reference | budget tracker;对应硬上限为 0 时 nil |
 | SessionStore / Workspace / TreeStore | reference | `session.enabled=false` 时前两者 nil;`session_tree.enabled=false` 时 TreeStore nil |
 | VectorStore / VectorEmb | reference | vector 关闭或软降级时 nil |
+| SkillEvolve | reference | `skill_evolution.enabled=false` 时 nil;上层须做 nil 检查 |
 | IterationStore | reference | 支撑 `--resume` / resume 端点;无 session 时 nil |
 | MetricsStore / MetricsHook / BuildReportSink | reference | P0-5 可观测三件套;无 session 时全 nil |
 | Shutdown | function | 统一收尾,独立 3s 上下文执行(CONFIG-R12) |

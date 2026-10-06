@@ -17,7 +17,7 @@ configuration 领域负责把"外部输入(CLI 标志、环境变量、YAML 文�
 
 | 实体 | 职责 | 详见 |
 |------|------|------|
-| Configuration | 全部运行期设置的唯一聚合(含各子系统开关分组:llm/server/tools/agents/memory/orchestrate/context/security/mcp/eval/budget/trace/session/session_tree/vector/debug) | [models.md](models.md) |
+| Configuration | 全部运行期设置的唯一聚合(含各子系统开关分组:llm/server/tools/agents/memory/orchestrate/context/security/mcp/eval/budget/trace/session/session_tree/vector/skill_evolution/debug) | [models.md](models.md) |
 | InitResult / Result | 装配输出的聚合句柄:分发器引用 + 可选子系统句柄(可为 nil)+ 统一 Shutdown | [models.md](models.md) |
 | Options | 上层注入装配中心的接缝:权限拦截包装、ask_user interactor、debug sink 等 | [models.md](models.md) |
 
@@ -31,7 +31,7 @@ configuration 领域负责把"外部输入(CLI 标志、环境变量、YAML 文�
 | CONFIG-R13 | ANTHROPIC_* 整组语义 | `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 是一个 provider 组:任一非空即选定 anthropic 协议并覆盖同名字段;`VV_LLM_PROVIDER` 非空时整组失效并记日志;该组翻转 provider 时先清掉 YAML 的 `api_key`/`base_url`/`model`(它们描述上一个 provider 的 API)。详见 design.md §1.1。 |
 | CONFIG-R14 | 端点必须可见 | 实际调用的 API 端点在启动日志与 CLI 头部显式呈现(`LLMConfig.EndpointLabel()`);anthropic 的空 `base_url` 解析为 `api.anthropic.com`。错配端点只会表现为不透明的 401/403,不可只在配置里沉默。 |
 | CONFIG-R2 | 零成本默认 | 未启用的可选子系统**不构造、不挂事件、不占内存**;运行期行为与"未编译该特性的构建"逐字节等价(对应 DEBUG-02)。空 `budget` 块 → 无 tracker、无中间件。 |
-| CONFIG-R3 | 依赖强校验 | 子系统间的硬依赖在装配阶段显式校验并报错,不沉默忽略。例:`session_tree.enabled=true` 而 `session.enabled=false` → 启动失败;Plan Workspace 跟随 session(共用会话根)。 |
+| CONFIG-R3 | 依赖强校验 | 子系统间的硬依赖在装配阶段显式校验并报错,不沉默忽略。例:`session_tree.enabled=true` 而 `session.enabled=false` → 启动失败;Plan Workspace 跟随 session(共用会话根)。`skill_evolution.enabled=true` 要求 `session.enabled` 且 `agents.skill_dir` 非空,否则启动失败。 |
 | CONFIG-R4 | 必填 LLM key | 缺 LLM API key 必须以清晰错误失败(对应 STARTUP-01)。交互式 CLI 进入首次启动向导收集;非交互模式直接退出。 |
 | CONFIG-R5 | 非交互缺 key 即退出 | 非交互场景(`-p` / HTTP / MCP / `-eval`)缺关键字段时直接退出报错,**绝不阻塞等待**用户输入(这些场景无终端可弹问)。 |
 | CONFIG-R6 | 失败回滚 | 装配任一阶段失败,回滚此前已开资源(关 store、关事件总线、关 debug sink),半成品不泄露到运行期。 |

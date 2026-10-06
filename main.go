@@ -423,6 +423,9 @@ func main() {
 		if transcripts := initResult.TranscriptStore(); transcripts != nil {
 			appOpts = append(appOpts, cli.WithTranscriptStore(transcripts))
 		}
+		if initResult.SkillEvolve != nil {
+			appOpts = append(appOpts, cli.WithSkillEvolve(initResult.SkillEvolve))
+		}
 		app := cli.New(initResult.SetupResult.Dispatcher, cfg, initResult.PersistentMem, cliInteractor, initResult.Compactor, appOpts...)
 		if err := app.Run(ctx); err != nil {
 			slog.Error("vv: CLI error", "error", err)

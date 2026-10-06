@@ -144,7 +144,7 @@ func newSpawnWorkerDispatcher(t *testing.T, mockLLM largemodel.Caller, opts ...d
 	d := dispatches.New(reg, map[string]agent.Agent{}, nil, append(base, opts...)...)
 
 	toolReg := tool.NewRegistry()
-	if err := dispatches.RegisterSpawnWorkerTool(toolReg, d); err != nil {
+	if _, err := dispatches.RegisterSpawnWorkerTool(toolReg, d); err != nil {
 		t.Fatalf("RegisterSpawnWorkerTool: %v", err)
 	}
 

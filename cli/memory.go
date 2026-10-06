@@ -30,6 +30,14 @@ func (m *model) handleCommand(input string) tea.Cmd {
 		return m.handleBudgetCommand()
 	}
 
+	if isSkillCommand(parts[0]) {
+		text, err := m.app.runSkillCommand(context.Background(), parts)
+		if err != nil {
+			return m.printSystem(err.Error())
+		}
+		return m.printSystem(text)
+	}
+
 	if parts[0] != "/memory" {
 		return nil
 	}

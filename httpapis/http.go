@@ -142,6 +142,8 @@ func Serve(ctx context.Context, cfg *configs.Config, llm largemodel.Caller, disp
 		mux.HandleFunc("POST /v1/interrupts/{id}/resume", handleResumeInterrupt(store, initResult))
 	}
 
+	mountSkillEvolveRoutes(mux, initResult)
+
 	if planWorkspace != nil {
 		mux.HandleFunc("GET /v1/sessions/{id}/workspace/plan", handleGetPlan(planWorkspace))
 		mux.HandleFunc("GET /v1/sessions/{id}/workspace/notes", handleListNotes(planWorkspace))

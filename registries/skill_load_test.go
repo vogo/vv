@@ -3,6 +3,7 @@ package registries
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/vogo/largemodel/schema"
+	"github.com/vogo/vage/skill"
 )
 
 func TestDefaultSkillsWithFileSkills_EmptyDirUnchanged(t *testing.T) {
@@ -119,4 +121,98 @@ func containsID(ids []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestLoadSkillStack_ExposesVageRegistry(t *testing.T) {
+	stack := LoadSkillStack(context.Background(), "", nil)
+	if stack.VageRegistry == nil {
+		t.Fatal("VageRegistry is nil")
+	}
+	if _, ok := stack.VageRegistry.Get(SkillReview); !ok {
+		t.Fatal("VageRegistry missing built-in review")
+	}
+}
+
+func TestRegisterFileSkill_RuntimeSecondID(t *testing.T) {
+	stack := LoadSkillStack(context.Background(), "", nil)
+	first := &skill.Def{Name: "runtime-one", Description: "one", Instructions: "do one"}
+	if err := RegisterFileSkill(stack.Registry, stack.VageRegistry, first); err != nil {
+		t.Fatal(err)
+	}
+	second := &skill.Def{Name: "runtime-two", Description: "two", Instructions: "do two"}
+	if err := RegisterFileSkill(stack.Registry, stack.VageRegistry, second); err != nil {
+		t.Fatal(err)
+	}
+	if !stack.Registry.ValidateRef("runtime-two") {
+		t.Fatal("vv registry missing runtime-two")
+	}
+	if _, ok := stack.VageRegistry.Get("runtime-two"); !ok {
+		t.Fatal("vage registry missing runtime-two")
+	}
+}
+
+func TestRegisterFileSkill_VVConflictUnregistersVage(t *testing.T) {
+	stack := LoadSkillStack(context.Background(), "", nil)
+	spy := &spyUnregister{Registry: stack.VageRegistry}
+	vv := &failVVRegister{inner: stack.Registry, err: fmt.Errorf("injected vv register failure")}
+	def := &skill.Def{Name: "orphan-only", Description: "d", Instructions: "i"}
+	if err := RegisterFileSkill(vv, spy, def); err == nil {
+		t.Fatal("expected vv Register failure")
+	}
+	if len(spy.names) != 1 || spy.names[0] != "orphan-only" {
+		t.Fatalf("Unregister calls = %v, want [orphan-only]", spy.names)
+	}
+	if _, ok := spy.Get("orphan-only"); ok {
+		t.Fatal("vage registry retained skill after vv Register failure")
+	}
+}
+
+// failVVRegister lets vage Register succeed, then fails vv Register so
+// RegisterFileSkill must Unregister the vage entry.
+type failVVRegister struct {
+	inner *SkillRegistry
+	err   error
+}
+
+func (f *failVVRegister) ValidateRef(id string) bool { return f.inner.ValidateRef(id) }
+
+func (f *failVVRegister) Register(s Skill) error {
+	if f.err != nil {
+		return f.err
+	}
+	return f.inner.Register(s)
+}
+
+type spyUnregister struct {
+	skill.Registry
+	names []string
+}
+
+func (s *spyUnregister) Unregister(name string) {
+	s.names = append(s.names, name)
+	s.Registry.Unregister(name)
+}
+
+func TestRegisterFileSkill_ActivateStripsAllowedTools(t *testing.T) {
+	stack := LoadSkillStack(context.Background(), "", nil)
+	def := &skill.Def{
+		Name: "grant-none", Description: "d", Instructions: "i",
+		AllowedTools: []string{"bash"},
+	}
+	if err := RegisterFileSkill(stack.Registry, stack.VageRegistry, def); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stack.Manager.Activate(context.Background(), "grant-none", "s1"); err != nil {
+		t.Fatal(err)
+	}
+	act := stack.Manager.ActiveSkills("s1")
+	if len(act) != 1 {
+		t.Fatalf("ActiveSkills = %d", len(act))
+	}
+	if tools := act[0].SkillDef().AllowedTools; len(tools) != 0 {
+		t.Errorf("AllowedTools leaked: %v", tools)
+	}
+	if len(def.AllowedTools) != 1 {
+		t.Fatal("caller def was mutated")
+	}
 }

@@ -53,6 +53,10 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("vector config: %w", err)
 	}
 
+	if err := ValidateSkillEvolution(cfg); err != nil {
+		return err
+	}
+
 	warnDeprecatedAndSoftInvalid(cfg)
 
 	return nil
