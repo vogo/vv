@@ -16,11 +16,19 @@ import (
 // skill for the current session. Instructions take effect on the next turn.
 const PrimaryToolUseSkill = "use_skill"
 
+// UseSkillTool holds the use_skill handler so Refresh can overlay ToolDef
+// without reconstructing the closure.
+type UseSkillTool struct {
+	skills  *registries.SkillRegistry
+	mgr     skill.Manager
+	handler tool.ToolHandler
+}
+
 // RegisterUseSkillTool installs the `use_skill` tool onto reg. Failures are
 // returned as IsError tool results, never as handler errors.
-func RegisterUseSkillTool(reg tool.ToolRegistry, skills *registries.SkillRegistry, mgr skill.Manager) error {
+func RegisterUseSkillTool(reg tool.ToolRegistry, skills *registries.SkillRegistry, mgr skill.Manager) (*UseSkillTool, error) {
 	if mgr == nil {
-		return fmt.Errorf("use_skill: skill manager is required")
+		return nil, fmt.Errorf("use_skill: skill manager is required")
 	}
 
 	ids := []string{}
@@ -28,6 +36,7 @@ func RegisterUseSkillTool(reg tool.ToolRegistry, skills *registries.SkillRegistr
 		ids = skills.IDs()
 	}
 
+	handler := newUseSkillHandler(skills, mgr)
 	def := schema.ToolDef{
 		Name:        PrimaryToolUseSkill,
 		Description: useSkillDescription(ids),
@@ -35,11 +44,33 @@ func RegisterUseSkillTool(reg tool.ToolRegistry, skills *registries.SkillRegistr
 		Source:      schema.ToolSourceLocal,
 	}
 
-	if err := registerIfAbsent(reg, def, newUseSkillHandler(skills, mgr)); err != nil {
-		return fmt.Errorf("register use_skill tool: %w", err)
+	if err := registerIfAbsent(reg, def, handler); err != nil {
+		return nil, fmt.Errorf("register use_skill tool: %w", err)
 	}
 
-	return nil
+	return &UseSkillTool{skills: skills, mgr: mgr, handler: handler}, nil
+}
+
+// Refresh overlays Parameters/Description from the live skill registry, keeping
+// the original handler. Must be called on the wrapped registry TaskAgent holds.
+func (t *UseSkillTool) Refresh(reg tool.ToolRegistry) error {
+	if t == nil {
+		return nil
+	}
+	if _, ok := reg.Get(PrimaryToolUseSkill); !ok {
+		return fmt.Errorf("use_skill: not registered")
+	}
+	ids := []string{}
+	if t.skills != nil {
+		ids = t.skills.IDs()
+	}
+	def := schema.ToolDef{
+		Name:        PrimaryToolUseSkill,
+		Description: useSkillDescription(ids),
+		Parameters:  useSkillParameters(ids),
+		Source:      schema.ToolSourceLocal,
+	}
+	return reg.Register(def, t.handler)
 }
 
 func useSkillDescription(ids []string) string {

@@ -220,8 +220,9 @@ type Config struct {
 	Trace        TraceConfig                  `yaml:"trace,omitempty"`
 	Session      SessionConfig                `yaml:"session,omitempty"`
 	SessionTree  SessionTreeConfig            `yaml:"session_tree,omitempty"`
-	Vector       VectorConfig                 `yaml:"vector,omitempty"`
-	Debug        bool                         `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
+	Vector          VectorConfig          `yaml:"vector,omitempty"`
+	SkillEvolution  SkillEvolutionConfig  `yaml:"skill_evolution,omitempty"`
+	Debug           bool                  `yaml:"debug,omitempty"` // CLI > env (VV_DEBUG) > YAML > false
 
 	// ProjectInstructionsFiles overrides the file names searched for project
 	// instructions in the working directory. Empty falls back to
@@ -1216,6 +1217,7 @@ func applyDefaults(cfg *Config) {
 	}
 
 	applySessionDefaults(&cfg.Session)
+	applySkillEvolutionDefaults(&cfg.SkillEvolution)
 }
 
 // applySessionDefaults normalises the session storage knobs: it folds the

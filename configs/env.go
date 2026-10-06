@@ -64,6 +64,7 @@ var envBindings = concatBindings(
 	agentsEnvBindings,
 	securityEnvBindings,
 	evalEnvBindings,
+	skillEvolutionEnvBindings,
 	mcpEnvBindings,
 	webSearchEnvBindings,
 	budgetEnvBindings,
@@ -199,6 +200,12 @@ var securityEnvBindings = []envBinding{
 
 var evalEnvBindings = []envBinding{
 	{"VV_EVAL_ENABLED", func(c *Config, v string) { applyBoolValWarn("VV_EVAL_ENABLED", v, &c.Eval.Enabled) }},
+}
+
+var skillEvolutionEnvBindings = []envBinding{
+	{"VV_SKILL_EVOLUTION_ENABLED", func(c *Config, v string) {
+		applyBoolValWarn("VV_SKILL_EVOLUTION_ENABLED", v, &c.SkillEvolution.Enabled)
+	}},
 }
 
 var mcpEnvBindings = []envBinding{

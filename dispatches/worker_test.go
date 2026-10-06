@@ -379,6 +379,47 @@ func TestBuildWorker_SkillsGrantNoTools(t *testing.T) {
 	}
 }
 
+func TestBuildWorker_RuntimeRegisteredSkill(t *testing.T) {
+	skills := registries.DefaultSkills()
+	d := newWorkerDispatcher(t, WithSkills(skills))
+	const id = "runtime-audit"
+	const instr = "UNIQUE-RUNTIME-AUDIT-INSTRUCTIONS"
+	if err := skills.Register(registries.Skill{ID: id, Description: "d", Instructions: instr}); err != nil {
+		t.Fatal(err)
+	}
+	spec := &WorkerSpec{BaseType: "coder", Skills: []string{id}}
+	if err := spec.validate(d.registry, skills, registries.DefaultContextSources("")); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	plain, err := d.buildWorker("a", &WorkerSpec{BaseType: "coder", ToolAccess: "review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skilled, err := d.buildWorker("b", &WorkerSpec{BaseType: "coder", ToolAccess: "review", Skills: []string{id}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := toolNames(skilled), toolNames(plain); !slices.Equal(got, want) {
+		t.Errorf("hot skill changed tools: %v vs %v", got, want)
+	}
+	prompt, err := d.buildWorkerPrompt(mustDesc(t, d, "coder"), spec, registries.ProfileReview, toolNames(skilled))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, instr) {
+		t.Errorf("prompt missing skill instructions")
+	}
+}
+
+func mustDesc(t *testing.T, d *Dispatcher, id string) registries.AgentDescriptor {
+	t.Helper()
+	desc, ok := d.registry.Get(id)
+	if !ok {
+		t.Fatalf("missing descriptor %s", id)
+	}
+	return desc
+}
+
 // A custom system prompt cannot widen tool access either.
 func TestBuildWorker_SystemPromptGrantsNoTools(t *testing.T) {
 	d := newWorkerDispatcher(t)

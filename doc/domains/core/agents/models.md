@@ -71,7 +71,7 @@
 | Description | text | 一句话描述,渲染进 `spawn_worker` / `use_skill` 工具 schema |
 | Instructions | text | 追加到系统提示的片段:worker 在派生时拼接;Primary 经 `use_skill` 激活后于下一轮以 `<skill name>` 块注入 |
 
-**关系**:由 `SkillRegistry` 持有(启动期构造一次:内置 ∪ `agents.skill_dir`,ID 冲突内置优先、启动后只读);被 worker spec 的 `skills` 数组按 ID 引用;未注册 ID 在构造期报错。Primary 另持 `use_skill`(不授予派生 worker)。`SKILL.md` 的 `allowed_tools` 本期读取并告警,不生效。
+**关系**:由 `SkillRegistry` 持有(启动期构造:内置 ∪ `agents.skill_dir`,ID 冲突内置优先);**允许**经 `skill_evolution` 人工确认后向同一注册表追加文件 skill(`metadata.origin=evolution`,`metadata.source_session` 指向来源会话),禁止覆盖内置、禁止卸载。被 worker spec 的 `skills` 数组按 ID 引用;未注册 ID 在构造期报错。Primary 另持 `use_skill`(不授予派生 worker)。`SKILL.md` 的 `allowed_tools` 本期读取并告警,不生效。
 
 ## ContextSource
 

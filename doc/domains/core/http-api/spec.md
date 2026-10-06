@@ -35,10 +35,11 @@ http-api 是 vv `mode: http` 下的对外边界领域。它把 [orchestration](.
 | **HTTP-R3** | 成本富化 | 边界中间件统一把 Token Usage 折算为 USD:sync 在响应 usage 上加 `estimated_cost_usd`;streaming 在 `agent_end` 后补发一个 `usage` SSE 事件;async 在任务完成时把 usage(含 `estimated_cost_usd`)存入 task。价格不可用时 `estimated_cost_usd` 为 null。折算复用 cost-tracking 价格表,且区分 cache-read token 以免重复计费。 |
 | **HTTP-R4** | `ask_user` 异步回调 | 在 stream/async 下,代理调用 `ask_user` 时不阻塞同步对话框,而是:生成 interaction id → 发 `pending_interaction` SSE 事件 → 等待客户端 `POST /v1/interactions/{id}/respond` → 把回答作为工具结果唤醒代理。超时则以 fallback 消息继续。每个 interaction id 只接受一次回应(重复→409)。 |
 | **HTTP-R5** | 非交互模式的 `ask_user` 回退 | 在 sync 下无法支持执行中交互,`ask_user` 走非交互回退(与 CLI `-p` 模式一致),立即返回 fallback 而不发任何事件、不阻塞请求。 |
-| **HTTP-R6** | 子系统未启用→路由不挂 | 端点分组按依赖子系统是否激活决定是否挂载(memory 恒挂;interactions/budget/eval/sessions/workspace/tree/vector/interrupts 按需);未启用的子系统对应路由不存在,而非返回半禁用端点。维持零成本默认路径。 |
+| **HTTP-R6** | 子系统未启用→路由不挂 | 端点分组按依赖子系统是否激活决定是否挂载(memory 恒挂;interactions/budget/eval/sessions/workspace/tree/vector/interrupts/skill-evolution 按需);未启用的子系统对应路由不存在,而非返回半禁用端点。维持零成本默认路径。 |
 | **HTTP-R7** | request-id 恒开 | 每个请求注入 `X-Request-ID`(客户端未带则自动生成),贯穿成本/预算/debug 链路用于追踪;成本可忽略,故不做开关。 |
 | **HTTP-R8** | debug 不改契约 | `debug=true` 时把每次 LLM/工具调用的关联记录写入 slog 服务日志(以 request id、async 任务 id 标记),但响应体(sync JSON / streaming SSE 字节流 / async 结果)与非 debug 模式对同样输入**逐字节一致**,不新增字段、不新增 SSE 事件类型、不增删端点。 |
 | **HTTP-R9** | Durable HITL 三端点 | `agents.interrupt_enabled` 开启且 InterruptStore 非 nil 时挂载:`GET /v1/sessions/{id}/interrupts`(只返回 Meta)、`POST /v1/interrupts/{id}/decisions`(interrupt `Decision`,批准用 `execute:true`,拒绝用 `is_error`;不跟随 Supersedes)、`POST /v1/interrupts/{id}/resume`(空 Decisions)。resume 成功为 200;策略指纹漂移且建出后继时,body 的 interrupt id 是新 id。无法建后继的漂移返回 409,`code=policy_drift`。未启用则不挂路由(HTTP-R6)。决策正文不进日志/trace。`DELETE /v1/sessions/{id}` 同时 List+Delete 该 session 的 interrupt 记录。 |
+| **HTTP-R10** | Skill 进化四端点 | `skill_evolution.enabled` 且 `InitResult.SkillEvolve != nil` 时挂载:`POST /v1/sessions/{id}/skill-extract`(body 空)、`GET /v1/skill-proposals`、`POST /v1/skill-proposals/{id}/approve`、`POST /v1/skill-proposals/{id}/reject`。未挂载 → mux 404,绝不以 501 占位。挂载后:非法 session / proposal id → 400 `code=bad_request`;transcript 或提案不存在 → 404 `code=not_found`;未过资格门 → 409 `code=not_eligible`(body 带 `reason`);提案非 `pending` → 409 `code=not_pending`;LLM 提取失败 → 502 `code=extract_failed`。 |
 
 ## States & transitions
 
@@ -85,7 +86,7 @@ streaming 模式下经 SSE 发出的事件类型(契约与字段见 procedure-st
 | **cost-tracking** | 复用 | 成本富化中间件调用其价格表查询与 USD 折算 |
 | **budget** | 复用 + 暴露 | budget 中间件识别其超限错误并重写 429;`GET /v1/budget` 暴露其 Tracker 快照 |
 | **memory** | 暴露 | `/v1/memory/*` CRUD(走 user-path,仅共享 namespace) |
-| **session** | 暴露 | `/v1/sessions/*`(元数据/事件/subagents/patch/delete/resume/metrics;`children` 已弃用)、`/v1/sessions/{id}/workspace/*`、`/v1/sessions/{id}/tree*`、`/v1/sessions/{id}/interrupts` 与 `/v1/interrupts/{id}/*`(interrupt store 存在才挂) |
+| **session** | 暴露 | `/v1/sessions/*`(元数据/事件/subagents/patch/delete/resume/metrics;`children` 已弃用)、`/v1/sessions/{id}/workspace/*`、`/v1/sessions/{id}/tree*`、`/v1/sessions/{id}/interrupts` 与 `/v1/interrupts/{id}/*`(interrupt store 存在才挂)、`/v1/sessions/{id}/skill-extract` 与 `/v1/skill-proposals*`(SkillEvolve 非 nil 才挂) |
 | **eval** | 暴露 | `POST /v1/eval/run`(opt-in,`eval.enabled=true` 才挂) |
 
 ## Non-goals

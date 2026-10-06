@@ -59,7 +59,7 @@ func newStubSpawner(runner agent.Agent) *stubSpawner {
 }
 
 func TestRegisterSpawnWorkerTool_RequiresSpawner(t *testing.T) {
-	if err := RegisterSpawnWorkerTool(tool.NewRegistry(), nil); err == nil {
+	if _, err := RegisterSpawnWorkerTool(tool.NewRegistry(), nil); err == nil {
 		t.Error("expected error when spawner is nil")
 	}
 }
@@ -67,7 +67,7 @@ func TestRegisterSpawnWorkerTool_RequiresSpawner(t *testing.T) {
 func TestRegisterSpawnWorkerTool_Schema(t *testing.T) {
 	reg := tool.NewRegistry()
 
-	if err := RegisterSpawnWorkerTool(reg, newStubSpawner(nil)); err != nil {
+	if _, err := RegisterSpawnWorkerTool(reg, newStubSpawner(nil)); err != nil {
 		t.Fatalf("RegisterSpawnWorkerTool: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func TestSpawnWorkerTool_RejectsBadArgs(t *testing.T) {
 			reg := tool.NewRegistry()
 			spawner := newStubSpawner(&stubAgent{id: "w"})
 
-			if err := RegisterSpawnWorkerTool(reg, spawner); err != nil {
+			if _, err := RegisterSpawnWorkerTool(reg, spawner); err != nil {
 				t.Fatalf("RegisterSpawnWorkerTool: %v", err)
 			}
 
@@ -169,7 +169,7 @@ func TestSpawnWorkerTool_MapsArgsOntoSpec(t *testing.T) {
 	runner := &stubAgent{id: "worker"}
 	spawner := newStubSpawner(runner)
 
-	if err := RegisterSpawnWorkerTool(reg, spawner); err != nil {
+	if _, err := RegisterSpawnWorkerTool(reg, spawner); err != nil {
 		t.Fatalf("RegisterSpawnWorkerTool: %v", err)
 	}
 
@@ -223,7 +223,7 @@ func TestSpawnWorkerTool_FoldsFailuresAsToolErrors(t *testing.T) {
 	spawner := newStubSpawner(nil)
 	spawner.err = errors.New("worker spec: invalid base_type \"code-reviewer\"")
 
-	if err := RegisterSpawnWorkerTool(reg, spawner); err != nil {
+	if _, err := RegisterSpawnWorkerTool(reg, spawner); err != nil {
 		t.Fatalf("RegisterSpawnWorkerTool: %v", err)
 	}
 
@@ -248,7 +248,7 @@ func TestSpawnWorkerTool_StreamsWorkerEvents(t *testing.T) {
 	reg := tool.NewRegistry()
 	runner := &delegateStreamingAgent{stubAgent: stubAgent{id: "worker"}}
 
-	if err := RegisterSpawnWorkerTool(reg, newStubSpawner(runner)); err != nil {
+	if _, err := RegisterSpawnWorkerTool(reg, newStubSpawner(runner)); err != nil {
 		t.Fatalf("RegisterSpawnWorkerTool: %v", err)
 	}
 
@@ -300,7 +300,7 @@ func TestSpawnWorkerTool_IncrementsDepth(t *testing.T) {
 		seenDepth = DepthFrom(ctx)
 	}}
 
-	if err := RegisterSpawnWorkerTool(reg, newStubSpawner(spy)); err != nil {
+	if _, err := RegisterSpawnWorkerTool(reg, newStubSpawner(spy)); err != nil {
 		t.Fatalf("RegisterSpawnWorkerTool: %v", err)
 	}
 
@@ -344,7 +344,7 @@ func TestSpawnWorkerTool_ParentCancellationStopsWorker(t *testing.T) {
 	reg := tool.NewRegistry()
 	runner := &blockingAgent{stubAgent: stubAgent{id: "worker"}, started: make(chan struct{})}
 
-	if err := RegisterSpawnWorkerTool(reg, newStubSpawner(runner)); err != nil {
+	if _, err := RegisterSpawnWorkerTool(reg, newStubSpawner(runner)); err != nil {
 		t.Fatalf("RegisterSpawnWorkerTool: %v", err)
 	}
 
@@ -446,5 +446,42 @@ func TestDispatcher_SpawnWorker_ContextSourceFailureAborts(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "not a git repository") {
 		t.Errorf("error = %v, want the underlying source failure", err)
+	}
+}
+
+func TestSpawnWorkerTool_RefreshIncludesNewSkill(t *testing.T) {
+	skills := registries.DefaultSkills()
+	spawner := &stubSpawner{
+		opts: WorkerOptions{
+			BaseTypes:    []string{"coder"},
+			ToolProfiles: registries.ProfileNames(),
+			Skills:       skills.All(),
+		},
+	}
+	reg := tool.NewRegistry()
+	spawn, err := RegisterSpawnWorkerTool(reg, spawner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := skills.Register(registries.Skill{ID: "hot-worker-skill", Description: "d", Instructions: "do hot"}); err != nil {
+		t.Fatal(err)
+	}
+	spawner.opts.Skills = skills.All()
+	wrapped := tool.NewTruncatingToolRegistry(reg, 128)
+	if err := spawn.Refresh(wrapped); err != nil {
+		t.Fatal(err)
+	}
+	def, ok := wrapped.Get(PrimaryToolSpawnWorker)
+	if !ok {
+		t.Fatal("spawn_worker missing")
+	}
+	params, _ := def.Parameters.(map[string]any)
+	props, _ := params["properties"].(map[string]any)
+	skillsProp, _ := props["skills"].(map[string]any)
+	items, _ := skillsProp["items"].(map[string]any)
+	enum, _ := items["enum"].([]string)
+	found := slices.Contains(enum, "hot-worker-skill")
+	if !found {
+		t.Errorf("skills enum missing hot-worker-skill: %v", enum)
 	}
 }

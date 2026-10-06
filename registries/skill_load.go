@@ -2,6 +2,7 @@ package registries
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -11,10 +12,12 @@ import (
 
 // SkillStack is the startup-time pair consumed by setup: the vv registry
 // (spawn_worker / DAG) and the vage Manager (Primary use_skill / next-run
-// prompt injection). Both views are filled from the same source.
+// prompt injection). VageRegistry is the same pointer the Manager holds,
+// so runtime RegisterFileSkill is visible to Activate.
 type SkillStack struct {
-	Registry *SkillRegistry
-	Manager  skill.Manager
+	Registry     *SkillRegistry
+	Manager      skill.Manager
+	VageRegistry skill.Registry
 }
 
 // DefaultSkillsWithFileSkills returns the built-in registry merged with
@@ -44,7 +47,7 @@ func LoadSkillStack(ctx context.Context, dir string, dispatch skill.EventDispatc
 
 	mgr := skill.NewManager(vageReg, skill.WithEventDispatcher(adaptSkillEvents(dispatch)))
 
-	return &SkillStack{Registry: vvReg, Manager: mgr}
+	return &SkillStack{Registry: vvReg, Manager: mgr, VageRegistry: vageReg}
 }
 
 func mergeFileSkills(ctx context.Context, vvReg *SkillRegistry, vageReg skill.Registry, dir string) {
@@ -68,22 +71,47 @@ func mergeFileSkills(ctx context.Context, vvReg *SkillRegistry, vageReg skill.Re
 }
 
 func mergeOneFileSkill(vvReg *SkillRegistry, vageReg skill.Registry, def *skill.Def) bool {
+	if err := RegisterFileSkill(vvReg, vageReg, def); err != nil {
+		slog.Warn("vv: skip file skill", "skill", def.Name, "error", err)
+		return false
+	}
+	return true
+}
+
+// vvSkillRegistry is the vv-side surface RegisterFileSkill uses.
+// *SkillRegistry implements it; tests may substitute a failing wrapper so
+// vage Unregister after a vv Register failure is actually exercised.
+type vvSkillRegistry interface {
+	ValidateRef(id string) bool
+	Register(s Skill) error
+}
+
+// RegisterFileSkill copies def, strips AllowedTools (AGENTS-R11), and
+// registers into both vv and vage registries. The caller's def is not
+// mutated. If vv Register fails after a successful vage Register, vage is
+// Unregister'd so the two views stay aligned.
+func RegisterFileSkill(vvReg vvSkillRegistry, vageReg skill.Registry, def *skill.Def) error {
+	if def == nil {
+		return fmt.Errorf("skill definition is nil")
+	}
+	if vvReg == nil || vageReg == nil {
+		return fmt.Errorf("skill registries are required")
+	}
+
 	if len(def.AllowedTools) > 0 {
 		slog.Warn("vv: skill allowed_tools not applied this release; use tool_access to express the tool subset",
 			"skill", def.Name, "allowed_tools", def.AllowedTools)
 	}
 
 	if vvReg.ValidateRef(def.Name) {
-		slog.Warn("vv: skip file skill, id conflicts with a built-in skill", "skill", def.Name)
-		return false
+		return fmt.Errorf("id conflicts with a built-in or already-registered skill")
 	}
 
 	stripped := *def
 	stripped.AllowedTools = nil
 
 	if err := vageReg.Register(&stripped); err != nil {
-		slog.Warn("vv: skip file skill", "skill", def.Name, "error", err)
-		return false
+		return err
 	}
 
 	if err := vvReg.Register(Skill{
@@ -91,11 +119,11 @@ func mergeOneFileSkill(vvReg *SkillRegistry, vageReg skill.Registry, def *skill.
 		Description:  def.Description,
 		Instructions: def.Instructions,
 	}); err != nil {
-		slog.Warn("vv: skip file skill in vv registry", "skill", def.Name, "error", err)
-		return false
+		vageReg.Unregister(def.Name)
+		return err
 	}
 
-	return true
+	return nil
 }
 
 func skillToDef(s Skill) *skill.Def {

@@ -26,6 +26,8 @@
 /v1/sessions/{id}/interrupts   ← 列出 session 的 interrupt Meta(InterruptStore 存在才挂)
 /v1/interrupts/{id}/decisions  ← 提交 HITL 决策
 /v1/interrupts/{id}/resume     ← ResumeInterrupt。200 时若策略指纹变了且建出后继,body 的 interrupt id 是新 id;无法建后继则 409 code=policy_drift。POST decisions 不跟随 Supersedes
+/v1/sessions/{id}/skill-extract ← 从已落盘会话提取 Skill 提案(SkillEvolve 非 nil 才挂;未挂 404)
+/v1/skill-proposals            ← 列出提案;/{id}/approve 与 /{id}/reject 批准或拒绝
 /v1/vector/...                 ← 向量检索(vectorStore + embedder 都在才挂;单缺返回 503)
 ```
 

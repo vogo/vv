@@ -20,8 +20,10 @@ type Skill struct {
 	Instructions string // prompt fragment appended to the worker system prompt
 }
 
-// SkillRegistry is a thread-safe skill store. Like the agent Registry it is
-// constructed once at startup and read-only afterwards.
+// SkillRegistry is a thread-safe skill store. It is filled at startup from
+// built-ins ∪ skill_dir Discover, and may be appended at runtime when a
+// skill-evolution proposal is approved (AGENTS-R13). Built-in IDs cannot
+// be overwritten or unloaded.
 type SkillRegistry struct {
 	mu     sync.RWMutex
 	skills map[string]Skill
@@ -163,7 +165,8 @@ const ResearchSkillInstructions = `## Skill: research
 
 // DefaultSkills returns the built-in skill registry. Constructed fresh on each
 // call so callers cannot mutate shared state. File-backed skills are merged at
-// startup by LoadSkillStack; there is no runtime hot-plug entry point.
+// startup by LoadSkillStack; skill-evolution may append further file skills
+// after human approval (never overwriting built-ins).
 func DefaultSkills() *SkillRegistry {
 	reg := NewSkills()
 

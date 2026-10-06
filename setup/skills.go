@@ -14,6 +14,7 @@ func applySkillOpts(opts *Options, stack *registries.SkillStack) *Options {
 	}
 	opts.SkillManager = stack.Manager
 	opts.SkillRegistry = stack.Registry
+	opts.SkillVageRegistry = stack.VageRegistry
 	return opts
 }
 

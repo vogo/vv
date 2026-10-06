@@ -165,6 +165,7 @@ Primary 不是普通 dispatchable 代理:
 | Web Search | 按需 | provider + 凭据 | — |
 | MCP Server | 跟随 mode | `mode: mcp` | — |
 | Eval | 关(HTTP 端点);CLI `-eval` 始终可用 | — | — |
+| Skill evolution | 关 | `skill_evolution.enabled` + **session 必须开** + `agents.skill_dir` 非空 | 在 `setup.New` 末尾、`buildPrimaryAssistant` 之后构造,不进 `runInstallers`;`enabled=false` 不构造 Engine、不建 `.proposals` |
 
 依赖关系在装配阶段显式校验(CONFIG-R3):`session_tree.enabled=true` 而 `session.enabled=false` → 启动报错而非沉默忽略。
 

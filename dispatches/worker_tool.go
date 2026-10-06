@@ -191,18 +191,26 @@ func spawnWorkerParameters(opts WorkerOptions) map[string]any {
 	}
 }
 
+// SpawnWorkerTool holds the spawn_worker handler so Refresh can overlay ToolDef
+// without reconstructing the closure.
+type SpawnWorkerTool struct {
+	spawner WorkerSpawner
+	handler tool.ToolHandler
+}
+
 // RegisterSpawnWorkerTool installs the `spawn_worker` tool onto reg.
 //
 // Failures are returned as IsError tool results, never as handler errors:
 // an invalid spec folds back to the Primary as a diagnosable message (and no
 // worker is started at all), and a failing worker run folds back per ORCH-R6
 // instead of aborting the request.
-func RegisterSpawnWorkerTool(reg tool.ToolRegistry, spawner WorkerSpawner) error {
+func RegisterSpawnWorkerTool(reg tool.ToolRegistry, spawner WorkerSpawner) (*SpawnWorkerTool, error) {
 	if spawner == nil {
-		return fmt.Errorf("spawn_worker: spawner is required")
+		return nil, fmt.Errorf("spawn_worker: spawner is required")
 	}
 
 	opts := spawner.WorkerOptions()
+	handler := newSpawnWorkerHandler(spawner)
 
 	def := schema.ToolDef{
 		Name:        PrimaryToolSpawnWorker,
@@ -211,11 +219,30 @@ func RegisterSpawnWorkerTool(reg tool.ToolRegistry, spawner WorkerSpawner) error
 		Source:      schema.ToolSourceLocal,
 	}
 
-	if err := registerIfAbsent(reg, def, newSpawnWorkerHandler(spawner)); err != nil {
-		return fmt.Errorf("register spawn_worker tool: %w", err)
+	if err := registerIfAbsent(reg, def, handler); err != nil {
+		return nil, fmt.Errorf("register spawn_worker tool: %w", err)
 	}
 
-	return nil
+	return &SpawnWorkerTool{spawner: spawner, handler: handler}, nil
+}
+
+// Refresh overlays Parameters/Description from live WorkerOptions, keeping
+// the original handler. Must be called on the wrapped registry TaskAgent holds.
+func (t *SpawnWorkerTool) Refresh(reg tool.ToolRegistry) error {
+	if t == nil {
+		return nil
+	}
+	if _, ok := reg.Get(PrimaryToolSpawnWorker); !ok {
+		return fmt.Errorf("spawn_worker: not registered")
+	}
+	opts := t.spawner.WorkerOptions()
+	def := schema.ToolDef{
+		Name:        PrimaryToolSpawnWorker,
+		Description: spawnWorkerDescription(opts),
+		Parameters:  spawnWorkerParameters(opts),
+		Source:      schema.ToolSourceLocal,
+	}
+	return reg.Register(def, t.handler)
 }
 
 // newSpawnWorkerHandler returns the ToolHandler closure that derives and runs

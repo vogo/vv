@@ -100,6 +100,7 @@ cli 自身向用户**呈现**(非发布)的系统通知:welcome、取消通知�
 | 工具授权判定 | tools / orchestration | cli 持有权限模式 + `session_allowed_tools`,在 `tool_call` 事件上做放行/拒绝/弹窗判定;bash 风险分级由 tools 领域分类器提供,cli 仅消费判定结果。 |
 | 展示成本 | cost-tracking | 订阅 `llm_call_end`,状态栏实时显示 model / 累计 cost / 累计 tokens。 |
 | 管理记忆 | memory | `/memory list\|show\|set\|delete` 经 user-path 操作**共享 namespace**;会话级 Session Memory 承载上下文压缩(摘要)。 |
+| 提取/确认 Skill | agents | `/skill-extract [session_id]`、`/skill-proposals`、`/skill-approve <id>`、`/skill-reject <id>` 为 user-path 元命令;未配置时提示未配置且不下发给代理。 |
 | 预算查询 | budget | `/budget` 展示 session/daily 用量;预算告警 toast。 |
 
 ## Non-goals
